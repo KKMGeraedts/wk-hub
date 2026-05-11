@@ -1,0 +1,19 @@
+{
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "py:format": "python3 -m black backend api",
+    "py:lint": "python3 -m ruff check backend api",
+    "py:typecheck": "python3 -m mypy",
+    "py:check": "python3 -m black --check backend api && python3 -m ruff check backend api && python3 -m mypy",
+    "check": "npm run build && npm run py:check"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "vite": "^7.2.7",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3"
+  },
+  "devDependencies": {}
+}

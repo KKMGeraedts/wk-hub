@@ -1,0 +1,34 @@
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["api", "backend"]
+exclude = [
+  ".venv",
+  "frontend/dist",
+  "node_modules",
+]
+
+[tool.ruff.lint]
+select = [
+  "B",
+  "E",
+  "F",
+  "I",
+  "SIM",
+  "UP",
+]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["api", "backend"]
+check_untyped_defs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+pretty = true
+warn_redundant_casts = true
+warn_unused_configs = true
+warn_unused_ignores = true

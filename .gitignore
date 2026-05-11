@@ -1,0 +1,12 @@
+.venv/
+.env
+.env.*
+.vercel/
+.DS_Store
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+frontend/dist/
+node_modules/
+backend/pool.db

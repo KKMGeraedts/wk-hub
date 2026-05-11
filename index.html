@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WK Hub - World Cup 2026 Tracker</title>
+    <meta
+      name="description"
+      content="A simple department dashboard for the 2026 World Cup schedule, groups, venues and Netherlands matches."
+    />
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-lockup">
+        <img src="./assets/field-mark.svg" alt="" class="brand-mark" />
+        <div>
+          <p class="eyebrow">Amsterdam time</p>
+          <h1>WK Hub</h1>
+        </div>
+      </div>
+      <div class="header-actions">
+        <span id="dataBadge" class="data-badge">Fallback data</span>
+        <button id="refreshButton" class="icon-button" type="button" title="Reload data" aria-label="Reload data">
+          <span aria-hidden="true">R</span>
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero-panel">
+        <div class="hero-copy">
+          <p class="eyebrow">FIFA World Cup 2026</p>
+          <h2>Department view for fixtures, groups and Oranje planning.</h2>
+          <p>
+            The dashboard defaults to Europe/Amsterdam, highlights the Netherlands, and keeps the first
+            version deliberately simple: tables, schedule, venues and a provider note.
+          </p>
+        </div>
+        <div class="hero-metrics" aria-label="Tournament summary">
+          <div>
+            <strong id="daysToKickoff">--</strong>
+            <span>days to kickoff</span>
+          </div>
+          <div>
+            <strong id="matchCount">--</strong>
+            <span>matches</span>
+          </div>
+          <div>
+            <strong id="groupCount">--</strong>
+            <span>groups</span>
+          </div>
+          <div>
+            <strong id="venueCount">--</strong>
+            <span>venues</span>
+          </div>
+        </div>
+      </section>
+
+      <nav class="tabs" aria-label="Dashboard views">
+        <button class="tab is-active" type="button" data-view="groups">Tables</button>
+        <button class="tab" type="button" data-view="schedule">Schedule</button>
+        <button class="tab" type="button" data-view="netherlands">Netherlands</button>
+        <button class="tab" type="button" data-view="venues">Venues</button>
+      </nav>
+
+      <section class="toolbar" aria-label="Filters">
+        <label>
+          Group
+          <select id="groupFilter"></select>
+        </label>
+        <label>
+          Team
+          <select id="teamFilter"></select>
+        </label>
+        <label class="search-field">
+          Search
+          <input id="searchInput" type="search" placeholder="Team, venue or city" />
+        </label>
+      </section>
+
+      <section id="groupsView" class="view is-active"></section>
+      <section id="scheduleView" class="view"></section>
+      <section id="netherlandsView" class="view"></section>
+      <section id="venuesView" class="view"></section>
+    </main>
+  </body>
+</html>
