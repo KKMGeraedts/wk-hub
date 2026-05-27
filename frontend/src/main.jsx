@@ -56,10 +56,6 @@ const TEAM_FLAGS = {
   uzb: "🇺🇿",
 };
 
-function normalize(value) {
-  return String(value ?? "").toLowerCase();
-}
-
 function escapeDate(match) {
   return new Date(`${match.date}T${match.time_utc}:00Z`);
 }
@@ -97,21 +93,6 @@ function isMatchLive(match, now = new Date()) {
   return now >= kickoff && now <= finalWhistle;
 }
 
-function formatChatTime(value) {
-  const normalized = typeof value === "string" && value.includes(" ") && !value.endsWith("Z")
-    ? `${value.replace(" ", "T")}Z`
-    : value;
-  const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("nl-NL", {
-    timeZone: AMSTERDAM_TZ,
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
-}
-
 function localDateKey(match) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: AMSTERDAM_TZ,
@@ -119,10 +100,6 @@ function localDateKey(match) {
     month: "2-digit",
     day: "2-digit",
   }).format(escapeDate(match));
-}
-
-function hasNetherlands(match) {
-  return match.home_team_id === NETHERLANDS_ID || match.away_team_id === NETHERLANDS_ID;
 }
 
 function groupPredictionsComplete(poolState) {
@@ -148,10 +125,7 @@ const VIEW_ROUTES = {
   leaderboard: "/leaderboard",
   groups: "/tables",
   schedule: "/schedule",
-  netherlands: "/netherlands",
   venues: "/venues",
-  chat: "/chat",
-  friends: "/friends",
   matchday: "/matchday",
   pool: "/predictions",
   adjust: "/predictions/adjust",
@@ -216,6 +190,7 @@ function routeForView(view, profileId = "") {
 }
 
 function onboardingViewAllowed(poolState, routedView) {
+  if (!routedView) return false;
   if (groupPredictionsComplete(poolState)) return routedView && !ONBOARDING_VIEWS.has(routedView);
   return routedView && ONBOARDING_VIEWS.has(routedView);
 }
@@ -257,12 +232,21 @@ function viewLabel(view) {
     groups: "Tables",
     schedule: "Schedule",
     matchday: "Matchday",
-    netherlands: "Netherlands",
     venues: "Venues",
-    chat: "Chat",
-    friends: "Friends",
   };
   return labels[view] ?? view;
+}
+
+const BADGE_FAMILY_LABELS = {
+  zayu: "Zayu Jaguar",
+  oranje: "Oranje Leeuw",
+  maple: "Maple Moose",
+  clutch: "Clutch Eagle",
+  trophy: "WK bokaal",
+};
+
+function badgeFamilyLabel(family, mascot) {
+  return BADGE_FAMILY_LABELS[family] ?? mascot ?? "Badges";
 }
 
 async function apiJson(path, options = {}) {
@@ -628,7 +612,7 @@ function MatchCard({ match, teams, venues }) {
       </div>
       <div className="match-actions">
         {live && <span className="live-indicator"><span aria-hidden="true" />Live</span>}
-        <span className={hasNetherlands(match) ? "pill orange" : "pill"}>{group}</span>
+        <span className="pill">{group}</span>
         <span className="broadcast-pill">{broadcaster.name}</span>
         <a
           className="match-link"
@@ -644,7 +628,7 @@ function MatchCard({ match, teams, venues }) {
 }
 
 function Schedule({ matches, teams, venues }) {
-  if (!matches.length) return <div className="empty">No matches match the current filters.</div>;
+  if (!matches.length) return <div className="empty">No matches available.</div>;
   const grouped = matches.reduce((days, match) => {
     const key = localDateKey(match);
     if (!days.has(key)) days.set(key, []);
@@ -902,8 +886,8 @@ function LoginPanel({ onLogin }) {
       </div>
       <form className="panel-body login-form" onSubmit={submit}>
         <label>
-          Name
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Your display name" />
+          Username
+          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="your username" />
         </label>
         <label>
           Email
@@ -947,30 +931,29 @@ function ProfileAvatar({ player, size = "medium" }) {
 }
 
 function FriendButton({ relation, onFollow, onUnfollow }) {
-  if (relation === null) return <span className="muted">You</span>;
-  if (relation === undefined) return <span className="muted">-</span>;
-  if (relation.is_friend) {
+  if (relation === null) return <span className="muted">Your profile</span>;
+  if (relation?.is_friend) {
     return (
       <button className="text-button friend-button" type="button" onClick={onUnfollow}>
-        Unfriend
+        Unfollow
       </button>
     );
   }
-  if (relation.is_following) {
+  if (relation?.is_following) {
     return (
       <button className="text-button friend-button" type="button" onClick={onUnfollow}>
-        Cancel request
+        Following
       </button>
     );
   }
   return (
     <button className="primary-button friend-button" type="button" onClick={onFollow}>
-      Add friend
+      Follow
     </button>
   );
 }
 
-function HomePage({ onSchedule }) {
+function HomePage({ onSchedule, recap }) {
   return (
     <div className="home-layout">
       <section className="home-kicker" aria-label="World Cup quick links">
@@ -983,6 +966,8 @@ function HomePage({ onSchedule }) {
           View games
         </button>
       </section>
+
+      <DailyRecap recap={recap} />
 
       <section className="news-grid" aria-label="World Cup news">
         {NEWS_ARTICLES.map((article) => (
@@ -1017,33 +1002,102 @@ function OutcomeBar({ home, draw, away }) {
   );
 }
 
+function percentage(value, total) {
+  return total ? Math.round((value / total) * 100) : 0;
+}
+
+function OutcomeBreakdown({ match, teams }) {
+  const home = match.home_win_count ?? 0;
+  const draw = match.draw_count ?? 0;
+  const away = match.away_win_count ?? 0;
+  const total = home + draw + away;
+  const homeTeam = teams.get(match.home_team_id);
+  const awayTeam = teams.get(match.away_team_id);
+  const items = [
+    { key: "home", label: homeTeam?.code ?? homeTeam?.name ?? "Home", value: home },
+    { key: "draw", label: "Tie", value: draw },
+    { key: "away", label: awayTeam?.code ?? awayTeam?.name ?? "Away", value: away },
+  ];
+  return (
+    <div className="outcome-breakdown">
+      <OutcomeBar home={home} draw={draw} away={away} />
+      <div className="outcome-percentages">
+        {items.map((item) => (
+          <span className={`outcome-percentage is-${item.key}`} key={item.key}>
+            <strong>{percentage(item.value, total)}%</strong>
+            <em>{item.label}</em>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DailyRecap({ recap }) {
+  const topPlayers = recap?.top_players ?? [];
+  const topMovers = recap?.top_movers ?? [];
   return (
     <article className="panel recap-panel">
       <div className="panel-header">
         <div>
           <h3>Daily recap</h3>
-          <p>Samenvatting, opvallende momenten en dagscore.</p>
+          <p>Top 5 + ties voor dagscore en beweging.</p>
         </div>
         <span className={recap?.available ? "pill green" : "pill"}>{recap?.available ? "Live" : "Nog leeg"}</span>
       </div>
       <div className="panel-body recap-body">
-        <p>{recap?.body ?? "De recap verschijnt zodra er uitslagen zijn."}</p>
-        {recap?.top_player && (
-          <div className="recap-highlight">
-            <strong>{recap.top_player.name}</strong>
-            <span>grootste dagscore met {recap.top_player.points} punten</span>
-          </div>
-        )}
-        {!!recap?.moments?.length && (
-          <div className="recap-moments">
-            {recap.moments.map((moment) => (
-              <span key={moment.match_id}>{moment.label}</span>
-            ))}
-          </div>
-        )}
+        <div className="daily-recap-grid">
+          <section className="daily-recap-board">
+            <h4>Dagscore</h4>
+            {!topPlayers.length && <div className="empty compact">Nog geen dagpunten.</div>}
+            {!!topPlayers.length && (
+              <ol className="daily-top-list">
+                {topPlayers.map((player, index) => (
+                  <li className="is-score" key={player.user_id}>
+                    <span className="daily-rank">{player.rank ?? index + 1}</span>
+                    <ProfileAvatar player={player} size="small" />
+                    <strong>{player.name}</strong>
+                    <b>{player.points} pts</b>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+          <section className="daily-recap-board">
+            <h4>Biggest movers</h4>
+            {!topMovers.length && <div className="empty compact">Nog geen beweging.</div>}
+            {!!topMovers.length && (
+              <ol className="daily-top-list">
+                {topMovers.map((player, index) => (
+                  <li className="is-mover" key={player.user_id}>
+                    <span className="daily-rank">{index + 1}</span>
+                    <ProfileAvatar player={player} size="small" />
+                    <strong>{player.name}</strong>
+                    <span className="daily-mover-meta">
+                      #{player.rank_previous ?? "-"} to #{player.rank ?? "-"}
+                    </span>
+                    <RankMovement movement={player.rank_movement ?? 0} />
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        </div>
       </div>
     </article>
+  );
+}
+
+function BadgePill({ badge }) {
+  return (
+    <span
+      className={`badge-pill ${badge.family ? `is-${badge.family}` : ""}`}
+      title={badge.detail}
+    >
+      <em aria-hidden="true">{badge.mark ?? badge.label?.[0] ?? "B"}</em>
+      {badge.label}
+      {badge.count > 1 && <b>x{badge.count}</b>}
+    </span>
   );
 }
 
@@ -1052,233 +1106,348 @@ function BadgeCloud({ badges = [] }) {
   return (
     <div className="badge-cloud">
       {badges.map((badge) => (
-        <span className="badge-pill" key={badge.label} title={badge.detail}>
-          {badge.label}
-        </span>
+        <BadgePill badge={badge} key={badge.key ?? badge.label} />
       ))}
     </div>
   );
 }
 
-function MatchdayPage({ pool, teams, onPredictions }) {
+function badgeProgressFromCatalog(catalog = [], unlockedBadges = []) {
+  const unlockedByKey = new Map(unlockedBadges.map((badge) => [badge.key, badge]));
+  return catalog.map((badge) => {
+    const unlocked = unlockedByKey.get(badge.key);
+    return {
+      ...badge,
+      count: unlocked?.count ?? 0,
+      unlocked: Boolean(unlocked),
+      current: unlocked ? 1 : 0,
+      target: 1,
+      progress: unlocked ? 100 : 0,
+      unit: "unlock",
+    };
+  });
+}
+
+function BadgeProgressSection({ player, badgeCatalog = [], canView }) {
+  const badges = player?.badge_progress?.length
+    ? player.badge_progress
+    : badgeProgressFromCatalog(badgeCatalog, player?.badges ?? []);
+  const unlockedCount = canView ? badges.filter((badge) => badge.unlocked).length : 0;
+
+  return (
+    <article className="panel profile-badges">
+      <div className="panel-header">
+        <div>
+          <h3>Badges</h3>
+          <p>Unlocked badges and progress toward the next ones.</p>
+        </div>
+        <span className={canView ? "pill green" : "pill"}>{unlockedCount}/{badges.length}</span>
+      </div>
+      <div className="panel-body">
+        {!canView && (
+          <div className="empty compact">Badges are visible when you follow each other.</div>
+        )}
+        {canView && !badges.length && <div className="empty compact">Geen badges beschikbaar.</div>}
+        {canView && !!badges.length && (
+          <div className="badge-progress-grid">
+            {badges.map((badge) => (
+              <article
+                className={`badge-progress-card is-${badge.family} ${badge.unlocked ? "is-unlocked" : "is-locked"}`}
+                key={badge.key}
+              >
+                <div className="badge-progress-heading">
+                  <span className="badge-progress-mark" aria-hidden="true">{badge.mark ?? "B"}</span>
+                  <div>
+                    <h4>{badge.label}</h4>
+                    <p>{badge.detail}</p>
+                  </div>
+                </div>
+                <div className="badge-progress-track" aria-hidden="true">
+                  <span style={{ width: `${badge.progress ?? 0}%` }} />
+                </div>
+                <div className="badge-progress-meta">
+                  <span>{badge.current ?? 0}/{badge.target ?? 1} {badge.unit}</span>
+                  <strong>{badge.unlocked ? `Unlocked${badge.count > 1 ? ` x${badge.count}` : ""}` : "Locked"}</strong>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function BadgeCatalogPage({ badges = [] }) {
+  const groupedBadges = badges.reduce((groups, badge) => {
+    const family = badge.family ?? "other";
+    return { ...groups, [family]: [...(groups[family] ?? []), badge] };
+  }, {});
+
+  return (
+    <div className="badges-page">
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <h3>Badge catalogus</h3>
+            <p>Alle badges kunnen per speeldag opnieuw worden verdiend.</p>
+          </div>
+          <span className="pill green">{badges.length} badges</span>
+        </div>
+        <div className="panel-body badge-catalog">
+          {!badges.length && <div className="empty compact">Geen badges beschikbaar.</div>}
+          {Object.entries(groupedBadges).map(([family, familyBadges]) => (
+            <section className="badge-family" key={family}>
+              <div className="badge-family-heading">
+                <span className={`badge-family-mark is-${family}`} aria-hidden="true">
+                  {familyBadges[0]?.mark ?? "B"}
+                </span>
+                <div>
+                  <h4>{badgeFamilyLabel(family, familyBadges[0]?.mascot)}</h4>
+                  <p>{familyBadges[0]?.mascot ?? "Badge familie"}</p>
+                </div>
+              </div>
+              <div className="badge-catalog-grid">
+                {familyBadges.map((badge) => (
+                  <article className={`badge-catalog-card is-${badge.family}`} key={badge.key}>
+                    <BadgePill badge={badge} />
+                    <p>{badge.detail}</p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function MatchdayPredictionModal({
+  match,
+  teams,
+  pool,
+  onClose,
+  onPoolUpdate,
+}) {
+  const [scores, setScores] = useState({ home_score: "", away_score: "" });
+  const [quizDraft, setQuizDraft] = useState({ answer: "", viewership_prediction: "" });
+  const [leeuwtjeActive, setLeeuwtjeActive] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!match) return;
+    const existingQuiz = pool.quiz_predictions?.[match.id] ?? {};
+    setScores({ home_score: "", away_score: "" });
+    setQuizDraft({
+      answer: existingQuiz.answer ?? "",
+      viewership_prediction: existingQuiz.viewership_prediction ?? "",
+    });
+    setLeeuwtjeActive(false);
+    setError("");
+  }, [match?.id, pool.quiz_predictions]);
+
+  if (!match) return null;
+
+  const leeuwtjeTotal = leeuwtjesTotal(pool);
+  const currentLeeuwtjes = new Set(pool.leeuwtjes_match_ids ?? []);
+  const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - currentLeeuwtjes.size);
+  const canToggleLeeuwtje = leeuwtjeActive || currentLeeuwtjes.has(match.id) || currentLeeuwtjes.size < leeuwtjeTotal;
+  const locked = Boolean(match.locked);
+
+  function setScore(_matchId, key, value) {
+    setScores((current) => ({ ...current, [key]: value }));
+  }
+
+  function setQuizAnswer(_matchId, value) {
+    setQuizDraft((current) => ({ ...current, answer: value }));
+  }
+
+  function setQuizViewership(_matchId, value) {
+    setQuizDraft((current) => ({ ...current, viewership_prediction: value }));
+  }
+
+  async function savePrediction() {
+    if (!scoreComplete(scores) || saving || locked) return;
+    setSaving(true);
+    setError("");
+    const body = {
+      predictions: [
+        {
+          match_id: match.id,
+          home_score: Number(scores.home_score),
+          away_score: Number(scores.away_score),
+        },
+      ],
+    };
+    if (match.quiz) {
+      body.quiz_predictions = [
+        {
+          match_id: match.id,
+          answer: String(quizDraft.answer ?? "").trim(),
+          viewership_prediction:
+            quizDraft.viewership_prediction === "" ||
+            quizDraft.viewership_prediction === undefined ||
+            quizDraft.viewership_prediction === null
+              ? null
+              : Number(quizDraft.viewership_prediction),
+        },
+      ];
+    }
+    if (leeuwtjeActive && !currentLeeuwtjes.has(match.id)) {
+      body.leeuwtjes_match_ids = [...new Set([...currentLeeuwtjes, match.id])];
+    }
+
+    try {
+      const updated = await apiJson("/api/predictions", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      onPoolUpdate(updated);
+      onClose();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <article className="prediction-modal" role="dialog" aria-modal="true" aria-label="Match prediction" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="prediction-modal-header">
+          <div>
+            <h3><TeamLabel id={match.home_team_id} teams={teams} /> vs <TeamLabel id={match.away_team_id} teams={teams} /></h3>
+            <p>{formatDate(match, true)} · {formatTime(match)}</p>
+          </div>
+          <button className="text-button" type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="prediction-modal-body">
+          <MatchPredictionEditor
+            match={match}
+            teams={teams}
+            scores={scores}
+            locked={locked}
+            onScore={setScore}
+            onSubmit={savePrediction}
+            saving={saving}
+            compact
+          />
+          <MatchQuizEditor
+            match={match}
+            prediction={quizDraft}
+            locked={locked}
+            onAnswer={setQuizAnswer}
+            onViewership={setQuizViewership}
+          />
+          <div className="matchday-modal-actions">
+            <LeeuwtjeButton
+              active={leeuwtjeActive}
+              disabled={locked || !canToggleLeeuwtje}
+              remaining={leeuwtjesRemaining}
+              onToggle={() => setLeeuwtjeActive((current) => !current)}
+            />
+            <button className="primary-button" type="button" onClick={savePrediction} disabled={!scoreComplete(scores) || saving || locked}>
+              {saving ? "Saving..." : "Save prediction"}
+            </button>
+          </div>
+          {error && <span className="form-error">{error}</span>}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
   const summary = pool.matchday;
-  const currentPlayer = pool.leaderboard.find((row) => row.user_id === pool.me?.id);
+  const [activeMatch, setActiveMatch] = useState(null);
+
+  function statusMessage(match) {
+    if (match.has_my_prediction) return "Je voorspelling is ingevuld.";
+    if (match.locked) return "Je voorspelling mist, maar deze wedstrijd is gesloten.";
+    return "Je voorspelling mist nog. Klik op deze wedstrijd om hem in te vullen.";
+  }
+
+  function openMatch(match) {
+    if (match.has_my_prediction || match.locked) return;
+    setActiveMatch({ ...match, id: match.id ?? match.match_id });
+  }
+
   return (
     <div className="matchday-layout">
       <article className="panel">
         <div className="panel-header">
           <div>
             <h3>{summary?.is_today ? "Wedstrijddag" : "Volgende wedstrijddag"}</h3>
-            <p>Overzicht van voorspellingen, quizreacties en ingezette Leeuwtjes.</p>
+            <p>Wedstrijden, voorspellingen, quizreacties en ingezette Leeuwtjes.</p>
           </div>
-          <button className="text-button" type="button" onClick={onPredictions}>
-            Predictions
-          </button>
+          <span className="pill">{summary?.matches?.length ?? 0} matches</span>
         </div>
         <div className="panel-body matchday-body">
           {!summary?.matches?.length && <div className="empty compact">Geen wedstrijden gevonden.</div>}
-          {summary?.matches?.map((match) => (
-            <article className="matchday-card" key={match.match_id}>
-              <div>
-                <strong><TeamLabel id={match.home_team_id} teams={teams} /> vs <TeamLabel id={match.away_team_id} teams={teams} /></strong>
-                <span>{formatDate(match, true)} · {formatTime(match)}</span>
-              </div>
-              <OutcomeBar home={match.home_win_count} draw={match.draw_count} away={match.away_win_count} />
-              <div className="matchday-stats">
-                <span>{match.prediction_count} voorspellingen</span>
-                <span>{match.quiz_answer_count} quiz</span>
-                <span>{match.leeuwtjes_count} Leeuwtjes</span>
-              </div>
-              {!!match.top_scores?.length && (
-                <div className="score-chip-row">
-                  {match.top_scores.map((score) => (
-                    <span key={score.score}>{score.score} ({score.count})</span>
-                  ))}
-                </div>
-              )}
-            </article>
-          ))}
+          {summary?.matches?.map((rawMatch) => {
+            const match = { ...rawMatch, id: rawMatch.id ?? rawMatch.match_id };
+            const venue = venues.get(match.venue_id);
+            const canOpen = !match.has_my_prediction && !match.locked;
+            const matchStatusMessage = statusMessage(match);
+            return (
+              <button
+                className={`matchday-card ${match.has_my_prediction ? "is-predicted" : "is-missing"} ${canOpen ? "is-clickable" : ""}`}
+                key={match.match_id}
+                type="button"
+                onClick={() => openMatch(match)}
+                aria-disabled={!canOpen}
+              >
+                <span
+                  className={match.has_my_prediction ? "matchday-status is-done" : "matchday-status is-missing"}
+                  aria-label={matchStatusMessage}
+                  data-tooltip={matchStatusMessage}
+                  title={matchStatusMessage}
+                >
+                  {match.has_my_prediction ? "✓" : "i"}
+                </span>
+                <span className="match-time">{formatTime(match)}</span>
+                <span className="matchday-main">
+                  <strong className="match-teams">
+                    <TeamLabel id={match.home_team_id} teams={teams} /> <span className="muted">vs</span>{" "}
+                    <TeamLabel id={match.away_team_id} teams={teams} />
+                  </strong>
+                  <span className="match-meta">{formatDate(match, true)} · {venue?.city ?? "Venue to confirm"}</span>
+                </span>
+                <span className="matchday-side">
+                  <OutcomeBreakdown match={match} teams={teams} />
+                  <span className="matchday-stats">
+                    <span>{match.prediction_count} voorspellingen</span>
+                    <span>{match.quiz_answer_count} quiz</span>
+                    <span>{match.leeuwtjes_count} Leeuwtjes</span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       </article>
 
-      <DailyRecap recap={pool.daily_recap} />
-
-      <article className="panel">
-        <div className="panel-header">
-          <div>
-            <h3>Badges</h3>
-            <p>Badges worden automatisch uit voorspellingen en scores afgeleid.</p>
-          </div>
-        </div>
-        <div className="panel-body">
-          <BadgeCloud badges={currentPlayer?.badges ?? []} />
-        </div>
-      </article>
+      <MatchdayPredictionModal
+        match={activeMatch}
+        teams={teams}
+        pool={pool}
+        onClose={() => setActiveMatch(null)}
+        onPoolUpdate={onPoolUpdate}
+      />
     </div>
   );
 }
 
-function chatMatchLabel(match, teams) {
-  if (!match) return "General";
-  const home = teams.get(match.home_team_id)?.name ?? match.home_team_id ?? "TBD";
-  const away = teams.get(match.away_team_id)?.name ?? match.away_team_id ?? "TBD";
-  return `${formatDate(match, true)} · ${home} vs ${away}`;
-}
-
-function ChatPanel({ data, teams, social }) {
-  const [topicMatchId, setTopicMatchId] = useState("");
-  const [audience, setAudience] = useState("pool");
-  const [messages, setMessages] = useState([]);
-  const [draft, setDraft] = useState("");
-  const [error, setError] = useState("");
-  const [sending, setSending] = useState(false);
-  const matchesById = useMemo(() => new Map(data.matches.map((match) => [match.id, match])), [data.matches]);
-  const topicMessages = messages.filter(
-    (message) => (message.match_id ?? "") === topicMatchId && (message.audience ?? "pool") === audience,
-  );
-  const sortedMatches = useMemo(
-    () => data.matches.slice().sort((a, b) => escapeDate(a) - escapeDate(b)),
-    [data.matches],
-  );
-
-  async function loadMessages({ silent = false } = {}) {
-    try {
-      const result = await apiJson("/api/chat");
-      setMessages(result.messages ?? []);
-      if (!silent) setError("");
-    } catch (err) {
-      if (!silent) setError(err.message);
-    }
+function RankMovement({ movement = 0 }) {
+  if (movement > 0) {
+    return <span className="rank-movement is-up" aria-label={`Moved up ${movement} ranks`}>▲ {movement}</span>;
   }
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function pollMessages(options) {
-      try {
-        const result = await apiJson("/api/chat");
-        if (!cancelled) {
-          setMessages(result.messages ?? []);
-          if (!options?.silent) setError("");
-        }
-      } catch (err) {
-        if (!cancelled && !options?.silent) setError(err.message);
-      }
-    }
-
-    pollMessages();
-    const timer = window.setInterval(() => pollMessages({ silent: true }), 15000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  async function sendMessage(event) {
-    event.preventDefault();
-    const message = draft.trim();
-    if (!message) return;
-    setSending(true);
-    setError("");
-    try {
-      await apiJson("/api/chat", {
-        method: "POST",
-        body: JSON.stringify({
-          match_id: topicMatchId || null,
-          audience,
-          message,
-        }),
-      });
-      setDraft("");
-      await loadMessages();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSending(false);
-    }
+  if (movement < 0) {
+    return <span className="rank-movement is-down" aria-label={`Moved down ${Math.abs(movement)} ranks`}>▼ {Math.abs(movement)}</span>;
   }
-
-  return (
-    <article className="panel chat-panel">
-      <div className="panel-header">
-        <div>
-          <h3>Pool chat</h3>
-          <p>Discuss scores, fixtures and match moments with the group or just friends.</p>
-        </div>
-        <span className="pill green">{topicMessages.length} messages</span>
-      </div>
-      <div className="panel-body chat-body">
-        <div className="chat-controls">
-          <label>
-            Audience
-            <select value={audience} onChange={(event) => setAudience(event.target.value)}>
-              <option value="pool">Pool chat</option>
-              <option value="friends">Friends only ({social?.counts?.friends ?? 0})</option>
-            </select>
-          </label>
-          <label>
-            Topic
-            <select value={topicMatchId} onChange={(event) => setTopicMatchId(event.target.value)}>
-              <option value="">General tournament chat</option>
-              {sortedMatches.map((match) => (
-                <option key={match.id} value={match.id}>
-                  {chatMatchLabel(match, teams)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="chat-messages" aria-live="polite">
-          {topicMessages.map((message) => {
-            const match = matchesById.get(message.match_id);
-            return (
-              <article className="chat-message" key={message.id}>
-                <ProfileAvatar
-                  player={{
-                    name: message.author.name,
-                    profile_picture: message.author.profile_picture,
-                  }}
-                  size="small"
-                />
-                <div>
-                  <div className="chat-message-meta">
-                    <strong>{message.author.name}</strong>
-                    <span>{(message.audience ?? "pool") === "friends" ? "Friends" : "Pool"}</span>
-                    <span>{formatChatTime(message.created_at)}</span>
-                    {match && <span>{chatMatchLabel(match, teams)}</span>}
-                  </div>
-                  <p>{message.message}</p>
-                </div>
-              </article>
-            );
-          })}
-          {!topicMessages.length && (
-            <div className="empty compact">No messages in this chat yet.</div>
-          )}
-        </div>
-
-        <form className="chat-composer" onSubmit={sendMessage}>
-          <label>
-            Message
-            <textarea
-              value={draft}
-              maxLength={500}
-              placeholder="Share a score take, match thought or prediction..."
-              onChange={(event) => setDraft(event.target.value)}
-            />
-          </label>
-          <div className="chat-actions">
-            <span className="muted">{draft.length}/500</span>
-            <button className="primary-button" type="submit" disabled={sending || !draft.trim()}>
-              {sending ? "Sending..." : "Send"}
-            </button>
-          </div>
-          {error && <span className="form-error">{error}</span>}
-        </form>
-      </div>
-    </article>
-  );
+  return <span className="rank-movement is-flat" aria-label="No rank movement">-</span>;
 }
 
 function Leaderboard({ pool, onProfile = () => {} }) {
@@ -1305,11 +1474,10 @@ function Leaderboard({ pool, onProfile = () => {} }) {
                 <th className="numeric">Pts</th>
                 <th className="numeric">Exact</th>
                 <th className="numeric">Outcome</th>
-                <th className="numeric">Quiz</th>
+                <th className="numeric">Quiz pts</th>
                 <th className="numeric">Leeuwtjes</th>
                 <th className="numeric">Predictions</th>
                 <th>Winner</th>
-                <th>Badges</th>
               </tr>
             </thead>
             <tbody>
@@ -1329,16 +1497,16 @@ function Leaderboard({ pool, onProfile = () => {} }) {
                       </button>
                       <span className="leaderboard-name">
                         <strong>{row.name}</strong>
+                        <RankMovement movement={row.rank_movement ?? 0} />
                       </span>
                     </td>
                     <td className="numeric"><strong>{row.points}</strong></td>
                     <td className="numeric">{row.exact_scores}</td>
                     <td className="numeric">{row.outcomes}</td>
-                    <td className="numeric">{row.quiz_answers ?? 0}</td>
+                    <td className="numeric">{row.quiz_points ?? 0}</td>
                     <td className="numeric">{row.leeuwtjes_used ?? 0}/{pool.progress?.leeuwtjes_total ?? 5}</td>
                     <td className="numeric">{row.group_stage_predictions}/{row.group_stage_total}</td>
                     <td>{row.winner_pick_name ?? <span className="muted">Not picked</span>}</td>
-                    <td><BadgeCloud badges={row.badges ?? []} /></td>
                   </tr>
                 );
               })}
@@ -1355,12 +1523,14 @@ function PlayerPredictions({ player, canView }) {
   const [predictionGroups, setPredictionGroups] = useState([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  const [limited, setLimited] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setPredictionGroups([]);
     setError("");
     setLoaded(false);
+    setLimited(false);
 
     if (!player || !canView) {
       setLoaded(true);
@@ -1372,7 +1542,10 @@ function PlayerPredictions({ player, canView }) {
     async function loadPredictions() {
       try {
         const result = await apiJson(`/api/profiles/${player.user_id}/predictions`);
-        if (!cancelled) setPredictionGroups(result.groups ?? []);
+        if (!cancelled) {
+          setPredictionGroups(result.groups ?? []);
+          setLimited(Boolean(result.limited_to_completed_matches));
+        }
       } catch (err) {
         if (!cancelled) setError(err.message);
       } finally {
@@ -1391,17 +1564,17 @@ function PlayerPredictions({ player, canView }) {
       <div className="panel-header">
         <div>
           <h3>Predictions</h3>
-          <p>Grouped by World Cup group.</p>
+          <p>{limited ? "Other players show only matches that have finished." : "Grouped by World Cup group."}</p>
         </div>
       </div>
       <div className="panel-body profile-prediction-body">
         {!canView && (
-          <div className="empty compact">Predictions are visible once you are friends.</div>
+          <div className="empty compact">Predictions are not available.</div>
         )}
         {canView && !loaded && <div className="empty compact">Loading predictions...</div>}
         {canView && error && <div className="form-error">{error}</div>}
         {canView && loaded && !error && !predictionGroups.length && (
-          <div className="empty compact">No predictions filled in yet.</div>
+          <div className="empty compact">{limited ? "No finished-match predictions visible yet." : "No predictions filled in yet."}</div>
         )}
         {canView && predictionGroups.map((group) => (
           <section className="profile-prediction-group" key={group.group}>
@@ -1428,7 +1601,15 @@ function PlayerPredictions({ player, canView }) {
   );
 }
 
-function PlayerProfile({ player, rank, relation, onBack, onFollow, onUnfollow }) {
+function PlayerProfile({
+  player,
+  rank,
+  relation,
+  badgeCatalog,
+  onBack,
+  onFollow,
+  onUnfollow,
+}) {
   if (!player) {
     return (
       <article className="panel">
@@ -1447,6 +1628,8 @@ function PlayerProfile({ player, rank, relation, onBack, onFollow, onUnfollow })
     { label: "Games", value: player.scoring_games, detail: "Scored on" },
   ];
   const canViewPredictions = true;
+  const canViewBadges = relation === null || relation?.is_friend;
+  const rankLabel = rank ? `Rank #${rank}` : "Nog niet gerankt";
 
   return (
     <div className="profile-page">
@@ -1458,7 +1641,7 @@ function PlayerProfile({ player, rank, relation, onBack, onFollow, onUnfollow })
           <div>
             <span className="fifa-rating">{player.points}</span>
             <span className="fifa-position">PTS</span>
-            <span className="fifa-rank">Rank #{rank}</span>
+            <span className="fifa-rank">{rankLabel}</span>
           </div>
           <ProfileAvatar player={player} size="large" />
         </div>
@@ -1471,11 +1654,10 @@ function PlayerProfile({ player, rank, relation, onBack, onFollow, onUnfollow })
               onFollow={() => onFollow(player.user_id)}
               onUnfollow={() => onUnfollow(player.user_id)}
             />
-            {relation?.is_friend && <span className="pill green">Friends chat enabled</span>}
+            {relation?.is_friend && <span className="pill green">Badges visible</span>}
             {relation?.is_following && !relation?.is_friend && <span className="pill warning">Waiting for follow back</span>}
             {relation?.follows_me && !relation?.is_friend && <span className="pill orange">Follows you</span>}
           </div>
-          <BadgeCloud badges={player.badges ?? []} />
         </div>
         <div className="fifa-stats">
           {stats.map((stat) => (
@@ -1487,68 +1669,8 @@ function PlayerProfile({ player, rank, relation, onBack, onFollow, onUnfollow })
           ))}
         </div>
       </article>
+      <BadgeProgressSection player={player} badgeCatalog={badgeCatalog} canView={canViewBadges} />
       <PlayerPredictions player={player} canView={canViewPredictions} />
-    </div>
-  );
-}
-
-function FriendsPanel({ social, onFollow, onUnfollow }) {
-  const people = social?.people ?? [];
-  const friends = people.filter((person) => person.is_friend);
-  const others = people.filter((person) => !person.is_friend);
-
-  function renderPerson(person) {
-    return (
-      <article className="friend-row" key={person.user_id}>
-        <ProfileAvatar player={{ name: person.name, profile_picture: person.profile_picture }} size="small" />
-        <div>
-          <strong>{person.name}</strong>
-          <span>
-            {person.is_friend
-              ? "Friends"
-              : person.is_following
-                ? "Friend request sent"
-                : person.follows_me
-                  ? "Follows you"
-                  : "Not connected"}
-          </span>
-        </div>
-        <FriendButton
-          relation={person}
-          onFollow={() => onFollow(person.user_id)}
-          onUnfollow={() => onUnfollow(person.user_id)}
-        />
-      </article>
-    );
-  }
-
-  return (
-    <div className="friends-layout">
-      <article className="panel">
-        <div className="panel-header">
-          <div>
-            <h3>Friends</h3>
-            <p>Follow people to send a friend request. Mutual follows become friends.</p>
-          </div>
-          <span className="pill green">{social?.counts?.friends ?? 0} friends</span>
-        </div>
-        <div className="panel-body friends-body">
-          <section>
-            <h4>Friends</h4>
-            <div className="friend-list">
-              {friends.map(renderPerson)}
-              {!friends.length && <div className="empty compact">No mutual friends yet.</div>}
-            </div>
-          </section>
-          <section>
-            <h4>People in the pool</h4>
-            <div className="friend-list">
-              {others.map(renderPerson)}
-              {!others.length && <div className="empty compact">No other players yet.</div>}
-            </div>
-          </section>
-        </div>
-      </article>
     </div>
   );
 }
@@ -2244,6 +2366,36 @@ function NotificationBell({ notifications, open, onToggle, onPredictions }) {
   );
 }
 
+function fallbackProfile(pool) {
+  const user = pool.me;
+  if (!user) return null;
+  const progress = pool.progress ?? {};
+  return {
+    user_id: user.id,
+    name: user.name,
+    points: 0,
+    precision: 0,
+    shooting: 0,
+    defence: 0,
+    scoring_games: 0,
+    winner_pick_name: null,
+    profile_picture: {
+      initials: user.name
+        .replace("-", " ")
+        .split(" ")
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join("")
+        .toUpperCase() || "?",
+      hue: 24,
+    },
+    group_stage_predictions: progress.group_stage_predictions ?? 0,
+    group_stage_total: progress.group_stage_total ?? 0,
+    badges: [],
+  };
+}
+
 function App() {
   const [data, setData] = useState(null);
   const [pool, setPool] = useState(null);
@@ -2252,9 +2404,6 @@ function App() {
   const [loadError, setLoadError] = useState("");
   const [view, setView] = useState(() => viewFromRoute(window.location.pathname) ?? "leaderboard");
   const [selectedProfileId, setSelectedProfileId] = useState(() => profileIdFromRoute(window.location.pathname));
-  const [groupFilter, setGroupFilter] = useState("all");
-  const [teamFilter, setTeamFilter] = useState("all");
-  const [query, setQuery] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -2365,34 +2514,10 @@ function App() {
     };
   }, [data]);
 
-  const filteredMatches = useMemo(() => {
+  const sortedMatches = useMemo(() => {
     if (!data) return [];
-    return data.matches
-      .filter((match) => groupFilter === "all" || match.group === groupFilter)
-      .filter(
-        (match) =>
-          teamFilter === "all" ||
-          match.home_team_id === teamFilter ||
-          match.away_team_id === teamFilter,
-      )
-      .filter((match) => {
-        if (!query.trim()) return true;
-        const venue = maps.venues.get(match.venue_id);
-        const text = [
-          maps.teams.get(match.home_team_id)?.name,
-          maps.teams.get(match.away_team_id)?.name,
-          maps.teams.get(match.home_team_id)?.code,
-          maps.teams.get(match.away_team_id)?.code,
-          match.group,
-          match.round,
-          venue?.name,
-          venue?.city,
-          venue?.country,
-        ].join(" ");
-        return normalize(text).includes(normalize(query));
-      })
-      .sort((a, b) => escapeDate(a) - escapeDate(b));
-  }, [data, groupFilter, teamFilter, query, maps]);
+    return data.matches.slice().sort((a, b) => escapeDate(a) - escapeDate(b));
+  }, [data]);
 
   async function handleLogin() {
     setLoadError("");
@@ -2463,16 +2588,14 @@ function App() {
   const kickoff = new Date("2026-06-11T19:00:00Z");
   const countdown = formatCountdown(kickoff, now);
   const entryComplete = groupPredictionsComplete(pool);
-  const selectedProfile = pool.leaderboard.find((row) => String(row.user_id) === selectedProfileId);
+  const selectedProfile = (
+    pool.leaderboard.find((row) => String(row.user_id) === selectedProfileId) ??
+    (String(pool.me?.id) === selectedProfileId ? fallbackProfile(pool) : null)
+  );
   const selectedProfileRank = selectedProfile
     ? pool.leaderboard.findIndex((row) => row.user_id === selectedProfile.user_id) + 1
     : 0;
-  const dutchMatches = filteredMatches.filter(hasNetherlands);
-  const venueRows = data.venues.filter((venue) =>
-    query.trim()
-      ? normalize([venue.name, venue.city, venue.country, venue.region].join(" ")).includes(normalize(query))
-      : true,
-  );
+  const venueRows = data.venues;
 
   return (
     <>
@@ -2491,7 +2614,13 @@ function App() {
             onToggle={() => setNotificationsOpen((current) => !current)}
             onPredictions={() => navigateToView(entryComplete ? "adjust" : "pool")}
           />
-          <span className="data-badge">{pool.me.name}</span>
+          <button
+            className="data-badge is-clickable"
+            type="button"
+            onClick={() => navigateToProfile(pool.me.id)}
+          >
+            {pool.me.name}
+          </button>
           {entryComplete && (
             <button className="text-button" type="button" onClick={() => navigateToView("adjust")}>
               Adjust predictions
@@ -2534,37 +2663,12 @@ function App() {
 
         {entryComplete && (
           <nav className="tabs" aria-label="Dashboard views">
-            {["home", "matchday", "leaderboard", "groups", "schedule", "netherlands", "venues", "chat", "friends"].map((item) => (
+            {["home", "matchday", "leaderboard", "groups", "schedule", "venues"].map((item) => (
               <button key={item} className={view === item ? "tab is-active" : "tab"} type="button" onClick={() => navigateToView(item)}>
                 {viewLabel(item)}
               </button>
             ))}
           </nav>
-        )}
-
-        {["schedule", "netherlands", "venues"].includes(view) && (
-          <section className="toolbar" aria-label="Filters">
-            <label>
-              Group
-              <select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
-                <option value="all">All groups</option>
-                {data.groups.map((group) => <option key={group.id} value={group.id}>Group {group.id}</option>)}
-              </select>
-            </label>
-            <label>
-              Team
-              <select value={teamFilter} onChange={(event) => setTeamFilter(event.target.value)}>
-                <option value="all">All teams</option>
-                {data.teams.slice().sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
-                  <option key={team.id} value={team.id}>{team.name}</option>
-                ))}
-              </select>
-            </label>
-            <label className="search-field">
-              Search
-              <input value={query} type="search" placeholder="Team, venue or city" onChange={(event) => setQuery(event.target.value)} />
-            </label>
-          </section>
         )}
 
         {view === "welcome" && (
@@ -2586,7 +2690,7 @@ function App() {
 
         {view === "home" && (
           <section className="view is-active">
-            <HomePage onSchedule={() => navigateToView("schedule")} />
+            <HomePage onSchedule={() => navigateToView("schedule")} recap={pool.daily_recap} />
           </section>
         )}
 
@@ -2595,7 +2699,8 @@ function App() {
             <MatchdayPage
               pool={pool}
               teams={maps.teams}
-              onPredictions={() => navigateToView("adjust")}
+              venues={maps.venues}
+              onPoolUpdate={updatePoolOnly}
             />
           </section>
         )}
@@ -2648,22 +2753,11 @@ function App() {
               player={selectedProfile}
               rank={selectedProfileRank}
               relation={selectedProfile?.user_id === pool.me?.id ? null : socialById.get(selectedProfile?.user_id)}
+              badgeCatalog={pool.badge_catalog ?? []}
               onBack={() => navigateToView("leaderboard")}
               onFollow={followPerson}
               onUnfollow={unfollowPerson}
             />
-          </section>
-        )}
-
-        {view === "chat" && (
-          <section className="view is-active">
-            <ChatPanel data={data} teams={maps.teams} social={social} />
-          </section>
-        )}
-
-        {view === "friends" && (
-          <section className="view is-active">
-            <FriendsPanel social={social} onFollow={followPerson} onUnfollow={unfollowPerson} />
           </section>
         )}
 
@@ -2677,21 +2771,7 @@ function App() {
 
         {view === "schedule" && (
           <section className="view is-active">
-            <Schedule matches={filteredMatches} teams={maps.teams} venues={maps.venues} />
-          </section>
-        )}
-
-        {view === "netherlands" && (
-          <section className="view is-active">
-            <article className="panel">
-              <div className="panel-header">
-                <div><h3>Netherlands match plan</h3><p>Shared planning list for watch moments.</p></div>
-                <span className="pill orange">Group F</span>
-              </div>
-              <div className="panel-body">
-                <Schedule matches={dutchMatches} teams={maps.teams} venues={maps.venues} />
-              </div>
-            </article>
+            <Schedule matches={sortedMatches} teams={maps.teams} venues={maps.venues} />
           </section>
         )}
 
