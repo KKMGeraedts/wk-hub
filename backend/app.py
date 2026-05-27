@@ -5,24 +5,53 @@ import logging
 import os
 import sqlite3
 import time
+import unicodedata
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from flask import Flask, abort, g, jsonify, request, send_from_directory, session
 
 ROOT = Path(__file__).resolve().parent.parent
+
+
+def load_env_file(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_env_file(ROOT / ".env")
+
 DATA_PATH = ROOT / "backend" / "worldcup-2026.json"
 QUIZ_PATH = ROOT / "backend" / "quiz-2026.json"
 DB_PATH = Path(os.environ.get("WK_HUB_SQLITE_PATH", ROOT / "backend" / "pool.db"))
 DIST_DIR = ROOT / "frontend" / "dist"
-DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
+DATABASE_URL_ENV = "DATABASE_URL" if os.environ.get("DATABASE_URL") else None
+if DATABASE_URL_ENV is None and os.environ.get("POSTGRES_URL"):
+    DATABASE_URL_ENV = "POSTGRES_URL"
+DATABASE_URL = os.environ.get("DATABASE_URL") or os.environ.get("POSTGRES_URL")
+SCHEMA_DATABASE_URL_ENV = (
+    "DATABASE_URL_UNPOOLED" if os.environ.get("DATABASE_URL_UNPOOLED") else DATABASE_URL_ENV
+)
+SCHEMA_DATABASE_URL = os.environ.get("DATABASE_URL_UNPOOLED") or DATABASE_URL
 USING_POSTGRES = bool(DATABASE_URL)
 IS_VERCEL = os.environ.get("VERCEL") == "1"
 CONFIG_ERROR = (
-    "Set POSTGRES_URL or DATABASE_URL for Talpa WK Pool on Vercel."
+    "Set DATABASE_URL from Neon, or POSTGRES_URL, for Talpa WK Pool on Vercel."
     if IS_VERCEL and not DATABASE_URL
     else None
 )
@@ -39,6 +68,24 @@ WINNER_POINTS = 250
 QUIZ_YES_NO_POINTS = 15
 QUIZ_OPEN_POINTS = 50
 QUIZ_VIEWERSHIP_POINTS = 30
+API_FOOTBALL_BASE_URL = os.environ.get(
+    "API_FOOTBALL_BASE_URL", "https://v3.football.api-sports.io"
+).rstrip("/")
+API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "")
+API_FOOTBALL_LEAGUE_ID = int(os.environ.get("API_FOOTBALL_LEAGUE_ID", "1"))
+API_FOOTBALL_SEASON = int(os.environ.get("API_FOOTBALL_SEASON", "2026"))
+API_FOOTBALL_DAILY_LIMIT = int(os.environ.get("API_FOOTBALL_DAILY_LIMIT", "90"))
+API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get(
+    "CRON_SECRET", ""
+)
+API_FOOTBALL_POSTMATCH_BUFFER = timedelta(
+    minutes=int(os.environ.get("API_FOOTBALL_POSTMATCH_BUFFER_MINUTES", "135"))
+)
+API_FOOTBALL_FINAL_RESYNC_AFTER = timedelta(
+    hours=int(os.environ.get("API_FOOTBALL_FINAL_RESYNC_HOURS", "12"))
+)
+API_FOOTBALL_FINAL_STATUSES = {"FT", "AET", "PEN"}
+API_FOOTBALL_MAX_BATCH_SIZE = 20
 MATCH_SCORE_RULES = {
     "Group Stage": {"exact": 45, "outcome": 30},
     "Round of 32": {"exact": 90, "outcome": 60},
@@ -62,7 +109,7 @@ def database_label() -> str:
     if CONFIG_ERROR:
         return "unconfigured database"
     if USING_POSTGRES:
-        return "postgres"
+        return f"postgres:{DATABASE_URL_ENV or 'unknown env'}"
     return f"sqlite:{DB_PATH}"
 
 
@@ -79,6 +126,9 @@ def load_world_cup_data() -> dict[str, Any]:
             if quiz:
                 match["quiz"] = quiz
         data.setdefault("meta", {})["quiz_answer_source"] = quiz_data.get("answerSource")
+
+    if not CONFIG_ERROR:
+        apply_synced_match_results(data)
 
     return data
 
@@ -113,6 +163,15 @@ def is_winner_locked(data: dict[str, Any], now: datetime | None = None) -> bool:
 
 def iso_utc(value: datetime) -> str:
     return value.isoformat().replace("+00:00", "Z")
+
+
+def parse_iso_datetime(value: Any) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
 
 
 app = Flask(__name__, static_folder=None)
@@ -153,13 +212,14 @@ def execute(conn: Any, query: str, params: tuple[Any, ...] = ()) -> Any:
     return conn.execute(bind(query), params)
 
 
-def get_db() -> Any:
+def get_db(*, schema: bool = False) -> Any:
     if USING_POSTGRES:
         import psycopg
         from psycopg.rows import dict_row
 
-        assert DATABASE_URL is not None
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        conninfo = SCHEMA_DATABASE_URL if schema else DATABASE_URL
+        assert conninfo is not None
+        return psycopg.connect(conninfo, row_factory=dict_row)
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -225,6 +285,106 @@ def init_db() -> None:
             FOREIGN KEY (followed_id) REFERENCES users(id)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_fixture_links (
+            match_id TEXT PRIMARY KEY,
+            api_fixture_id INTEGER NOT NULL UNIQUE,
+            api_home_team_id INTEGER,
+            api_away_team_id INTEGER,
+            api_home_team_name TEXT,
+            api_away_team_name TEXT,
+            confidence TEXT NOT NULL,
+            linked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            endpoint TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            status_code INTEGER,
+            ok INTEGER NOT NULL,
+            error TEXT
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_fixture_snapshots (
+            match_id TEXT PRIMARY KEY,
+            api_fixture_id INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS match_results (
+            match_id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            source_fixture_id INTEGER,
+            status_long TEXT,
+            status_short TEXT,
+            elapsed INTEGER,
+            home_score INTEGER,
+            away_score INTEGER,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS match_events (
+            match_id TEXT NOT NULL,
+            provider_event_key TEXT NOT NULL,
+            source_fixture_id INTEGER,
+            elapsed INTEGER,
+            extra INTEGER,
+            local_team_id TEXT,
+            api_team_id INTEGER,
+            team_name TEXT,
+            api_player_id INTEGER,
+            player_name TEXT,
+            api_assist_id INTEGER,
+            assist_name TEXT,
+            event_type TEXT NOT NULL,
+            detail TEXT,
+            comments TEXT,
+            raw_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (match_id, provider_event_key)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS match_clean_sheets (
+            match_id TEXT NOT NULL,
+            local_team_id TEXT NOT NULL,
+            api_team_id INTEGER,
+            team_name TEXT,
+            source_fixture_id INTEGER,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (match_id, local_team_id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS player_match_stats (
+            match_id TEXT NOT NULL,
+            provider_player_key TEXT NOT NULL,
+            source_fixture_id INTEGER,
+            local_team_id TEXT,
+            api_team_id INTEGER,
+            team_name TEXT,
+            api_player_id INTEGER,
+            player_name TEXT NOT NULL,
+            minutes INTEGER,
+            position TEXT,
+            rating TEXT,
+            goals INTEGER NOT NULL DEFAULT 0,
+            assists INTEGER NOT NULL DEFAULT 0,
+            yellow_cards INTEGER NOT NULL DEFAULT 0,
+            red_cards INTEGER NOT NULL DEFAULT 0,
+            clean_sheet INTEGER NOT NULL DEFAULT 0,
+            raw_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (match_id, provider_player_key)
+        )
+        """,
     ]
     postgres_schema = [
         """
@@ -284,9 +444,109 @@ def init_db() -> None:
             FOREIGN KEY (followed_id) REFERENCES users(id)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_fixture_links (
+            match_id TEXT PRIMARY KEY,
+            api_fixture_id INTEGER NOT NULL UNIQUE,
+            api_home_team_id INTEGER,
+            api_away_team_id INTEGER,
+            api_home_team_name TEXT,
+            api_away_team_name TEXT,
+            confidence TEXT NOT NULL,
+            linked_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_requests (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            requested_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            endpoint TEXT NOT NULL,
+            params_json TEXT NOT NULL,
+            status_code INTEGER,
+            ok INTEGER NOT NULL,
+            error TEXT
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_fixture_snapshots (
+            match_id TEXT PRIMARY KEY,
+            api_fixture_id INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS match_results (
+            match_id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            source_fixture_id INTEGER,
+            status_long TEXT,
+            status_short TEXT,
+            elapsed INTEGER,
+            home_score INTEGER,
+            away_score INTEGER,
+            synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS match_events (
+            match_id TEXT NOT NULL,
+            provider_event_key TEXT NOT NULL,
+            source_fixture_id INTEGER,
+            elapsed INTEGER,
+            extra INTEGER,
+            local_team_id TEXT,
+            api_team_id INTEGER,
+            team_name TEXT,
+            api_player_id INTEGER,
+            player_name TEXT,
+            api_assist_id INTEGER,
+            assist_name TEXT,
+            event_type TEXT NOT NULL,
+            detail TEXT,
+            comments TEXT,
+            raw_json TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (match_id, provider_event_key)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS match_clean_sheets (
+            match_id TEXT NOT NULL,
+            local_team_id TEXT NOT NULL,
+            api_team_id INTEGER,
+            team_name TEXT,
+            source_fixture_id INTEGER,
+            synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (match_id, local_team_id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS player_match_stats (
+            match_id TEXT NOT NULL,
+            provider_player_key TEXT NOT NULL,
+            source_fixture_id INTEGER,
+            local_team_id TEXT,
+            api_team_id INTEGER,
+            team_name TEXT,
+            api_player_id INTEGER,
+            player_name TEXT NOT NULL,
+            minutes INTEGER,
+            position TEXT,
+            rating TEXT,
+            goals INTEGER NOT NULL DEFAULT 0,
+            assists INTEGER NOT NULL DEFAULT 0,
+            yellow_cards INTEGER NOT NULL DEFAULT 0,
+            red_cards INTEGER NOT NULL DEFAULT 0,
+            clean_sheet INTEGER NOT NULL DEFAULT 0,
+            raw_json TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (match_id, provider_player_key)
+        )
+        """,
     ]
 
-    with get_db() as conn:
+    with get_db(schema=True) as conn:
         if USING_POSTGRES:
             for statement in postgres_schema:
                 conn.execute(statement)
@@ -309,7 +569,7 @@ def init_db() -> None:
                 conn.execute(
                     "ALTER TABLE quiz_predictions ADD COLUMN viewership_prediction INTEGER"
                 )
-    logger.info("Database schema ready")
+    logger.info("Database schema ready using %s", SCHEMA_DATABASE_URL_ENV or database_label())
 
 
 def row_to_user(row: Any) -> dict[str, Any] | None:
@@ -355,6 +615,673 @@ def normalize_email(value: Any) -> str:
 
 def normalize_answer(value: Any) -> str:
     return clean_text(value).casefold()
+
+
+def normalize_api_name(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return "".join(char.casefold() if char.isalnum() else " " for char in ascii_text)
+
+
+def compact_name(value: Any) -> str:
+    return " ".join(normalize_api_name(value).split())
+
+
+API_FOOTBALL_TEAM_ALIASES = {
+    "bosnia herz egovina": "bih",
+    "bosnia and herzegovina": "bih",
+    "cape verde": "cpv",
+    "congo dr": "cod",
+    "curacao": "cuw",
+    "czech republic": "cze",
+    "czechia": "cze",
+    "dr congo": "cod",
+    "england": "eng",
+    "ha ti": "hai",
+    "ivory coast": "civ",
+    "korea republic": "kor",
+    "netherlands": "ned",
+    "paraguay": "par",
+    "republic of korea": "kor",
+    "scotland": "sco",
+    "south korea": "kor",
+    "turkey": "tur",
+    "turkiye": "tur",
+    "united states": "usa",
+    "united states of america": "usa",
+    "usa": "usa",
+}
+
+
+def local_team_id_from_name(name: Any, data: dict[str, Any]) -> str | None:
+    normalized = compact_name(name)
+    if normalized in API_FOOTBALL_TEAM_ALIASES:
+        return API_FOOTBALL_TEAM_ALIASES[normalized]
+
+    by_name = {compact_name(team["name"]): team["id"] for team in data["teams"]}
+    by_code = {compact_name(team["code"]): team["id"] for team in data["teams"]}
+    return by_name.get(normalized) or by_code.get(normalized)
+
+
+def int_or_none(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def bool_int(value: bool) -> int:
+    return 1 if value else 0
+
+
+def api_football_request_count_today() -> int:
+    today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    with get_db() as conn:
+        row = execute(
+            conn,
+            """
+            SELECT COUNT(*) AS count
+            FROM api_football_requests
+            WHERE requested_at >= ?
+            """,
+            (today_start,),
+        ).fetchone()
+    return int(row["count"] if row else 0)
+
+
+def record_api_football_request(
+    endpoint: str,
+    params: dict[str, Any],
+    status_code: int | None,
+    ok: bool,
+    error: str | None = None,
+) -> None:
+    with get_db() as conn:
+        execute(
+            conn,
+            """
+            INSERT INTO api_football_requests (
+                endpoint, params_json, status_code, ok, error, requested_at
+            )
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                endpoint,
+                json.dumps(params, sort_keys=True),
+                status_code,
+                bool_int(ok),
+                error,
+            ),
+        )
+
+
+def api_football_get(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
+    if not API_FOOTBALL_KEY:
+        raise RuntimeError("API_FOOTBALL_KEY is not configured.")
+    if api_football_request_count_today() >= API_FOOTBALL_DAILY_LIMIT:
+        raise RuntimeError(
+            f"API-Football daily request limit reached ({API_FOOTBALL_DAILY_LIMIT})."
+        )
+
+    query = urlencode({key: value for key, value in params.items() if value is not None})
+    url = f"{API_FOOTBALL_BASE_URL}/{endpoint.lstrip('/')}"
+    if query:
+        url = f"{url}?{query}"
+    request_obj = Request(url, headers={"x-apisports-key": API_FOOTBALL_KEY})
+
+    status_code = None
+    try:
+        with urlopen(request_obj, timeout=20) as response:
+            status_code = response.status
+            payload = json.loads(response.read().decode("utf-8"))
+        record_api_football_request(endpoint, params, status_code, True)
+        errors = payload.get("errors")
+        if errors:
+            raise RuntimeError(f"API-Football returned errors: {errors}")
+        return payload
+    except HTTPError as error:
+        status_code = error.code
+        body = error.read().decode("utf-8", errors="replace")
+        record_api_football_request(endpoint, params, status_code, False, body[:500])
+        raise RuntimeError(f"API-Football HTTP {status_code}: {body[:160]}") from error
+    except (URLError, TimeoutError) as error:
+        record_api_football_request(endpoint, params, status_code, False, str(error)[:500])
+        raise RuntimeError(f"API-Football request failed: {error}") from error
+
+
+def api_football_status() -> dict[str, Any]:
+    with get_db() as conn:
+        linked_row = execute(
+            conn, "SELECT COUNT(*) AS count FROM api_football_fixture_links"
+        ).fetchone()
+        result_row = execute(conn, "SELECT COUNT(*) AS count FROM match_results").fetchone()
+        latest_request = execute(
+            conn,
+            """
+            SELECT requested_at, endpoint, status_code, ok, error
+            FROM api_football_requests
+            ORDER BY requested_at DESC
+            LIMIT 1
+            """,
+        ).fetchone()
+
+    return {
+        "configured": bool(API_FOOTBALL_KEY),
+        "protected": bool(API_FOOTBALL_SYNC_TOKEN),
+        "league": API_FOOTBALL_LEAGUE_ID,
+        "season": API_FOOTBALL_SEASON,
+        "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        "requests_today": api_football_request_count_today(),
+        "linked_matches": int(linked_row["count"] if linked_row else 0),
+        "synced_results": int(result_row["count"] if result_row else 0),
+        "latest_request": dict(latest_request) if latest_request else None,
+    }
+
+
+def apply_synced_match_results(data: dict[str, Any]) -> None:
+    try:
+        with get_db() as conn:
+            rows = execute(
+                conn,
+                """
+                SELECT match_id, source_fixture_id, status_long, status_short, elapsed,
+                       home_score, away_score, synced_at
+                FROM match_results
+                """,
+            ).fetchall()
+    except Exception:
+        logger.exception("Could not load synced match results")
+        return
+
+    by_match = {row["match_id"]: row for row in rows}
+    for match in data.get("matches", []):
+        row = by_match.get(match["id"])
+        if not row:
+            continue
+        match["api_football"] = {
+            "fixture_id": row["source_fixture_id"],
+            "status": row["status_short"],
+            "synced_at": row["synced_at"],
+        }
+        if (
+            row["status_short"] in API_FOOTBALL_FINAL_STATUSES
+            and row["home_score"] is not None
+            and row["away_score"] is not None
+        ):
+            match["status"] = "completed"
+            match["home_score"] = int(row["home_score"])
+            match["away_score"] = int(row["away_score"])
+
+
+def api_fixture_datetime(api_fixture: dict[str, Any]) -> datetime | None:
+    return parse_iso_datetime(api_fixture.get("fixture", {}).get("date"))
+
+
+def provider_team_mapping(
+    match: dict[str, Any], fixture: dict[str, Any], data: dict[str, Any]
+) -> dict[int, str]:
+    teams = fixture.get("teams", {})
+    mapping: dict[int, str] = {}
+    for side in ("home", "away"):
+        api_team = teams.get(side) or {}
+        api_team_id = int_or_none(api_team.get("id"))
+        local_team_id = local_team_id_from_name(api_team.get("name"), data)
+        if api_team_id is not None and local_team_id:
+            mapping[api_team_id] = local_team_id
+
+    if not mapping:
+        home_id = int_or_none((teams.get("home") or {}).get("id"))
+        away_id = int_or_none((teams.get("away") or {}).get("id"))
+        if home_id is not None:
+            mapping[home_id] = match["home_team_id"]
+        if away_id is not None:
+            mapping[away_id] = match["away_team_id"]
+    return mapping
+
+
+def local_score_from_fixture(
+    match: dict[str, Any], fixture: dict[str, Any], data: dict[str, Any]
+) -> tuple[int | None, int | None]:
+    goals = fixture.get("goals") or {}
+    api_home_score = int_or_none(goals.get("home"))
+    api_away_score = int_or_none(goals.get("away"))
+    if api_home_score is None or api_away_score is None:
+        return None, None
+
+    mapping = provider_team_mapping(match, fixture, data)
+    api_home_id = int_or_none((fixture.get("teams", {}).get("home") or {}).get("id"))
+    api_away_id = int_or_none((fixture.get("teams", {}).get("away") or {}).get("id"))
+    api_home_local = mapping.get(api_home_id) if api_home_id is not None else None
+    api_away_local = mapping.get(api_away_id) if api_away_id is not None else None
+
+    if api_home_local == match["home_team_id"] and api_away_local == match["away_team_id"]:
+        return api_home_score, api_away_score
+    if api_home_local == match["away_team_id"] and api_away_local == match["home_team_id"]:
+        return api_away_score, api_home_score
+    return api_home_score, api_away_score
+
+
+def team_conceded_by_local_id(
+    match: dict[str, Any],
+    fixture: dict[str, Any],
+    data: dict[str, Any],
+) -> dict[str, int]:
+    home_score, away_score = local_score_from_fixture(match, fixture, data)
+    if home_score is None or away_score is None:
+        return {}
+    return {
+        match["home_team_id"]: away_score,
+        match["away_team_id"]: home_score,
+    }
+
+
+def api_football_link_fixtures(data: dict[str, Any]) -> dict[str, Any]:
+    payload = api_football_get(
+        "fixtures",
+        {"league": API_FOOTBALL_LEAGUE_ID, "season": API_FOOTBALL_SEASON},
+    )
+    fixtures = payload.get("response", [])
+    matches_by_pair: dict[frozenset[str], list[dict[str, Any]]] = {}
+    for match in data["matches"]:
+        pair = frozenset([match["home_team_id"], match["away_team_id"]])
+        matches_by_pair.setdefault(pair, []).append(match)
+
+    linked = 0
+    skipped = 0
+    with get_db() as conn:
+        for fixture in fixtures:
+            teams = fixture.get("teams", {})
+            home_team = teams.get("home") or {}
+            away_team = teams.get("away") or {}
+            home_local = local_team_id_from_name(home_team.get("name"), data)
+            away_local = local_team_id_from_name(away_team.get("name"), data)
+            api_fixture_id = int_or_none((fixture.get("fixture") or {}).get("id"))
+            if not home_local or not away_local or api_fixture_id is None:
+                skipped += 1
+                continue
+
+            candidates = matches_by_pair.get(frozenset([home_local, away_local]), [])
+            if not candidates:
+                skipped += 1
+                continue
+            fixture_date = api_fixture_datetime(fixture)
+            if fixture_date:
+                match = min(
+                    candidates,
+                    key=lambda candidate: abs(
+                        (match_kickoff(candidate) - fixture_date).total_seconds()
+                    ),
+                )
+                delta_seconds = abs((match_kickoff(match) - fixture_date).total_seconds())
+                if delta_seconds > 36 * 60 * 60:
+                    skipped += 1
+                    continue
+                confidence = "team_pair_and_kickoff"
+            else:
+                match = candidates[0]
+                confidence = "team_pair"
+
+            execute(
+                conn,
+                """
+                INSERT INTO api_football_fixture_links (
+                    match_id, api_fixture_id, api_home_team_id, api_away_team_id,
+                    api_home_team_name, api_away_team_name, confidence, linked_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(match_id)
+                DO UPDATE SET api_fixture_id = excluded.api_fixture_id,
+                              api_home_team_id = excluded.api_home_team_id,
+                              api_away_team_id = excluded.api_away_team_id,
+                              api_home_team_name = excluded.api_home_team_name,
+                              api_away_team_name = excluded.api_away_team_name,
+                              confidence = excluded.confidence,
+                              linked_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    match["id"],
+                    api_fixture_id,
+                    int_or_none(home_team.get("id")),
+                    int_or_none(away_team.get("id")),
+                    home_team.get("name"),
+                    away_team.get("name"),
+                    confidence,
+                ),
+            )
+            linked += 1
+
+    return {"linked": linked, "skipped": skipped, "fixtures_seen": len(fixtures)}
+
+
+def api_football_fixture_links() -> dict[str, int]:
+    with get_db() as conn:
+        rows = execute(
+            conn,
+            "SELECT match_id, api_fixture_id FROM api_football_fixture_links",
+        ).fetchall()
+    return {row["match_id"]: int(row["api_fixture_id"]) for row in rows}
+
+
+def synced_result_rows() -> dict[str, Any]:
+    with get_db() as conn:
+        rows = execute(
+            conn,
+            """
+            SELECT match_id, status_short, synced_at
+            FROM match_results
+            """,
+        ).fetchall()
+    return {row["match_id"]: row for row in rows}
+
+
+def due_api_football_matches(
+    data: dict[str, Any],
+    force: bool = False,
+    limit: int = API_FOOTBALL_MAX_BATCH_SIZE,
+) -> list[dict[str, Any]]:
+    current = utc_now()
+    synced = synced_result_rows()
+    due = []
+    for match in sorted(data["matches"], key=match_kickoff):
+        if not match.get("home_team_id") or not match.get("away_team_id"):
+            continue
+        if not force and current < match_kickoff(match) + API_FOOTBALL_POSTMATCH_BUFFER:
+            continue
+        row = synced.get(match["id"])
+        if row and row["status_short"] in API_FOOTBALL_FINAL_STATUSES and not force:
+            synced_at = parse_iso_datetime(row["synced_at"])
+            if synced_at and current < synced_at + API_FOOTBALL_FINAL_RESYNC_AFTER:
+                continue
+        due.append(match)
+        if len(due) >= limit:
+            break
+    return due
+
+
+def event_key(event: dict[str, Any], index: int) -> str:
+    time_data = event.get("time") or {}
+    team = event.get("team") or {}
+    player = event.get("player") or {}
+    assist = event.get("assist") or {}
+    parts = [
+        time_data.get("elapsed"),
+        time_data.get("extra"),
+        team.get("id"),
+        player.get("id") or player.get("name"),
+        assist.get("id") or assist.get("name"),
+        event.get("type"),
+        event.get("detail"),
+        event.get("comments"),
+        index,
+    ]
+    return "|".join(str(part or "") for part in parts)
+
+
+def store_api_football_fixture_snapshot(
+    conn: Any,
+    match: dict[str, Any],
+    fixture: dict[str, Any],
+    data: dict[str, Any],
+) -> dict[str, Any]:
+    api_fixture = fixture.get("fixture") or {}
+    api_fixture_id = int_or_none(api_fixture.get("id"))
+    if api_fixture_id is None:
+        raise ValueError(f"API-Football fixture for {match['id']} has no fixture id.")
+
+    status = api_fixture.get("status") or {}
+    status_short = status.get("short")
+    home_score, away_score = local_score_from_fixture(match, fixture, data)
+    elapsed = int_or_none(status.get("elapsed"))
+    mapping = provider_team_mapping(match, fixture, data)
+    conceded = team_conceded_by_local_id(match, fixture, data)
+    final = status_short in API_FOOTBALL_FINAL_STATUSES
+
+    execute(
+        conn,
+        """
+        INSERT INTO api_football_fixture_snapshots (
+            match_id, api_fixture_id, payload_json, synced_at
+        )
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(match_id)
+        DO UPDATE SET api_fixture_id = excluded.api_fixture_id,
+                      payload_json = excluded.payload_json,
+                      synced_at = CURRENT_TIMESTAMP
+        """,
+        (match["id"], api_fixture_id, json.dumps(fixture, sort_keys=True)),
+    )
+    execute(
+        conn,
+        """
+        INSERT INTO match_results (
+            match_id, source, source_fixture_id, status_long, status_short,
+            elapsed, home_score, away_score, synced_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(match_id)
+        DO UPDATE SET source = excluded.source,
+                      source_fixture_id = excluded.source_fixture_id,
+                      status_long = excluded.status_long,
+                      status_short = excluded.status_short,
+                      elapsed = excluded.elapsed,
+                      home_score = excluded.home_score,
+                      away_score = excluded.away_score,
+                      synced_at = CURRENT_TIMESTAMP
+        """,
+        (
+            match["id"],
+            "api-football",
+            api_fixture_id,
+            status.get("long"),
+            status_short,
+            elapsed,
+            home_score,
+            away_score,
+        ),
+    )
+
+    execute(conn, "DELETE FROM match_events WHERE match_id = ?", (match["id"],))
+    for index, event in enumerate(fixture.get("events") or []):
+        team = event.get("team") or {}
+        player = event.get("player") or {}
+        assist = event.get("assist") or {}
+        api_team_id = int_or_none(team.get("id"))
+        time_data = event.get("time") or {}
+        execute(
+            conn,
+            """
+            INSERT INTO match_events (
+                match_id, provider_event_key, source_fixture_id, elapsed, extra,
+                local_team_id, api_team_id, team_name, api_player_id, player_name,
+                api_assist_id, assist_name, event_type, detail, comments, raw_json,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                match["id"],
+                event_key(event, index),
+                api_fixture_id,
+                int_or_none(time_data.get("elapsed")),
+                int_or_none(time_data.get("extra")),
+                mapping.get(api_team_id) if api_team_id is not None else None,
+                api_team_id,
+                team.get("name"),
+                int_or_none(player.get("id")),
+                player.get("name"),
+                int_or_none(assist.get("id")),
+                assist.get("name"),
+                event.get("type") or "",
+                event.get("detail"),
+                event.get("comments"),
+                json.dumps(event, sort_keys=True),
+            ),
+        )
+
+    execute(conn, "DELETE FROM match_clean_sheets WHERE match_id = ?", (match["id"],))
+    if final:
+        clean_sheet_api_ids = {
+            api_team_id
+            for api_team_id, local_team_id in mapping.items()
+            if conceded.get(local_team_id) == 0
+        }
+        teams = fixture.get("teams") or {}
+        for side in ("home", "away"):
+            api_team = teams.get(side) or {}
+            api_team_id = int_or_none(api_team.get("id"))
+            if api_team_id is None or api_team_id not in clean_sheet_api_ids:
+                continue
+            local_team_id = mapping.get(api_team_id)
+            if not local_team_id:
+                continue
+            execute(
+                conn,
+                """
+                INSERT INTO match_clean_sheets (
+                    match_id, local_team_id, api_team_id, team_name, source_fixture_id, synced_at
+                )
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(match_id, local_team_id)
+                DO UPDATE SET api_team_id = excluded.api_team_id,
+                              team_name = excluded.team_name,
+                              source_fixture_id = excluded.source_fixture_id,
+                              synced_at = CURRENT_TIMESTAMP
+                """,
+                (match["id"], local_team_id, api_team_id, api_team.get("name"), api_fixture_id),
+            )
+
+    execute(conn, "DELETE FROM player_match_stats WHERE match_id = ?", (match["id"],))
+    for team_block in fixture.get("players") or []:
+        api_team = team_block.get("team") or {}
+        api_team_id = int_or_none(api_team.get("id"))
+        local_team_id = mapping.get(api_team_id) if api_team_id is not None else None
+        team_clean_sheet = bool(final and local_team_id and conceded.get(local_team_id) == 0)
+        for player_block in team_block.get("players") or []:
+            player = player_block.get("player") or {}
+            statistics = (player_block.get("statistics") or [{}])[0] or {}
+            games = statistics.get("games") or {}
+            goals = statistics.get("goals") or {}
+            cards = statistics.get("cards") or {}
+            api_player_id = int_or_none(player.get("id"))
+            player_name = player.get("name") or "Unknown"
+            provider_player_key = str(api_player_id) if api_player_id is not None else compact_name(
+                player_name
+            )
+            minutes = int_or_none(games.get("minutes")) or 0
+            execute(
+                conn,
+                """
+                INSERT INTO player_match_stats (
+                    match_id, provider_player_key, source_fixture_id, local_team_id,
+                    api_team_id, team_name, api_player_id, player_name, minutes,
+                    position, rating, goals, assists, yellow_cards, red_cards,
+                    clean_sheet, raw_json, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    match["id"],
+                    provider_player_key,
+                    api_fixture_id,
+                    local_team_id,
+                    api_team_id,
+                    api_team.get("name"),
+                    api_player_id,
+                    player_name,
+                    minutes,
+                    games.get("position"),
+                    games.get("rating"),
+                    int_or_none(goals.get("total")) or 0,
+                    int_or_none(goals.get("assists")) or 0,
+                    int_or_none(cards.get("yellow")) or 0,
+                    int_or_none(cards.get("red")) or 0,
+                    bool_int(team_clean_sheet and minutes > 0),
+                    json.dumps(player_block, sort_keys=True),
+                ),
+            )
+
+    return {
+        "match_id": match["id"],
+        "fixture_id": api_fixture_id,
+        "status": status_short,
+        "final": final,
+        "home_score": home_score,
+        "away_score": away_score,
+        "events": len(fixture.get("events") or []),
+        "player_rows": sum(
+            len(block.get("players") or []) for block in fixture.get("players") or []
+        ),
+    }
+
+
+def run_api_football_completed_sync(
+    data: dict[str, Any],
+    force: bool = False,
+    dry_run: bool = False,
+    limit: int = API_FOOTBALL_MAX_BATCH_SIZE,
+) -> dict[str, Any]:
+    if not API_FOOTBALL_KEY:
+        return {"ok": False, "error": "API_FOOTBALL_KEY is not configured."}
+
+    limit = max(1, min(API_FOOTBALL_MAX_BATCH_SIZE, int(limit)))
+    candidates = due_api_football_matches(data, force=force, limit=limit)
+    if not candidates:
+        return {"ok": True, "synced": [], "skipped": [], "linking": None, "dry_run": dry_run}
+
+    links = api_football_fixture_links()
+    missing_link_ids = [match["id"] for match in candidates if match["id"] not in links]
+    linking = None
+    if missing_link_ids and not dry_run:
+        linking = api_football_link_fixtures(data)
+        links = api_football_fixture_links()
+
+    linked_candidates = [match for match in candidates if match["id"] in links]
+    skipped = [
+        {"match_id": match["id"], "reason": "missing_api_football_fixture_link"}
+        for match in candidates
+        if match["id"] not in links
+    ]
+    if dry_run:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "candidates": [
+                {"match_id": match["id"], "fixture_id": links.get(match["id"])}
+                for match in candidates
+            ],
+            "skipped": skipped,
+            "linking": linking,
+        }
+    if not linked_candidates:
+        return {"ok": True, "synced": [], "skipped": skipped, "linking": linking}
+
+    fixture_ids = [links[match["id"]] for match in linked_candidates]
+    payload = api_football_get("fixtures", {"ids": "-".join(str(value) for value in fixture_ids)})
+    fixture_by_id = {}
+    for fixture in payload.get("response", []):
+        api_fixture_id = int_or_none((fixture.get("fixture") or {}).get("id"))
+        if api_fixture_id is not None:
+            fixture_by_id[api_fixture_id] = fixture
+    synced = []
+    with get_db() as conn:
+        for match in linked_candidates:
+            fixture = fixture_by_id.get(links[match["id"]])
+            if fixture is None:
+                skipped.append({"match_id": match["id"], "reason": "fixture_not_returned"})
+                continue
+            synced.append(store_api_football_fixture_snapshot(conn, match, fixture, data))
+
+    return {
+        "ok": True,
+        "dry_run": False,
+        "synced": synced,
+        "skipped": skipped,
+        "linking": linking,
+        "requests_today": api_football_request_count_today(),
+        "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+    }
 
 
 def local_match_date(match: dict[str, Any]) -> Any:
@@ -906,6 +1833,21 @@ def require_current_user(
     if not user:
         return None, (jsonify({"error": error_message}), 401)
     return user, None
+
+
+def sync_token_from_request() -> str:
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.casefold().startswith("bearer "):
+        return auth_header.split(" ", 1)[1].strip()
+    return request.headers.get("X-WK-HUB-SYNC-TOKEN", "") or request.args.get("token", "")
+
+
+def require_sync_token() -> Any | None:
+    if not API_FOOTBALL_SYNC_TOKEN:
+        return jsonify({"error": "WK_HUB_SYNC_TOKEN or CRON_SECRET is not configured."}), 503
+    if sync_token_from_request() != API_FOOTBALL_SYNC_TOKEN:
+        return jsonify({"error": "Invalid sync token."}), 403
+    return None
 
 
 def social_state(user: dict[str, Any]) -> dict[str, Any]:
@@ -1748,6 +2690,65 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
     }
 
 
+def match_result_details(match_id: str, data: dict[str, Any]) -> dict[str, Any] | None:
+    match = next((candidate for candidate in data["matches"] if candidate["id"] == match_id), None)
+    if match is None:
+        return None
+
+    with get_db() as conn:
+        result = execute(
+            conn,
+            """
+            SELECT match_id, source, source_fixture_id, status_long, status_short,
+                   elapsed, home_score, away_score, synced_at
+            FROM match_results
+            WHERE match_id = ?
+            """,
+            (match_id,),
+        ).fetchone()
+        events = execute(
+            conn,
+            """
+            SELECT elapsed, extra, local_team_id, api_team_id, team_name, api_player_id,
+                   player_name, api_assist_id, assist_name, event_type, detail, comments
+            FROM match_events
+            WHERE match_id = ?
+            ORDER BY COALESCE(elapsed, 999), COALESCE(extra, 0), provider_event_key
+            """,
+            (match_id,),
+        ).fetchall()
+        clean_sheets = execute(
+            conn,
+            """
+            SELECT local_team_id, api_team_id, team_name
+            FROM match_clean_sheets
+            WHERE match_id = ?
+            ORDER BY team_name
+            """,
+            (match_id,),
+        ).fetchall()
+        player_stats = execute(
+            conn,
+            """
+            SELECT local_team_id, api_team_id, team_name, api_player_id, player_name,
+                   minutes, position, rating, goals, assists, yellow_cards, red_cards,
+                   clean_sheet
+            FROM player_match_stats
+            WHERE match_id = ?
+            ORDER BY team_name, position, player_name
+            """,
+            (match_id,),
+        ).fetchall()
+
+    return {
+        "match": match,
+        "result": dict(result) if result else None,
+        "events": [dict(row) for row in events],
+        "clean_sheets": [dict(row) for row in clean_sheets],
+        "player_stats": [dict(row) for row in player_stats],
+    }
+
+
 if not CONFIG_ERROR:
     try:
         init_db()
@@ -1756,15 +2757,30 @@ if not CONFIG_ERROR:
             raise
         logger.exception("Database initialization failed")
         CONFIG_ERROR = (
-            "Database initialization failed. Check POSTGRES_URL or DATABASE_URL in Vercel."
+            "Database initialization failed. Check DATABASE_URL or POSTGRES_URL in Vercel."
         )
 
 
 @app.get("/api/health")
 def health():
     if CONFIG_ERROR:
-        return jsonify({"ok": False, "error": CONFIG_ERROR}), 503
-    return jsonify({"ok": True})
+        return jsonify({"ok": False, "database": database_label(), "error": CONFIG_ERROR}), 503
+    try:
+        with get_db() as conn:
+            execute(conn, "SELECT 1").fetchone()
+    except Exception:
+        logger.exception("Database health check failed")
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "database": database_label(),
+                    "error": "Database connection failed.",
+                }
+            ),
+            503,
+        )
+    return jsonify({"ok": True, "database": database_label()})
 
 
 @app.get("/api/world-cup")
@@ -1837,6 +2853,72 @@ def logout():
 def pool():
     data = load_world_cup_data()
     return jsonify(user_pool_state(current_user(), data))
+
+
+@app.get("/api/matches/<match_id>/result")
+def match_result_api(match_id: str):
+    user, error_response = require_current_user()
+    if error_response:
+        return error_response
+    data = load_world_cup_data()
+    details = match_result_details(match_id, data)
+    if details is None:
+        return jsonify({"error": "Match not found."}), 404
+    return jsonify(details)
+
+
+@app.get("/api/admin/api-football/status")
+def api_football_admin_status():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    return jsonify(api_football_status())
+
+
+@app.post("/api/admin/api-football/sync")
+def api_football_admin_sync():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    payload = request.get_json(silent=True) or {}
+    data = load_world_cup_data()
+    try:
+        result = run_api_football_completed_sync(
+            data,
+            force=bool(payload.get("force", False)),
+            dry_run=bool(payload.get("dry_run", False)),
+            limit=int(payload.get("limit", API_FOOTBALL_MAX_BATCH_SIZE)),
+        )
+    except Exception as error:
+        logger.exception("API-Football manual sync failed")
+        result = {
+            "ok": False,
+            "error": str(error),
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+    status_code = 200 if result.get("ok") else 503
+    return jsonify(result), status_code
+
+
+@app.get("/api/cron/api-football-sync")
+def api_football_cron_sync():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    data = load_world_cup_data()
+    try:
+        result = run_api_football_completed_sync(data)
+    except Exception as error:
+        logger.exception("API-Football cron sync failed")
+        result = {
+            "ok": False,
+            "error": str(error),
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+    status_code = 200 if result.get("ok") else 503
+    return jsonify(result), status_code
 
 
 @app.get("/api/social")

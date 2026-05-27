@@ -9,6 +9,12 @@
       "excludeFiles": "{frontend/**,node_modules/**,backend/__pycache__/**,**/*.pyc}"
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron/api-football-sync",
+      "schedule": "0 8 * * *"
+    }
+  ],
   "rewrites": [
     {
       "source": "/api/:path*",
