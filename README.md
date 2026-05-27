@@ -43,3 +43,5 @@ Host on Vercel from the repository root. The included `vercel.json` builds `fron
 
 - `POSTGRES_URL` or `DATABASE_URL`
 - `WK_HUB_SECRET`
+
+`POSTGRES_URL` or `DATABASE_URL` must be present in the Vercel project for the API to start. Without it, `/api/health` returns a JSON `503` explaining the missing database configuration, and the app cannot load pool data.

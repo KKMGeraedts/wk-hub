@@ -124,6 +124,7 @@ const VIEW_ROUTES = {
   join: "/join",
   leaderboard: "/leaderboard",
   groups: "/tables",
+  teams: "/teams",
   schedule: "/schedule",
   venues: "/venues",
   matchday: "/matchday",
@@ -173,6 +174,7 @@ function normalizeRoute(pathname) {
 function viewFromRoute(pathname) {
   const path = normalizeRoute(pathname);
   if (/^\/profile\/\d+$/.test(path)) return "profile";
+  if (/^\/teams\/[a-z0-9-]+$/i.test(path)) return "team";
   return ROUTE_VIEWS[path] ?? null;
 }
 
@@ -184,8 +186,17 @@ function profileRoute(userId) {
   return `/profile/${userId}`;
 }
 
-function routeForView(view, profileId = "") {
+function teamIdFromRoute(pathname) {
+  return normalizeRoute(pathname).match(/^\/teams\/([a-z0-9-]+)$/i)?.[1] ?? "";
+}
+
+function teamRoute(teamId) {
+  return `/teams/${teamId}`;
+}
+
+function routeForView(view, profileId = "", teamId = "") {
   if (view === "profile" && profileId) return profileRoute(profileId);
+  if (view === "team" && teamId) return teamRoute(teamId);
   return VIEW_ROUTES[view] ?? VIEW_ROUTES.leaderboard;
 }
 
@@ -230,6 +241,7 @@ function viewLabel(view) {
     home: "Home",
     leaderboard: "Leaderboard",
     groups: "Tables",
+    teams: "Teams",
     schedule: "Schedule",
     matchday: "Matchday",
     venues: "Venues",
@@ -254,9 +266,21 @@ async function apiJson(path, options = {}) {
     headers: { "Content-Type": "application/json", ...(options.headers ?? {}) },
     ...options,
   });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `API returned ${response.status}`);
-  return data;
+  const body = await response.text();
+  let data = null;
+  if (body) {
+    try {
+      data = JSON.parse(body);
+    } catch {
+      const snippet = body.trim().replace(/\s+/g, " ").slice(0, 180);
+      const message = snippet
+        ? `API ${path} returned ${response.status}: ${snippet}`
+        : `API ${path} returned ${response.status} without JSON`;
+      throw new Error(message);
+    }
+  }
+  if (!response.ok) throw new Error(data?.error || `API returned ${response.status}`);
+  return data ?? {};
 }
 
 function FieldMark() {
@@ -307,6 +331,51 @@ function TeamBadge({ id, teams, align = "left" }) {
       </span>
     </span>
   );
+}
+
+function teamProfile(team) {
+  return team?.profile ?? team?.team_profile ?? {};
+}
+
+function normalizePeople(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  return [value];
+}
+
+function personName(person) {
+  if (typeof person === "string") return person;
+  return person?.name ?? person?.full_name ?? "To be confirmed";
+}
+
+function personRole(person, fallback = "") {
+  if (typeof person === "string") return fallback;
+  return person?.role ?? person?.position ?? person?.job_title ?? fallback;
+}
+
+function personMeta(person) {
+  if (typeof person === "string") return "";
+  return [person?.club, person?.country, person?.age ? `${person.age} yrs` : ""].filter(Boolean).join(" · ");
+}
+
+function teamCoach(team) {
+  const profile = teamProfile(team);
+  return profile.head_coach ?? profile.coach ?? team?.head_coach ?? team?.coach ?? null;
+}
+
+function teamStaff(team) {
+  const profile = teamProfile(team);
+  return normalizePeople(profile.staff ?? profile.coaching_staff ?? team?.staff ?? team?.coaching_staff);
+}
+
+function teamPlayers(team) {
+  const profile = teamProfile(team);
+  return normalizePeople(profile.players ?? profile.squad ?? profile.roster ?? team?.players ?? team?.squad ?? team?.roster);
+}
+
+function teamSources(team) {
+  const profile = teamProfile(team);
+  return normalizePeople(profile.sources ?? team?.sources);
 }
 
 function LockPill({ lock }) {
@@ -646,6 +715,226 @@ function Schedule({ matches, teams, venues }) {
       </div>
     </React.Fragment>
   ));
+}
+
+function TeamDirectoryPage({ data, teams, onTeam }) {
+  const groupedTeams = data.groups.map((group) => ({
+    ...group,
+    teams: group.teams.map((teamId) => teams.get(teamId)).filter(Boolean),
+  }));
+
+  return (
+    <div className="teams-page">
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <h3>Teams</h3>
+            <p>All participating countries by group.</p>
+          </div>
+          <span className="pill green">{data.teams.length} teams</span>
+        </div>
+        <div className="panel-body team-directory">
+          {groupedTeams.map((group) => (
+            <section className="team-group-block" key={group.id} aria-label={`Group ${group.id}`}>
+              <div className="team-group-heading">
+                <h4>Group {group.id}</h4>
+                <span className="pill">{group.teams.length} teams</span>
+              </div>
+              <div className="team-directory-grid">
+                {group.teams.map((team) => (
+                  <button className="team-directory-card" key={team.id} type="button" onClick={() => onTeam(team.id)}>
+                    <span className="team-card-flag" aria-hidden="true">{teamFlag(team.id)}</span>
+                    <span className="team-card-copy">
+                      <strong>{team.name}</strong>
+                      <span>{team.code} · {team.confederation}</span>
+                    </span>
+                    <span className="team-card-meta">
+                      {team.is_host && <em>Host</em>}
+                      <b>#{team.fifa_ranking ?? "-"}</b>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function TeamPeopleSection({
+  title,
+  subtitle,
+  people,
+  empty,
+  countLabel,
+  fallbackRole = "",
+}) {
+  return (
+    <article className="panel team-section">
+      <div className="panel-header">
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <span className={people.length ? "pill green" : "pill"}>{people.length ? countLabel ?? people.length : "TBC"}</span>
+      </div>
+      <div className="panel-body">
+        {!people.length && <div className="empty compact">{empty}</div>}
+        {!!people.length && (
+          <ul className="team-person-list">
+            {people.map((person, index) => {
+              const role = personRole(person, fallbackRole);
+              const meta = personMeta(person);
+              const number = typeof person === "string" ? "" : person?.number ?? person?.shirt_number ?? "";
+              return (
+                <li className="team-person-row" key={`${personName(person)}-${index}`}>
+                  <span className="team-person-number">{number || index + 1}</span>
+                  <span>
+                    <strong>{personName(person)}</strong>
+                    {(role || meta) && <em>{[role, meta].filter(Boolean).join(" · ")}</em>}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function TeamFixtureSection({ team, matches, teams, venues }) {
+  const teamMatches = matches
+    .filter((match) => match.home_team_id === team.id || match.away_team_id === team.id)
+    .sort((a, b) => escapeDate(a) - escapeDate(b));
+
+  return (
+    <article className="panel team-section">
+      <div className="panel-header">
+        <div>
+          <h3>Matches</h3>
+          <p>{team.name} fixtures in the current schedule.</p>
+        </div>
+        <span className="pill">{teamMatches.length} matches</span>
+      </div>
+      <div className="panel-body team-fixture-list">
+        {!teamMatches.length && <div className="empty compact">No matches available for this team.</div>}
+        {teamMatches.map((match) => {
+          const opponentId = match.home_team_id === team.id ? match.away_team_id : match.home_team_id;
+          const venue = venues.get(match.venue_id);
+          return (
+            <article className="team-fixture-row" key={match.id}>
+              <span className="match-time">{formatTime(match)}</span>
+              <span>
+                <strong><TeamLabel id={opponentId} teams={teams} /></strong>
+                <em>{formatDate(match, true)} · {venue?.city ?? "Venue to confirm"}</em>
+              </span>
+              <span className="pill">{match.group ? `Group ${match.group}` : match.round}</span>
+            </article>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
+function TeamDetailPage({ team, data, teams, venues, onBack }) {
+  if (!team) {
+    return (
+      <div className="teams-page">
+        <article className="panel">
+          <div className="panel-header">
+            <div>
+              <h3>Team not found</h3>
+              <p>This country is not available in the current World Cup data.</p>
+            </div>
+            <button className="text-button" type="button" onClick={onBack}>Teams</button>
+          </div>
+        </article>
+      </div>
+    );
+  }
+
+  const group = data.groups.find((candidate) => candidate.teams.includes(team.id));
+  const coach = teamCoach(team);
+  const staff = teamStaff(team);
+  const players = teamPlayers(team);
+  const sources = teamSources(team);
+
+  return (
+    <div className="team-page">
+      <button className="text-button team-back-button" type="button" onClick={onBack}>
+        Back to Teams
+      </button>
+
+      <section className="team-hero" aria-label={`${team.name} team profile`}>
+        <span className="team-hero-flag" aria-hidden="true">{teamFlag(team.id)}</span>
+        <div className="team-hero-copy">
+          <p className="eyebrow">Group {team.group ?? group?.id ?? "-"}</p>
+          <h3>{team.name}</h3>
+          <div className="team-hero-meta">
+            <span>{team.code}</span>
+            <span>{team.confederation}</span>
+            <span>FIFA #{team.fifa_ranking ?? "-"}</span>
+            {team.is_host && <span>Host nation</span>}
+          </div>
+        </div>
+      </section>
+
+      <div className="team-profile-grid">
+        <TeamPeopleSection
+          title="Coach"
+          subtitle="Head coach for this World Cup cycle."
+          people={coach ? [coach] : []}
+          empty="Head coach data is not available in this local dataset yet."
+          countLabel="1 coach"
+          fallbackRole="Head coach"
+        />
+        <TeamPeopleSection
+          title="Staff"
+          subtitle="Technical and support staff."
+          people={staff}
+          empty="Staff data is not available in this local dataset yet."
+        />
+      </div>
+
+      <TeamPeopleSection
+        title="WK squad"
+        subtitle="Players selected for the tournament."
+        people={players}
+        empty="Final WK squad data is not available in this local dataset yet."
+        countLabel={`${players.length} players`}
+      />
+
+      {!!sources.length && (
+        <article className="panel team-section">
+          <div className="panel-header">
+            <div>
+              <h3>Sources</h3>
+              <p>Roster references for this team.</p>
+            </div>
+            <span className="pill">{sources.length}</span>
+          </div>
+          <div className="panel-body team-source-list">
+            {sources.map((source, index) => {
+              const href = typeof source === "string" ? source : source.url;
+              const label = typeof source === "string" ? source : source.label ?? source.title ?? source.url ?? "Source";
+              if (!href) return <span key={`${label}-${index}`}>{label}</span>;
+              return (
+                <a key={`${href}-${index}`} href={href} target="_blank" rel="noreferrer">
+                  {label}
+                </a>
+              );
+            })}
+          </div>
+        </article>
+      )}
+
+      <TeamFixtureSection team={team} matches={data.matches} teams={teams} venues={venues} />
+    </div>
+  );
 }
 
 function StandingsTable({ group, matches, teams }) {
@@ -2404,6 +2693,7 @@ function App() {
   const [loadError, setLoadError] = useState("");
   const [view, setView] = useState(() => viewFromRoute(window.location.pathname) ?? "leaderboard");
   const [selectedProfileId, setSelectedProfileId] = useState(() => profileIdFromRoute(window.location.pathname));
+  const [selectedTeamId, setSelectedTeamId] = useState(() => teamIdFromRoute(window.location.pathname));
   const [now, setNow] = useState(() => new Date());
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -2416,7 +2706,7 @@ function App() {
   function navigateToView(nextView, options = {}) {
     setNotificationsOpen(false);
     setView(nextView);
-    const route = routeForView(nextView, selectedProfileId);
+    const route = routeForView(nextView, selectedProfileId, selectedTeamId);
     const historyMethod = options.replace ? "replaceState" : "pushState";
     if (normalizeRoute(window.location.pathname) !== route) {
       window.history[historyMethod]({}, "", route);
@@ -2433,6 +2723,16 @@ function App() {
     }
   }
 
+  function navigateToTeam(teamId) {
+    const nextTeamId = String(teamId);
+    setSelectedTeamId(nextTeamId);
+    setView("team");
+    const route = teamRoute(nextTeamId);
+    if (normalizeRoute(window.location.pathname) !== route) {
+      window.history.pushState({}, "", route);
+    }
+  }
+
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
@@ -2441,12 +2741,14 @@ function App() {
   useEffect(() => {
     function handlePopState() {
       const profileId = profileIdFromRoute(window.location.pathname);
+      const teamId = teamIdFromRoute(window.location.pathname);
       setSelectedProfileId(profileId);
+      setSelectedTeamId(teamId);
       if (pool?.me) {
         const nextView = authenticatedViewFromRoute(pool, window.location.pathname);
         setView(nextView);
-        if (normalizeRoute(window.location.pathname) !== routeForView(nextView, profileId)) {
-          replacePath(routeForView(nextView, profileId));
+        if (normalizeRoute(window.location.pathname) !== routeForView(nextView, profileId, teamId)) {
+          replacePath(routeForView(nextView, profileId, teamId));
         }
         return;
       }
@@ -2481,10 +2783,12 @@ function App() {
             setSocial(socialState);
             const nextView = authenticatedViewFromRoute(poolState, window.location.pathname);
             const profileId = profileIdFromRoute(window.location.pathname);
+            const teamId = teamIdFromRoute(window.location.pathname);
             setSelectedProfileId(profileId);
+            setSelectedTeamId(teamId);
             setView(nextView);
-            if (normalizeRoute(window.location.pathname) !== routeForView(nextView, profileId)) {
-              replacePath(routeForView(nextView, profileId));
+            if (normalizeRoute(window.location.pathname) !== routeForView(nextView, profileId, teamId)) {
+              replacePath(routeForView(nextView, profileId, teamId));
             }
           }
         }
@@ -2595,6 +2899,7 @@ function App() {
   const selectedProfileRank = selectedProfile
     ? pool.leaderboard.findIndex((row) => row.user_id === selectedProfile.user_id) + 1
     : 0;
+  const selectedTeam = maps.teams.get(selectedTeamId) ?? null;
   const venueRows = data.venues;
 
   return (
@@ -2663,11 +2968,14 @@ function App() {
 
         {entryComplete && (
           <nav className="tabs" aria-label="Dashboard views">
-            {["home", "matchday", "leaderboard", "groups", "schedule", "venues"].map((item) => (
-              <button key={item} className={view === item ? "tab is-active" : "tab"} type="button" onClick={() => navigateToView(item)}>
-                {viewLabel(item)}
-              </button>
-            ))}
+            {["home", "matchday", "leaderboard", "groups", "teams", "schedule", "venues"].map((item) => {
+              const active = view === item || (view === "team" && item === "teams");
+              return (
+                <button key={item} className={active ? "tab is-active" : "tab"} type="button" onClick={() => navigateToView(item)}>
+                  {viewLabel(item)}
+                </button>
+              );
+            })}
           </nav>
         )}
 
@@ -2766,6 +3074,24 @@ function App() {
             <div className="groups-grid">
               {data.groups.map((group) => <GroupPanel key={group.id} group={group} data={data} teams={maps.teams} />)}
             </div>
+          </section>
+        )}
+
+        {view === "teams" && (
+          <section className="view is-active">
+            <TeamDirectoryPage data={data} teams={maps.teams} onTeam={navigateToTeam} />
+          </section>
+        )}
+
+        {view === "team" && (
+          <section className="view is-active">
+            <TeamDetailPage
+              team={selectedTeam}
+              data={data}
+              teams={maps.teams}
+              venues={maps.venues}
+              onBack={() => navigateToView("teams")}
+            />
           </section>
         )}
 

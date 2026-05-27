@@ -21,6 +21,11 @@ DIST_DIR = ROOT / "frontend" / "dist"
 DATABASE_URL = os.environ.get("POSTGRES_URL") or os.environ.get("DATABASE_URL")
 USING_POSTGRES = bool(DATABASE_URL)
 IS_VERCEL = os.environ.get("VERCEL") == "1"
+CONFIG_ERROR = (
+    "Set POSTGRES_URL or DATABASE_URL for Talpa WK Pool on Vercel."
+    if IS_VERCEL and not DATABASE_URL
+    else None
+)
 LOG_LEVEL_NAME = os.environ.get("WK_HUB_LOG_LEVEL", "INFO").upper()
 LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
 if not isinstance(LOG_LEVEL, int):
@@ -49,12 +54,13 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
 logger = logging.getLogger("wk_hub")
-
-if IS_VERCEL and not DATABASE_URL:
-    raise RuntimeError("Set POSTGRES_URL or DATABASE_URL for Talpa WK Pool on Vercel.")
+if CONFIG_ERROR:
+    logger.error(CONFIG_ERROR)
 
 
 def database_label() -> str:
+    if CONFIG_ERROR:
+        return "unconfigured database"
     if USING_POSTGRES:
         return "postgres"
     return f"sqlite:{DB_PATH}"
@@ -117,6 +123,13 @@ logger.info("Starting Talpa WK Pool backend with %s", database_label())
 @app.before_request
 def track_request_start() -> None:
     g.request_start_time = time.perf_counter()
+
+
+@app.before_request
+def reject_misconfigured_deployment() -> Any | None:
+    if CONFIG_ERROR and request.path.startswith("/api/") and request.path != "/api/health":
+        return jsonify({"ok": False, "error": CONFIG_ERROR}), 503
+    return None
 
 
 @app.after_request
@@ -1735,11 +1748,22 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
     }
 
 
-init_db()
+if not CONFIG_ERROR:
+    try:
+        init_db()
+    except Exception:
+        if not IS_VERCEL:
+            raise
+        logger.exception("Database initialization failed")
+        CONFIG_ERROR = (
+            "Database initialization failed. Check POSTGRES_URL or DATABASE_URL in Vercel."
+        )
 
 
 @app.get("/api/health")
 def health():
+    if CONFIG_ERROR:
+        return jsonify({"ok": False, "error": CONFIG_ERROR}), 503
     return jsonify({"ok": True})
 
 
