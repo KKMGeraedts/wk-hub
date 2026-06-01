@@ -5,55 +5,55 @@ import "./styles.css";
 const AMSTERDAM_TZ = "Europe/Amsterdam";
 const NETHERLANDS_ID = "ned";
 const TROPHY_SRC = "/world-cup-trophy.svg";
-const TEAM_FLAGS = {
-  alg: "🇩🇿",
-  arg: "🇦🇷",
-  aus: "🇦🇺",
-  aut: "🇦🇹",
-  bel: "🇧🇪",
-  bih: "🇧🇦",
-  bra: "🇧🇷",
-  can: "🇨🇦",
-  civ: "🇨🇮",
-  cod: "🇨🇩",
-  col: "🇨🇴",
-  cpv: "🇨🇻",
-  cro: "🇭🇷",
-  cuw: "🇨🇼",
-  cze: "🇨🇿",
-  ecu: "🇪🇨",
-  egy: "🇪🇬",
-  eng: "🏴",
-  esp: "🇪🇸",
-  fra: "🇫🇷",
-  ger: "🇩🇪",
-  gha: "🇬🇭",
-  hai: "🇭🇹",
-  irn: "🇮🇷",
-  irq: "🇮🇶",
-  jor: "🇯🇴",
-  jpn: "🇯🇵",
-  kor: "🇰🇷",
-  ksa: "🇸🇦",
-  mar: "🇲🇦",
-  mex: "🇲🇽",
-  ned: "🇳🇱",
-  nor: "🇳🇴",
-  nzl: "🇳🇿",
-  pan: "🇵🇦",
-  par: "🇵🇾",
-  por: "🇵🇹",
-  qat: "🇶🇦",
-  rsa: "🇿🇦",
-  sco: "🏴",
-  sen: "🇸🇳",
-  sui: "🇨🇭",
-  swe: "🇸🇪",
-  tun: "🇹🇳",
-  tur: "🇹🇷",
-  uru: "🇺🇾",
-  usa: "🇺🇸",
-  uzb: "🇺🇿",
+const TEAM_FLAG_CODES = {
+  alg: "dz",
+  arg: "ar",
+  aus: "au",
+  aut: "at",
+  bel: "be",
+  bih: "ba",
+  bra: "br",
+  can: "ca",
+  civ: "ci",
+  cod: "cd",
+  col: "co",
+  cpv: "cv",
+  cro: "hr",
+  cuw: "cw",
+  cze: "cz",
+  ecu: "ec",
+  egy: "eg",
+  eng: "gb-eng",
+  esp: "es",
+  fra: "fr",
+  ger: "de",
+  gha: "gh",
+  hai: "ht",
+  irn: "ir",
+  irq: "iq",
+  jor: "jo",
+  jpn: "jp",
+  kor: "kr",
+  ksa: "sa",
+  mar: "ma",
+  mex: "mx",
+  ned: "nl",
+  nor: "no",
+  nzl: "nz",
+  pan: "pa",
+  par: "py",
+  por: "pt",
+  qat: "qa",
+  rsa: "za",
+  sco: "gb-sct",
+  sen: "sn",
+  sui: "ch",
+  swe: "se",
+  tun: "tn",
+  tur: "tr",
+  uru: "uy",
+  usa: "us",
+  uzb: "uz",
 };
 
 function escapeDate(match) {
@@ -224,8 +224,27 @@ function formatCountdown(targetDate, now) {
   };
 }
 
-function teamFlag(id) {
-  return TEAM_FLAGS[id] ?? "";
+function TeamFlag({ id, className = "team-flag" }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const code = TEAM_FLAG_CODES[id];
+  if (!code || imageFailed) {
+    const fallback = String(id ?? "").toUpperCase();
+    return fallback ? <span className={`${className} flag-fallback`} aria-hidden="true">{fallback}</span> : null;
+  }
+  return (
+    <img
+      className={`${className} flag-icon`}
+      src={`https://flagcdn.com/${code}.svg`}
+      alt=""
+      aria-hidden="true"
+      loading="lazy"
+      onError={() => setImageFailed(true)}
+    />
+  );
+}
+
+function teamOptionLabel(team) {
+  return `${team.code ?? team.id.toUpperCase()} - ${team.name}`;
 }
 
 function matchLock(pool, matchId) {
@@ -306,7 +325,7 @@ function TeamLabel({ id, teams }) {
   const team = teams.get(id);
   return (
     <span className="team-inline">
-      {teamFlag(id) && <span className="team-flag" aria-hidden="true">{teamFlag(id)}</span>}
+      <TeamFlag id={id} />
       <span className={id === NETHERLANDS_ID ? "team-name highlight-text" : "team-name"}>
         {team?.name ?? id ?? "TBD"}
       </span>{" "}
@@ -324,7 +343,7 @@ function TeamBadge({ id, teams, align = "left" }) {
   ].filter(Boolean).join(" ");
   return (
     <span className={className}>
-      {teamFlag(id) && <span className="team-badge-flag" aria-hidden="true">{teamFlag(id)}</span>}
+      <TeamFlag id={id} className="team-badge-flag" />
       <span>
         <strong>{team?.name ?? id ?? "TBD"}</strong>
         <em>{team?.code ?? "TBD"}</em>
@@ -378,6 +397,26 @@ function teamSources(team) {
   return normalizePeople(profile.sources ?? team?.sources);
 }
 
+function topScorerOptions(data) {
+  const options = [];
+  for (const team of data?.teams ?? []) {
+    for (const player of teamPlayers(team)) {
+      const name = personName(player);
+      if (!name || name === "To be confirmed") continue;
+      const role = personRole(player);
+      const isAttacker = /forward|striker|wing|attack|aanval/i.test(role);
+      options.push({
+        name,
+        label: `${name} (${team.name})`,
+        preferred: isAttacker ? 0 : 1,
+      });
+    }
+  }
+  return options
+    .sort((a, b) => a.preferred - b.preferred || a.name.localeCompare(b.name))
+    .slice(0, 220);
+}
+
 function LockPill({ lock }) {
   if (!lock?.locked) return null;
   return <span className="lock-pill is-locked">Locked</span>;
@@ -417,8 +456,18 @@ function quizAnswerComplete(quiz, prediction) {
   return true;
 }
 
-function draftQuizPredictions(draft) {
-  return Object.entries(draft).map(([match_id, prediction]) => ({
+function quizDraftHasValue(prediction) {
+  const viewership = prediction?.viewership_prediction;
+  return Boolean(
+    String(prediction?.answer ?? "").trim() ||
+      (viewership !== "" && viewership !== undefined && viewership !== null),
+  );
+}
+
+function draftQuizPredictions(draft, existing = {}) {
+  return Object.entries(draft)
+    .filter(([match_id, prediction]) => quizDraftHasValue(prediction) || existing[match_id])
+    .map(([match_id, prediction]) => ({
     match_id,
     answer: String(prediction?.answer ?? "").trim(),
     viewership_prediction:
@@ -452,26 +501,37 @@ function MatchPredictionEditor({
   onSubmit,
   saving,
   compact = false,
+  showSubmit = true,
 }) {
   const canSubmit = scoreComplete(scores) && !locked && !saving;
 
   function submitOnEnter(event) {
-    if (event.key !== "Enter" || !canSubmit) return;
+    if (event.key !== "Enter" || !showSubmit || !canSubmit) return;
     event.preventDefault();
     onSubmit?.();
   }
 
+  const className = [
+    "fixture-score-grid",
+    compact ? "is-compact" : "",
+    showSubmit ? "" : "has-no-submit",
+  ].filter(Boolean).join(" ");
+
   return (
-    <div className={compact ? "fixture-score-grid is-compact" : "fixture-score-grid"}>
+    <div className={className}>
       <label className="fixture-team-input is-home">
         <TeamBadge id={match.home_team_id} teams={teams} />
         <input
           aria-label={`${teams.get(match.home_team_id)?.name ?? "Home"} score`}
           type="number"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
           min="0"
           max="30"
           value={scores?.home_score ?? ""}
           disabled={locked}
+          onFocus={(event) => event.target.select()}
           onChange={(event) => onScore(match.id, "home_score", event.target.value)}
           onKeyDown={submitOnEnter}
         />
@@ -482,17 +542,23 @@ function MatchPredictionEditor({
         <input
           aria-label={`${teams.get(match.away_team_id)?.name ?? "Away"} score`}
           type="number"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
           min="0"
           max="30"
           value={scores?.away_score ?? ""}
           disabled={locked}
+          onFocus={(event) => event.target.select()}
           onChange={(event) => onScore(match.id, "away_score", event.target.value)}
           onKeyDown={submitOnEnter}
         />
       </label>
-      <button className="fixture-ok-button" type="button" onClick={onSubmit} disabled={!canSubmit}>
-        {saving ? "Saving..." : "OK"}
-      </button>
+      {showSubmit && (
+        <button className="fixture-ok-button" type="button" onClick={onSubmit} disabled={!canSubmit}>
+          {saving ? "Saving..." : "OK"}
+        </button>
+      )}
     </div>
   );
 }
@@ -595,16 +661,18 @@ function MatchPredictionRow({
   onToggleLeeuwtje,
   onSubmit,
   compact = false,
+  quickEntry = false,
 }) {
   const complete = scoreComplete(scores);
   const venue = venues.get(match.venue_id);
   const scoreLabel = complete ? `${scores.home_score} - ${scores.away_score}` : "— - —";
+  const showEditor = quickEntry || editing;
 
   return (
     <article
       className={[
         "prediction-fixture-row",
-        editing ? "is-active" : "",
+        editing && !quickEntry ? "is-active" : "",
         complete ? "is-complete" : "",
         locked ? "is-locked" : "",
       ].filter(Boolean).join(" ")}
@@ -624,12 +692,12 @@ function MatchPredictionRow({
             remaining={leeuwtjesRemaining}
             onToggle={onToggleLeeuwtje}
           />
-          <PredictionStatusPill complete={complete} active={editing} locked={locked} />
+          <PredictionStatusPill complete={complete} active={editing && !quickEntry} locked={locked} />
           <LockPill lock={{ locked }} />
         </div>
       </div>
 
-      {editing ? (
+      {showEditor ? (
         <MatchPredictionEditor
           match={match}
           teams={teams}
@@ -639,6 +707,7 @@ function MatchPredictionRow({
           onSubmit={onSubmit}
           saving={saving}
           compact={compact}
+          showSubmit={!quickEntry}
         />
       ) : (
         <button className="fixture-preview" type="button" onClick={onEdit} disabled={locked}>
@@ -743,7 +812,7 @@ function TeamDirectoryPage({ data, teams, onTeam }) {
               <div className="team-directory-grid">
                 {group.teams.map((team) => (
                   <button className="team-directory-card" key={team.id} type="button" onClick={() => onTeam(team.id)}>
-                    <span className="team-card-flag" aria-hidden="true">{teamFlag(team.id)}</span>
+                    <TeamFlag id={team.id} className="team-card-flag" />
                     <span className="team-card-copy">
                       <strong>{team.name}</strong>
                       <span>{team.code} · {team.confederation}</span>
@@ -870,7 +939,7 @@ function TeamDetailPage({ team, data, teams, venues, onBack }) {
       </button>
 
       <section className="team-hero" aria-label={`${team.name} team profile`}>
-        <span className="team-hero-flag" aria-hidden="true">{teamFlag(team.id)}</span>
+        <TeamFlag id={team.id} className="team-hero-flag" />
         <div className="team-hero-copy">
           <p className="eyebrow">Group {team.group ?? group?.id ?? "-"}</p>
           <h3>{team.name}</h3>
@@ -902,9 +971,9 @@ function TeamDetailPage({ team, data, teams, venues, onBack }) {
 
       <TeamPeopleSection
         title="WK squad"
-        subtitle="Players selected for the tournament."
+        subtitle="Definitive squads are due to FIFA on 1 June 2026 and become official on 2 June."
         people={players}
-        empty="Final WK squad data is not available in this local dataset yet."
+        empty="Squad data is not loaded yet. Some countries may announce earlier, but this local dataset will be completed after FIFA confirmation."
         countLabel={`${players.length} players`}
       />
 
@@ -1169,7 +1238,7 @@ function LoginPanel({ onLogin }) {
       <div className="panel-header">
         <div>
           <h3>Join the Talpa WK Pool</h3>
-          <p>Log in once, then fill in group-stage scores and your tournament winner.</p>
+          <p>Log in once, then fill in group-stage scores and your tournament picks.</p>
         </div>
         <span className="pill orange">Login</span>
       </div>
@@ -1219,26 +1288,78 @@ function ProfileAvatar({ player, size = "medium" }) {
   );
 }
 
-function FriendButton({ relation, onFollow, onUnfollow }) {
-  if (relation === null) return <span className="muted">Your profile</span>;
-  if (relation?.is_friend) {
+function ProfileNameEditor({ player, canEdit, onUpdateName }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(player?.name ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!editing) setDraft(player?.name ?? "");
+  }, [player?.name, editing]);
+
+  if (!canEdit) return <h3>{player.name}</h3>;
+
+  async function submit(event) {
+    event.preventDefault();
+    const nextName = draft.trim().replace(/\s+/g, " ");
+    if (nextName.length < 2) {
+      setError("Gebruik minimaal 2 tekens.");
+      return;
+    }
+    setSaving(true);
+    setError("");
+    try {
+      await onUpdateName(nextName);
+      setEditing(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (editing) {
     return (
-      <button className="text-button friend-button" type="button" onClick={onUnfollow}>
-        Unfollow
-      </button>
+      <form className="profile-name-form" onSubmit={submit}>
+        <label>
+          Gebruikersnaam
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            maxLength="60"
+            autoFocus
+          />
+        </label>
+        <div className="profile-name-actions">
+          <button className="primary-button" type="submit" disabled={saving}>
+            {saving ? "Opslaan..." : "Opslaan"}
+          </button>
+          <button
+            className="text-button"
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              setDraft(player.name);
+              setError("");
+              setEditing(false);
+            }}
+          >
+            Annuleren
+          </button>
+        </div>
+        {error && <span className="form-error">{error}</span>}
+      </form>
     );
   }
-  if (relation?.is_following) {
-    return (
-      <button className="text-button friend-button" type="button" onClick={onUnfollow}>
-        Following
-      </button>
-    );
-  }
+
   return (
-    <button className="primary-button friend-button" type="button" onClick={onFollow}>
-      Follow
-    </button>
+    <div className="profile-name-row">
+      <h3>{player.name}</h3>
+      <button className="text-button" type="button" onClick={() => setEditing(true)}>
+        Naam aanpassen
+      </button>
+    </div>
   );
 }
 
@@ -1767,6 +1888,7 @@ function Leaderboard({ pool, onProfile = () => {} }) {
                 <th className="numeric">Leeuwtjes</th>
                 <th className="numeric">Predictions</th>
                 <th>Winner</th>
+                <th>Top scorer</th>
               </tr>
             </thead>
             <tbody>
@@ -1796,6 +1918,7 @@ function Leaderboard({ pool, onProfile = () => {} }) {
                     <td className="numeric">{row.leeuwtjes_used ?? 0}/{pool.progress?.leeuwtjes_total ?? 5}</td>
                     <td className="numeric">{row.group_stage_predictions}/{row.group_stage_total}</td>
                     <td>{row.winner_pick_name ?? <span className="muted">Not picked</span>}</td>
+                    <td>{row.top_scorer_pick ?? <span className="muted">Not picked</span>}</td>
                   </tr>
                 );
               })}
@@ -1893,11 +2016,10 @@ function PlayerPredictions({ player, canView }) {
 function PlayerProfile({
   player,
   rank,
-  relation,
+  isSelf,
   badgeCatalog,
   onBack,
-  onFollow,
-  onUnfollow,
+  onUpdateName,
 }) {
   if (!player) {
     return (
@@ -1917,7 +2039,6 @@ function PlayerProfile({
     { label: "Games", value: player.scoring_games, detail: "Scored on" },
   ];
   const canViewPredictions = true;
-  const canViewBadges = relation === null || relation?.is_friend;
   const rankLabel = rank ? `Rank #${rank}` : "Nog niet gerankt";
 
   return (
@@ -1935,18 +2056,17 @@ function PlayerProfile({
           <ProfileAvatar player={player} size="large" />
         </div>
         <div className="fifa-card-name">
-          <h3>{player.name}</h3>
-          <p>{player.winner_pick_name ? `Winner pick: ${player.winner_pick_name}` : "No winner picked yet"}</p>
-          <div className="profile-actions">
-            <FriendButton
-              relation={relation}
-              onFollow={() => onFollow(player.user_id)}
-              onUnfollow={() => onUnfollow(player.user_id)}
-            />
-            {relation?.is_friend && <span className="pill green">Badges visible</span>}
-            {relation?.is_following && !relation?.is_friend && <span className="pill warning">Waiting for follow back</span>}
-            {relation?.follows_me && !relation?.is_friend && <span className="pill orange">Follows you</span>}
-          </div>
+          <ProfileNameEditor
+            player={player}
+            canEdit={isSelf}
+            onUpdateName={onUpdateName}
+          />
+          <p>
+            {[
+              player.winner_pick_name ? `Kampioen: ${player.winner_pick_name}` : "Geen kampioen gekozen",
+              player.top_scorer_pick ? `Topscorer: ${player.top_scorer_pick}` : "Geen topscorer gekozen",
+            ].join(" · ")}
+          </p>
         </div>
         <div className="fifa-stats">
           {stats.map((stat) => (
@@ -1958,7 +2078,8 @@ function PlayerProfile({
           ))}
         </div>
       </article>
-      <BadgeProgressSection player={player} badgeCatalog={badgeCatalog} canView={canViewBadges} />
+      <LeeuwtjesHelpToggle used={player.leeuwtjes_used ?? 0} total={5} />
+      <BadgeProgressSection player={player} badgeCatalog={badgeCatalog} canView />
       <PlayerPredictions player={player} canView={canViewPredictions} />
     </div>
   );
@@ -1979,6 +2100,34 @@ function OnboardingActions({ backLabel = "Back", nextLabel, onBack, onNext }) {
   );
 }
 
+function LeeuwtjesInfo({ used = null, total = 5 }) {
+  return (
+    <div className="leeuwtjes-info">
+      <div className="leeuwtjes-mark" aria-hidden="true">2x</div>
+      <div>
+        <strong>Leeuwtjes</strong>
+        <p>
+          Je hebt {total} Leeuwtjes. Zet er eentje op een wedstrijd voor de lock en je scorepunten
+          voor die wedstrijd tellen dubbel. Quizpunten en groepsstandpunten tellen niet dubbel.
+        </p>
+        {used !== null && <span>{used}/{total} Leeuwtjes gebruikt</span>}
+      </div>
+    </div>
+  );
+}
+
+function LeeuwtjesHelpToggle({ used = 0, total = 5 }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="profile-help">
+      <button className="text-button" type="button" onClick={() => setOpen((current) => !current)}>
+        {open ? "Leeuwtjes uitleg verbergen" : "Leeuwtjes uitleg"}
+      </button>
+      {open && <LeeuwtjesInfo used={used} total={total} />}
+    </section>
+  );
+}
+
 function WelcomeStep({ pool, onNext }) {
   return (
     <div className="onboarding-layout">
@@ -1994,6 +2143,7 @@ function WelcomeStep({ pool, onNext }) {
           <p className="onboarding-message">
             This is the Talpa WK Pool for the 2026 World Cup. Check the leaderboard to see who is in, then add your Netherlands group predictions. After that first round is done, the app opens straight to the leaderboard.
           </p>
+          <LeeuwtjesInfo />
           <OnboardingActions nextLabel="View leaderboard" onNext={onNext} />
         </div>
       </article>
@@ -2054,6 +2204,9 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   const [editingMatchId, setEditingMatchId] = useState("");
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
   const [winnerDirty, setWinnerDirty] = useState(false);
+  const [topScorer, setTopScorer] = useState(pool.top_scorer_pick ?? "");
+  const [topScorerDirty, setTopScorerDirty] = useState(false);
+  const [quickEntry, setQuickEntry] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -2061,6 +2214,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   const selectedMatches = selectedGroupId ? matchesByGroup.get(selectedGroupId) ?? [] : [];
   const winnerTeam = winner ? teams.get(winner) : null;
   const lockedWinner = winnerLocked(pool);
+  const topScorerSuggestions = useMemo(() => topScorerOptions(data), [data]);
   const leeuwtjeTotal = leeuwtjesTotal(pool);
   const leeuwtjeUsedCount = leeuwtjeMatchIds.size;
   const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - leeuwtjeUsedCount);
@@ -2089,6 +2243,10 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   useEffect(() => {
     if (!winnerDirty) setWinner(pool.winner_pick ?? "");
   }, [pool.winner_pick, winnerDirty]);
+
+  useEffect(() => {
+    if (!topScorerDirty) setTopScorer(pool.top_scorer_pick ?? "");
+  }, [pool.top_scorer_pick, topScorerDirty]);
 
   function hasPrediction(match) {
     return scoreComplete(draft[match.id]);
@@ -2154,17 +2312,28 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
     setError("");
   }
 
+  function chooseTopScorer(value) {
+    setTopScorer(value);
+    setTopScorerDirty(true);
+    setError("");
+  }
+
   async function save(closeEditor = false, options = {}) {
     setSaving(true);
     setError("");
     const predictions = draftPredictions(draft);
     const body = {
       predictions,
-      quiz_predictions: draftQuizPredictions(quizDraft),
+      quiz_predictions: draftQuizPredictions(quizDraft, pool.quiz_predictions),
       leeuwtjes_match_ids: [...leeuwtjeMatchIds],
+      winner_team_id: winner || null,
+      top_scorer_name: topScorer || null,
     };
     if (Object.hasOwn(options, "winnerTeamId")) {
       body.winner_team_id = options.winnerTeamId || null;
+    }
+    if (Object.hasOwn(options, "topScorerName")) {
+      body.top_scorer_name = options.topScorerName || null;
     }
 
     try {
@@ -2173,7 +2342,8 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
         body: JSON.stringify(body),
       });
       onPoolUpdate(updated);
-      if (Object.hasOwn(options, "winnerTeamId")) setWinnerDirty(false);
+      setWinnerDirty(false);
+      setTopScorerDirty(false);
       if (closeEditor) setEditingMatchId("");
       return updated;
     } catch (err) {
@@ -2185,7 +2355,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   }
 
   async function continueToLeaderboard() {
-    const updated = await save(true, { winnerTeamId: winner });
+    const updated = await save(true, { winnerTeamId: winner, topScorerName: topScorer });
     if (updated) onContinue(updated);
   }
 
@@ -2206,26 +2376,47 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
           </div>
         </div>
         <div className="panel-body">
-          <section className={winnerTeam ? "winner-spotlight-card has-winner" : "winner-spotlight-card"} aria-label="World Cup winner pick">
+          <section className={winnerTeam ? "winner-spotlight-card has-winner" : "winner-spotlight-card"} aria-label="Tournament picks">
             <div className="winner-trophy" aria-hidden="true"><img src={TROPHY_SRC} alt="" /></div>
             <div className="winner-spotlight-copy">
-              <span className="game-kicker">World Cup winner</span>
-              <h4>{winnerTeam ? `${teamFlag(winnerTeam.id)} ${winnerTeam.name}` : "Pick your champion"}</h4>
+              <span className="game-kicker">Tournament picks</span>
+              <h4>
+                {winnerTeam ? (
+                  <span className="winner-team-title"><TeamFlag id={winnerTeam.id} /> {winnerTeam.name}</span>
+                ) : "Pick your champion"}
+              </h4>
               <p>
-                {winnerTeam
-                  ? "Your trophy pick sits at the top of this prediction card."
-                  : "Choose the country you think will lift the trophy."}
+                Add your champion and Golden Boot pick before the tournament starts.
               </p>
             </div>
-            <label className="winner-select winner-select-inline">
-              Winner
-              <select value={winner} onChange={(event) => chooseWinner(event.target.value)} disabled={lockedWinner}>
-                <option value="">Choose a winner</option>
-                {data.teams.slice().sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
-                  <option key={team.id} value={team.id}>{teamFlag(team.id)} {team.name}</option>
-                ))}
-              </select>
-            </label>
+            <div className="tournament-pick-controls">
+              <label className="winner-select winner-select-inline">
+                Kampioen
+                <select value={winner} onChange={(event) => chooseWinner(event.target.value)} disabled={lockedWinner}>
+                  <option value="">Kies kampioen</option>
+                  {data.teams.slice().sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
+                    <option key={team.id} value={team.id}>{teamOptionLabel(team)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="winner-select winner-select-inline">
+                Topscorer
+                <input
+                  list="top-scorer-options"
+                  value={topScorer}
+                  onChange={(event) => chooseTopScorer(event.target.value)}
+                  placeholder="Bijv. Kylian Mbappe"
+                  disabled={lockedWinner}
+                />
+              </label>
+              {!!topScorerSuggestions.length && (
+                <datalist id="top-scorer-options">
+                  {topScorerSuggestions.map((option) => (
+                    <option key={`${option.name}-${option.label}`} value={option.name}>{option.label}</option>
+                  ))}
+                </datalist>
+              )}
+            </div>
           </section>
 
           <section className="prediction-game-card" aria-label="Prediction progress">
@@ -2254,7 +2445,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                   type="button"
                   onClick={() => chooseGroup(group.id)}
                 >
-                  <span className="group-mini-flags">{group.teams.map((teamId) => <span key={teamId}>{teamFlag(teamId)}</span>)}</span>
+                  <span className="group-mini-flags">{group.teams.map((teamId) => <TeamFlag key={teamId} id={teamId} />)}</span>
                   <strong>Group {group.id}</strong>
                   <em>{predicted}/{total}</em>
                 </button>
@@ -2275,7 +2466,26 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                 <div className="prediction-step-header">
                   <div>
                     <h4>Group {selectedGroup.id} schedule</h4>
-                    <p>Click a score to edit it. Press OK or Enter to save and return to view mode.</p>
+                    <p>{quickEntry ? "Type scores straight through the group, then save once below." : "Click a score to edit it. Press OK or Enter to save and return to view mode."}</p>
+                  </div>
+                  <div className="segmented-control" aria-label="Prediction entry mode">
+                    <button
+                      className={quickEntry ? "is-active" : ""}
+                      type="button"
+                      onClick={() => {
+                        setQuickEntry(true);
+                        setEditingMatchId("");
+                      }}
+                    >
+                      Quick entry
+                    </button>
+                    <button
+                      className={!quickEntry ? "is-active" : ""}
+                      type="button"
+                      onClick={() => setQuickEntry(false)}
+                    >
+                      Row edit
+                    </button>
                   </div>
                 </div>
 
@@ -2299,12 +2509,13 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                         leeuwtjeActive={leeuwtjeMatchIds.has(match.id)}
                         canToggleLeeuwtje={leeuwtjeMatchIds.has(match.id) || leeuwtjeMatchIds.size < leeuwtjeTotal}
                         leeuwtjesRemaining={leeuwtjesRemaining}
-                        onEdit={() => setEditingMatchId(match.id)}
+                        onEdit={() => !quickEntry && setEditingMatchId(match.id)}
                         onScore={setScore}
                         onQuizAnswer={setQuizAnswer}
                         onQuizViewership={setQuizViewership}
                         onToggleLeeuwtje={() => toggleLeeuwtje(match.id)}
                         onSubmit={() => save(true)}
+                        quickEntry={quickEntry}
                       />
                     );
                   })}
@@ -2324,15 +2535,15 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
             <div>
               <h4>{requiredPredictionsComplete ? "Ready for the leaderboard" : "Finish the essentials"}</h4>
               <p>
-                {requiredPredictionsComplete && winner && allPredictionsComplete
-                  ? "Full card, trophy pick set. Time to check the leaderboard."
-                  : requiredPredictionsComplete && winner
+                {requiredPredictionsComplete && winner && topScorer && allPredictionsComplete
+                  ? "Full card, champion and top scorer set. Time to check the leaderboard."
+                  : requiredPredictionsComplete && winner && topScorer
                     ? "Your prediction card still has some empty spots. No prediction, no points — the scoreboard is strict like that."
                     : requiredPredictionsComplete
-                      ? "You can pick your World Cup winner above now or continue to the leaderboard."
-                    : requiredPredictedCount === 0
-                      ? "Fill in the Netherlands group first, then pick your World Cup winner."
-                      : `You still need ${missingRequiredCount} score prediction${missingRequiredCount === 1 ? "" : "s"} in the Netherlands group before you can continue.`}
+                      ? "You can pick your champion and top scorer above now or continue to the leaderboard."
+                      : requiredPredictedCount === 0
+                        ? "Fill in the Netherlands group first, then add your tournament picks."
+                        : `You still need ${missingRequiredCount} score prediction${missingRequiredCount === 1 ? "" : "s"} in the Netherlands group before you can continue.`}
               </p>
             </div>
             <button className="primary-button" type="button" onClick={continueToLeaderboard} disabled={!requiredPredictionsComplete || saving}>
@@ -2363,15 +2574,18 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   const [selectedGroupId, setSelectedGroupId] = useState(data.groups[0]?.id ?? "");
   const [editingMatchId, setEditingMatchId] = useState("");
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
+  const [topScorer, setTopScorer] = useState(pool.top_scorer_pick ?? "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [quickEntry, setQuickEntry] = useState(true);
 
   const selectedGroup = data.groups.find((group) => group.id === selectedGroupId);
   const selectedMatches = selectedGroupId ? matchesByGroup.get(selectedGroupId) ?? [] : [];
   const lockedWinner = winnerLocked(pool);
   const winnerTeam = winner ? teams.get(winner) : null;
+  const topScorerSuggestions = useMemo(() => topScorerOptions(data), [data]);
   const leeuwtjeTotal = leeuwtjesTotal(pool);
   const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - leeuwtjeMatchIds.size);
 
@@ -2394,6 +2608,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
     setQuizDraft(nextQuizDraft);
     setLeeuwtjeMatchIds(new Set(pool.leeuwtjes_match_ids ?? []));
     setWinner(pool.winner_pick ?? "");
+    setTopScorer(pool.top_scorer_pick ?? "");
     setInitialized(true);
     setDirty(false);
   }, [pool, groupMatches]);
@@ -2408,6 +2623,11 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
 
   function chooseWinner(value) {
     setWinner(value);
+    setDirty(true);
+  }
+
+  function chooseTopScorer(value) {
+    setTopScorer(value);
     setDirty(true);
   }
 
@@ -2456,9 +2676,10 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
         method: "POST",
         body: JSON.stringify({
           predictions: draftPredictions(draft),
-          quiz_predictions: draftQuizPredictions(quizDraft),
+          quiz_predictions: draftQuizPredictions(quizDraft, pool.quiz_predictions),
           leeuwtjes_match_ids: [...leeuwtjeMatchIds],
           winner_team_id: winner || null,
+          top_scorer_name: topScorer || null,
         }),
       });
       onPoolUpdate(updated);
@@ -2479,7 +2700,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
       save();
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [draft, quizDraft, leeuwtjeMatchIds, winner, initialized, dirty]);
+  }, [draft, quizDraft, leeuwtjeMatchIds, winner, topScorer, initialized, dirty]);
 
   async function saveAndGoHome() {
     const updated = await save(true);
@@ -2492,7 +2713,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
         <div className="panel-header">
           <div>
             <h3>Adjust predictions</h3>
-            <p>Change scores and your World Cup winner until each lock moment.</p>
+            <p>Change scores, champion and top scorer until each lock moment.</p>
           </div>
           <div className="panel-header-actions">
             {onBack && (
@@ -2506,22 +2727,45 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
           </div>
         </div>
         <div className="panel-body">
-          <section className={winnerTeam ? "winner-spotlight-card has-winner" : "winner-spotlight-card"} aria-label="World Cup winner pick">
+          <section className={winnerTeam ? "winner-spotlight-card has-winner" : "winner-spotlight-card"} aria-label="Tournament picks">
             <div className="winner-trophy" aria-hidden="true"><img src={TROPHY_SRC} alt="" /></div>
             <div className="winner-spotlight-copy">
-              <span className="game-kicker">World Cup winner</span>
-              <h4>{winnerTeam ? `${teamFlag(winnerTeam.id)} ${winnerTeam.name}` : "Pick your champion"}</h4>
-              <p>Editable until one hour before the tournament opener.</p>
+              <span className="game-kicker">Tournament picks</span>
+              <h4>
+                {winnerTeam ? (
+                  <span className="winner-team-title"><TeamFlag id={winnerTeam.id} /> {winnerTeam.name}</span>
+                ) : "Pick your champion"}
+              </h4>
+              <p>Champion and top scorer are editable until one hour before the tournament opener.</p>
             </div>
-            <label className="winner-select winner-select-inline">
-              Winner
-              <select value={winner} onChange={(event) => chooseWinner(event.target.value)} disabled={lockedWinner}>
-                <option value="">Choose a winner</option>
-                {data.teams.slice().sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
-                  <option key={team.id} value={team.id}>{teamFlag(team.id)} {team.name}</option>
-                ))}
-              </select>
-            </label>
+            <div className="tournament-pick-controls">
+              <label className="winner-select winner-select-inline">
+                Kampioen
+                <select value={winner} onChange={(event) => chooseWinner(event.target.value)} disabled={lockedWinner}>
+                  <option value="">Kies kampioen</option>
+                  {data.teams.slice().sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
+                    <option key={team.id} value={team.id}>{teamOptionLabel(team)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="winner-select winner-select-inline">
+                Topscorer
+                <input
+                  list="adjust-top-scorer-options"
+                  value={topScorer}
+                  onChange={(event) => chooseTopScorer(event.target.value)}
+                  placeholder="Bijv. Kylian Mbappe"
+                  disabled={lockedWinner}
+                />
+              </label>
+              {!!topScorerSuggestions.length && (
+                <datalist id="adjust-top-scorer-options">
+                  {topScorerSuggestions.map((option) => (
+                    <option key={`${option.name}-${option.label}`} value={option.name}>{option.label}</option>
+                  ))}
+                </datalist>
+              )}
+            </div>
             <LockPill lock={{ locked: lockedWinner }} />
           </section>
 
@@ -2539,7 +2783,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                     setEditingMatchId("");
                   }}
                 >
-                  <span className="group-mini-flags">{group.teams.map((teamId) => <span key={teamId}>{teamFlag(teamId)}</span>)}</span>
+                  <span className="group-mini-flags">{group.teams.map((teamId) => <TeamFlag key={teamId} id={teamId} />)}</span>
                   <strong>Group {group.id}</strong>
                   <em>{predicted}/{total}</em>
                 </button>
@@ -2572,7 +2816,26 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                 <div className="prediction-step-header">
                   <div>
                     <h4>Group {selectedGroup.id} schedule</h4>
-                    <p>Locked rows are read-only; open rows can still be changed.</p>
+                    <p>{quickEntry ? "Change open scores inline; changes are saved automatically." : "Locked rows are read-only; open rows can still be changed."}</p>
+                  </div>
+                  <div className="segmented-control" aria-label="Prediction entry mode">
+                    <button
+                      className={quickEntry ? "is-active" : ""}
+                      type="button"
+                      onClick={() => {
+                        setQuickEntry(true);
+                        setEditingMatchId("");
+                      }}
+                    >
+                      Quick entry
+                    </button>
+                    <button
+                      className={!quickEntry ? "is-active" : ""}
+                      type="button"
+                      onClick={() => setQuickEntry(false)}
+                    >
+                      Row edit
+                    </button>
                   </div>
                 </div>
                 <div className="prediction-fixture-list">
@@ -2595,13 +2858,14 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                         leeuwtjeActive={leeuwtjeMatchIds.has(match.id)}
                         canToggleLeeuwtje={leeuwtjeMatchIds.has(match.id) || leeuwtjeMatchIds.size < leeuwtjeTotal}
                         leeuwtjesRemaining={leeuwtjesRemaining}
-                        onEdit={() => setEditingMatchId(match.id)}
+                        onEdit={() => !quickEntry && setEditingMatchId(match.id)}
                         onScore={setScore}
                         onQuizAnswer={setQuizAnswer}
                         onQuizViewership={setQuizViewership}
                         onToggleLeeuwtje={() => toggleLeeuwtje(match.id)}
                         onSubmit={() => save(true)}
                         compact
+                        quickEntry={quickEntry}
                       />
                     );
                   })}
@@ -2668,6 +2932,7 @@ function fallbackProfile(pool) {
     defence: 0,
     scoring_games: 0,
     winner_pick_name: null,
+    top_scorer_pick: null,
     profile_picture: {
       initials: user.name
         .replace("-", " ")
@@ -2688,7 +2953,6 @@ function fallbackProfile(pool) {
 function App() {
   const [data, setData] = useState(null);
   const [pool, setPool] = useState(null);
-  const [social, setSocial] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [view, setView] = useState(() => viewFromRoute(window.location.pathname) ?? "leaderboard");
@@ -2774,13 +3038,9 @@ function App() {
         }
 
         if (poolState.me) {
-          const [worldCup, socialState] = await Promise.all([
-            apiJson("/api/world-cup"),
-            apiJson("/api/social"),
-          ]);
+          const worldCup = await apiJson("/api/world-cup");
           if (!cancelled) {
             setData(worldCup);
-            setSocial(socialState);
             const nextView = authenticatedViewFromRoute(poolState, window.location.pathname);
             const profileId = profileIdFromRoute(window.location.pathname);
             const teamId = teamIdFromRoute(window.location.pathname);
@@ -2806,10 +3066,6 @@ function App() {
     };
   }, []);
 
-  const socialById = useMemo(() => {
-    return new Map((social?.people ?? []).map((person) => [person.user_id, person]));
-  }, [social]);
-
   const maps = useMemo(() => {
     if (!data) return { teams: new Map(), venues: new Map() };
     return {
@@ -2825,21 +3081,18 @@ function App() {
 
   async function handleLogin() {
     setLoadError("");
-    const [worldCup, poolState, socialState] = await Promise.all([
+    const [worldCup, poolState] = await Promise.all([
       apiJson("/api/world-cup"),
       apiJson("/api/pool"),
-      apiJson("/api/social"),
     ]);
     setData(worldCup);
     setPool(poolState);
-    setSocial(socialState);
     navigateToView(defaultAuthenticatedView(poolState), { replace: true });
   }
 
   async function logout() {
     await apiJson("/api/auth/logout", { method: "POST", body: "{}" });
     setData(null);
-    setSocial(null);
     setPool(await apiJson("/api/pool"));
     setView("leaderboard");
     replacePath("/login");
@@ -2854,19 +3107,13 @@ function App() {
     navigateToView("leaderboard");
   }
 
-  async function followPerson(userId) {
-    const socialState = await apiJson("/api/social/follow", {
-      method: "POST",
-      body: JSON.stringify({ user_id: userId }),
+  async function updateUserName(name) {
+    const updatedPool = await apiJson("/api/me", {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
     });
-    setSocial(socialState);
-  }
-
-  async function unfollowPerson(userId) {
-    const socialState = await apiJson(`/api/social/follow/${userId}`, {
-      method: "DELETE",
-    });
-    setSocial(socialState);
+    setPool(updatedPool);
+    return updatedPool;
   }
 
   if (!authChecked) {
@@ -2920,17 +3167,20 @@ function App() {
             onPredictions={() => navigateToView(entryComplete ? "adjust" : "pool")}
           />
           <button
+            className="my-predictions-button"
+            type="button"
+            onClick={() => navigateToView(entryComplete ? "adjust" : "pool")}
+          >
+            <span>Mijn voorspellingen</span>
+            <b>{pool.progress?.group_stage_predictions ?? 0}/{pool.progress?.group_stage_total ?? 0}</b>
+          </button>
+          <button
             className="data-badge is-clickable"
             type="button"
             onClick={() => navigateToProfile(pool.me.id)}
           >
             {pool.me.name}
           </button>
-          {entryComplete && (
-            <button className="text-button" type="button" onClick={() => navigateToView("adjust")}>
-              Adjust predictions
-            </button>
-          )}
           <button className="text-button" type="button" onClick={logout}>
             Logout
           </button>
@@ -2943,7 +3193,7 @@ function App() {
             <p className="eyebrow">FIFA World Cup 2026</p>
             <h2>Talpa WK Pool</h2>
             <p>
-              Predict group-stage scores, pick the World Cup winner and follow the leaderboard.
+              Predict group-stage scores, pick the World Cup winner and top scorer, and follow the leaderboard.
             </p>
           </div>
           <div className="hero-countdown" aria-label="Countdown to kickoff">
@@ -3060,11 +3310,10 @@ function App() {
             <PlayerProfile
               player={selectedProfile}
               rank={selectedProfileRank}
-              relation={selectedProfile?.user_id === pool.me?.id ? null : socialById.get(selectedProfile?.user_id)}
+              isSelf={selectedProfile?.user_id === pool.me?.id}
               badgeCatalog={pool.badge_catalog ?? []}
               onBack={() => navigateToView("leaderboard")}
-              onFollow={followPerson}
-              onUnfollow={unfollowPerson}
+              onUpdateName={updateUserName}
             />
           </section>
         )}

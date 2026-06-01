@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -39,6 +40,30 @@ load_env_file(ROOT / ".env")
 DATA_PATH = ROOT / "backend" / "worldcup-2026.json"
 QUIZ_PATH = ROOT / "backend" / "quiz-2026.json"
 DB_PATH = Path(os.environ.get("WK_HUB_SQLITE_PATH", ROOT / "backend" / "pool.db"))
+DB_SCHEMA_VERSION = 4
+DB_BACKUP_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("users", ("id",)),
+    ("match_predictions", ("user_id", "match_id")),
+    ("winner_predictions", ("user_id",)),
+    ("top_scorer_predictions", ("user_id",)),
+    ("quiz_predictions", ("user_id", "match_id")),
+    ("leeuwtje_predictions", ("user_id", "match_id")),
+    ("user_follows", ("follower_id", "followed_id")),
+    ("prediction_audit_log", ("id",)),
+    ("api_football_team_links", ("local_team_id",)),
+    ("api_football_fixture_links", ("match_id",)),
+    ("api_football_requests", ("id",)),
+    ("api_football_fixture_snapshots", ("match_id",)),
+    ("api_football_fixture_snapshot_history", ("id",)),
+    ("api_football_team_squad_snapshots", ("local_team_id",)),
+    ("api_football_team_squad_snapshot_history", ("id",)),
+    ("team_squad_players", ("local_team_id", "provider_player_key")),
+    ("team_coaches", ("local_team_id", "provider_coach_key")),
+    ("match_results", ("match_id",)),
+    ("match_events", ("match_id", "provider_event_key")),
+    ("match_clean_sheets", ("match_id", "local_team_id")),
+    ("player_match_stats", ("match_id", "provider_player_key")),
+)
 DIST_DIR = ROOT / "frontend" / "dist"
 DATABASE_URL_ENV = "DATABASE_URL" if os.environ.get("DATABASE_URL") else None
 if DATABASE_URL_ENV is None and os.environ.get("POSTGRES_URL"):
@@ -65,6 +90,7 @@ AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 LEEUWTJES_LIMIT = 5
 GROUP_POSITION_POINTS = 25
 WINNER_POINTS = 250
+TOP_SCORER_POINTS = 150
 QUIZ_YES_NO_POINTS = 15
 QUIZ_OPEN_POINTS = 50
 QUIZ_VIEWERSHIP_POINTS = 30
@@ -75,6 +101,12 @@ API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "")
 API_FOOTBALL_LEAGUE_ID = int(os.environ.get("API_FOOTBALL_LEAGUE_ID", "1"))
 API_FOOTBALL_SEASON = int(os.environ.get("API_FOOTBALL_SEASON", "2026"))
 API_FOOTBALL_DAILY_LIMIT = int(os.environ.get("API_FOOTBALL_DAILY_LIMIT", "90"))
+API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE = int(
+    os.environ.get("API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE", "6")
+)
+API_FOOTBALL_SQUAD_REFRESH_HOURS = int(
+    os.environ.get("API_FOOTBALL_SQUAD_REFRESH_HOURS", "24")
+)
 API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get(
     "CRON_SECRET", ""
 )
@@ -113,6 +145,38 @@ def database_label() -> str:
     return f"sqlite:{DB_PATH}"
 
 
+def file_sha256(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def json_ready(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return iso_utc(value.astimezone(UTC)) if value.tzinfo else value.isoformat()
+    if isinstance(value, sqlite3.Row):
+        keys = value.keys()
+        return {key: json_ready(value[key]) for key in keys}
+    if isinstance(value, dict):
+        return {str(key): json_ready(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [json_ready(item) for item in value]
+    return value
+
+
+def static_data_manifest() -> dict[str, Any]:
+    return {
+        "worldcup_path": str(DATA_PATH.relative_to(ROOT)),
+        "worldcup_sha256": file_sha256(DATA_PATH),
+        "quiz_path": str(QUIZ_PATH.relative_to(ROOT)) if QUIZ_PATH.exists() else None,
+        "quiz_sha256": file_sha256(QUIZ_PATH),
+    }
+
+
 def load_world_cup_data() -> dict[str, Any]:
     with DATA_PATH.open(encoding="utf-8") as data_file:
         data = json.load(data_file)
@@ -128,6 +192,7 @@ def load_world_cup_data() -> dict[str, Any]:
         data.setdefault("meta", {})["quiz_answer_source"] = quiz_data.get("answerSource")
 
     if not CONFIG_ERROR:
+        apply_synced_team_profiles(data)
         apply_synced_match_results(data)
 
     return data
@@ -221,9 +286,37 @@ def get_db(*, schema: bool = False) -> Any:
         assert conninfo is not None
         return psycopg.connect(conninfo, row_factory=dict_row)
 
+    if IS_VERCEL:
+        raise RuntimeError(CONFIG_ERROR or "Vercel deployments must use Postgres.")
+
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def database_snapshot(*, include_rows: bool) -> dict[str, Any]:
+    tables: dict[str, Any] = {}
+    with get_db() as conn:
+        for table_name, order_by in DB_BACKUP_TABLES:
+            row = execute(conn, f"SELECT COUNT(*) AS count FROM {table_name}").fetchone()
+            table_payload: dict[str, Any] = {"count": int(row["count"] if row else 0)}
+            if include_rows:
+                order_clause = ", ".join(order_by)
+                rows = execute(
+                    conn, f"SELECT * FROM {table_name} ORDER BY {order_clause}"
+                ).fetchall()
+                table_payload["rows"] = [json_ready(row) for row in rows]
+            tables[table_name] = table_payload
+
+    return {
+        "ok": True,
+        "generated_at": iso_utc(utc_now()),
+        "schema_version": DB_SCHEMA_VERSION,
+        "database": database_label(),
+        "static_data": static_data_manifest(),
+        "tables": tables,
+    }
 
 
 def init_db() -> None:
@@ -251,6 +344,14 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS winner_predictions (
             user_id INTEGER PRIMARY KEY,
             team_id TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS top_scorer_predictions (
+            user_id INTEGER PRIMARY KEY,
+            player_name TEXT NOT NULL,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
@@ -286,6 +387,25 @@ def init_db() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS prediction_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_team_links (
+            local_team_id TEXT PRIMARY KEY,
+            api_team_id INTEGER NOT NULL UNIQUE,
+            api_team_name TEXT,
+            confidence TEXT NOT NULL,
+            linked_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS api_football_fixture_links (
             match_id TEXT PRIMARY KEY,
             api_fixture_id INTEGER NOT NULL UNIQUE,
@@ -314,6 +434,65 @@ def init_db() -> None:
             api_fixture_id INTEGER NOT NULL,
             payload_json TEXT NOT NULL,
             synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_fixture_snapshot_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            match_id TEXT NOT NULL,
+            api_fixture_id INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_team_squad_snapshots (
+            local_team_id TEXT PRIMARY KEY,
+            api_team_id INTEGER NOT NULL,
+            squad_payload_json TEXT NOT NULL,
+            coach_payload_json TEXT,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_team_squad_snapshot_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_team_id TEXT NOT NULL,
+            api_team_id INTEGER NOT NULL,
+            squad_payload_json TEXT NOT NULL,
+            coach_payload_json TEXT,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS team_squad_players (
+            local_team_id TEXT NOT NULL,
+            provider_player_key TEXT NOT NULL,
+            source_team_id INTEGER,
+            api_player_id INTEGER,
+            player_name TEXT NOT NULL,
+            age INTEGER,
+            number INTEGER,
+            position TEXT,
+            photo_url TEXT,
+            raw_json TEXT NOT NULL,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (local_team_id, provider_player_key)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS team_coaches (
+            local_team_id TEXT NOT NULL,
+            provider_coach_key TEXT NOT NULL,
+            source_team_id INTEGER,
+            api_coach_id INTEGER,
+            coach_name TEXT NOT NULL,
+            age INTEGER,
+            nationality TEXT,
+            photo_url TEXT,
+            raw_json TEXT NOT NULL,
+            synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (local_team_id, provider_coach_key)
         )
         """,
         """
@@ -415,6 +594,14 @@ def init_db() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS top_scorer_predictions (
+            user_id INTEGER PRIMARY KEY,
+            player_name TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS quiz_predictions (
             user_id INTEGER NOT NULL,
             match_id TEXT NOT NULL,
@@ -442,6 +629,25 @@ def init_db() -> None:
             PRIMARY KEY (follower_id, followed_id),
             FOREIGN KEY (follower_id) REFERENCES users(id),
             FOREIGN KEY (followed_id) REFERENCES users(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS prediction_audit_log (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            user_id INTEGER,
+            action TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_team_links (
+            local_team_id TEXT PRIMARY KEY,
+            api_team_id INTEGER NOT NULL UNIQUE,
+            api_team_name TEXT,
+            confidence TEXT NOT NULL,
+            linked_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """,
         """
@@ -473,6 +679,65 @@ def init_db() -> None:
             api_fixture_id INTEGER NOT NULL,
             payload_json TEXT NOT NULL,
             synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_fixture_snapshot_history (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            match_id TEXT NOT NULL,
+            api_fixture_id INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_team_squad_snapshots (
+            local_team_id TEXT PRIMARY KEY,
+            api_team_id INTEGER NOT NULL,
+            squad_payload_json TEXT NOT NULL,
+            coach_payload_json TEXT,
+            synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS api_football_team_squad_snapshot_history (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            local_team_id TEXT NOT NULL,
+            api_team_id INTEGER NOT NULL,
+            squad_payload_json TEXT NOT NULL,
+            coach_payload_json TEXT,
+            synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS team_squad_players (
+            local_team_id TEXT NOT NULL,
+            provider_player_key TEXT NOT NULL,
+            source_team_id INTEGER,
+            api_player_id INTEGER,
+            player_name TEXT NOT NULL,
+            age INTEGER,
+            number INTEGER,
+            position TEXT,
+            photo_url TEXT,
+            raw_json TEXT NOT NULL,
+            synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (local_team_id, provider_player_key)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS team_coaches (
+            local_team_id TEXT NOT NULL,
+            provider_coach_key TEXT NOT NULL,
+            source_team_id INTEGER,
+            api_coach_id INTEGER,
+            coach_name TEXT NOT NULL,
+            age INTEGER,
+            nationality TEXT,
+            photo_url TEXT,
+            raw_json TEXT NOT NULL,
+            synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (local_team_id, provider_coach_key)
         )
         """,
         """
@@ -617,6 +882,29 @@ def normalize_answer(value: Any) -> str:
     return clean_text(value).casefold()
 
 
+def top_scorer_result_name(data: dict[str, Any]) -> str:
+    meta = data.get("meta", {})
+    for key in (
+        "world_cup_top_scorer_name",
+        "top_scorer_name",
+        "golden_boot_winner_name",
+    ):
+        value = clean_text(meta.get(key))
+        if value:
+            return value
+    top_scorer = meta.get("world_cup_top_scorer") or meta.get("top_scorer")
+    if isinstance(top_scorer, dict):
+        return clean_text(top_scorer.get("name"))
+    return clean_text(top_scorer)
+
+
+def top_scorer_prediction_points(data: dict[str, Any], player_name: str | None) -> int:
+    result_name = top_scorer_result_name(data)
+    if result_name and normalize_answer(result_name) == normalize_answer(player_name):
+        return TOP_SCORER_POINTS
+    return 0
+
+
 def normalize_api_name(value: Any) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or ""))
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
@@ -674,6 +962,14 @@ def int_or_none(value: Any) -> int | None:
 
 def bool_int(value: bool) -> int:
     return 1 if value else 0
+
+
+def list_value(value: Any) -> list[Any]:
+    if not value:
+        return []
+    if isinstance(value, list):
+        return list(value)
+    return [value]
 
 
 def api_football_request_count_today() -> int:
@@ -753,10 +1049,18 @@ def api_football_get(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
 
 def api_football_status() -> dict[str, Any]:
     with get_db() as conn:
+        team_linked_row = execute(
+            conn, "SELECT COUNT(*) AS count FROM api_football_team_links"
+        ).fetchone()
         linked_row = execute(
             conn, "SELECT COUNT(*) AS count FROM api_football_fixture_links"
         ).fetchone()
         result_row = execute(conn, "SELECT COUNT(*) AS count FROM match_results").fetchone()
+        squad_row = execute(
+            conn, "SELECT COUNT(*) AS count FROM api_football_team_squad_snapshots"
+        ).fetchone()
+        player_row = execute(conn, "SELECT COUNT(*) AS count FROM team_squad_players").fetchone()
+        coach_row = execute(conn, "SELECT COUNT(*) AS count FROM team_coaches").fetchone()
         latest_request = execute(
             conn,
             """
@@ -774,8 +1078,12 @@ def api_football_status() -> dict[str, Any]:
         "season": API_FOOTBALL_SEASON,
         "daily_limit": API_FOOTBALL_DAILY_LIMIT,
         "requests_today": api_football_request_count_today(),
+        "linked_teams": int(team_linked_row["count"] if team_linked_row else 0),
         "linked_matches": int(linked_row["count"] if linked_row else 0),
         "synced_results": int(result_row["count"] if result_row else 0),
+        "synced_squads": int(squad_row["count"] if squad_row else 0),
+        "squad_players": int(player_row["count"] if player_row else 0),
+        "coaches": int(coach_row["count"] if coach_row else 0),
         "latest_request": dict(latest_request) if latest_request else None,
     }
 
@@ -813,6 +1121,99 @@ def apply_synced_match_results(data: dict[str, Any]) -> None:
             match["status"] = "completed"
             match["home_score"] = int(row["home_score"])
             match["away_score"] = int(row["away_score"])
+
+
+def apply_synced_team_profiles(data: dict[str, Any]) -> None:
+    try:
+        with get_db() as conn:
+            player_rows = execute(
+                conn,
+                """
+                SELECT local_team_id, api_player_id, player_name, age, number,
+                       position, photo_url, synced_at
+                FROM team_squad_players
+                ORDER BY local_team_id, position, number, player_name
+                """,
+            ).fetchall()
+            coach_rows = execute(
+                conn,
+                """
+                SELECT local_team_id, api_coach_id, coach_name, age, nationality,
+                       photo_url, synced_at
+                FROM team_coaches
+                ORDER BY local_team_id, coach_name
+                """,
+            ).fetchall()
+            snapshot_rows = execute(
+                conn,
+                """
+                SELECT local_team_id, api_team_id, synced_at
+                FROM api_football_team_squad_snapshots
+                """,
+            ).fetchall()
+    except Exception:
+        logger.exception("Could not load synced team profiles")
+        return
+
+    players_by_team: dict[str, list[dict[str, Any]]] = {}
+    for row in player_rows:
+        player = {
+            "id": row["api_player_id"],
+            "name": row["player_name"],
+            "age": row["age"],
+            "number": row["number"],
+            "position": row["position"],
+            "photo": row["photo_url"],
+        }
+        players_by_team.setdefault(row["local_team_id"], []).append(
+            {key: value for key, value in player.items() if value is not None}
+        )
+
+    coaches_by_team: dict[str, list[dict[str, Any]]] = {}
+    for row in coach_rows:
+        coach = {
+            "id": row["api_coach_id"],
+            "name": row["coach_name"],
+            "role": "Head coach",
+            "age": row["age"],
+            "country": row["nationality"],
+            "photo": row["photo_url"],
+        }
+        coaches_by_team.setdefault(row["local_team_id"], []).append(
+            {key: value for key, value in coach.items() if value is not None}
+        )
+
+    snapshots_by_team = {row["local_team_id"]: row for row in snapshot_rows}
+    for team in data.get("teams", []):
+        local_team_id = team.get("id")
+        if not local_team_id:
+            continue
+        players = players_by_team.get(local_team_id)
+        coaches = coaches_by_team.get(local_team_id)
+        snapshot = snapshots_by_team.get(local_team_id)
+        if not players and not coaches and not snapshot:
+            continue
+
+        profile = dict(team.get("profile") or team.get("team_profile") or {})
+        if players:
+            profile["squad"] = players
+        if coaches:
+            profile["head_coach"] = coaches[0]
+            profile["coaching_staff"] = coaches
+        if snapshot:
+            profile["api_football"] = {
+                "team_id": snapshot["api_team_id"],
+                "synced_at": snapshot["synced_at"],
+            }
+            sources = list_value(profile.get("sources"))
+            if not any(
+                isinstance(source, dict)
+                and source.get("label") == "API-Football squad sync"
+                for source in sources
+            ):
+                sources.append({"label": "API-Football squad sync"})
+            profile["sources"] = sources
+        team["profile"] = profile
 
 
 def api_fixture_datetime(api_fixture: dict[str, Any]) -> datetime | None:
@@ -875,6 +1276,32 @@ def team_conceded_by_local_id(
         match["home_team_id"]: away_score,
         match["away_team_id"]: home_score,
     }
+
+
+def upsert_api_football_team_link(
+    conn: Any,
+    local_team_id: str | None,
+    api_team_id: int | None,
+    api_team_name: str | None,
+    confidence: str,
+) -> None:
+    if not local_team_id or api_team_id is None:
+        return
+    execute(
+        conn,
+        """
+        INSERT INTO api_football_team_links (
+            local_team_id, api_team_id, api_team_name, confidence, linked_at
+        )
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(local_team_id)
+        DO UPDATE SET api_team_id = excluded.api_team_id,
+                      api_team_name = excluded.api_team_name,
+                      confidence = excluded.confidence,
+                      linked_at = CURRENT_TIMESTAMP
+        """,
+        (local_team_id, api_team_id, api_team_name, confidence),
+    )
 
 
 def api_football_link_fixtures(data: dict[str, Any]) -> dict[str, Any]:
@@ -949,6 +1376,20 @@ def api_football_link_fixtures(data: dict[str, Any]) -> dict[str, Any]:
                     away_team.get("name"),
                     confidence,
                 ),
+            )
+            upsert_api_football_team_link(
+                conn,
+                home_local,
+                int_or_none(home_team.get("id")),
+                home_team.get("name"),
+                confidence,
+            )
+            upsert_api_football_team_link(
+                conn,
+                away_local,
+                int_or_none(away_team.get("id")),
+                away_team.get("name"),
+                confidence,
             )
             linked += 1
 
@@ -1049,6 +1490,16 @@ def store_api_football_fixture_snapshot(
         DO UPDATE SET api_fixture_id = excluded.api_fixture_id,
                       payload_json = excluded.payload_json,
                       synced_at = CURRENT_TIMESTAMP
+        """,
+        (match["id"], api_fixture_id, json.dumps(fixture, sort_keys=True)),
+    )
+    execute(
+        conn,
+        """
+        INSERT INTO api_football_fixture_snapshot_history (
+            match_id, api_fixture_id, payload_json, synced_at
+        )
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
         """,
         (match["id"], api_fixture_id, json.dumps(fixture, sort_keys=True)),
     )
@@ -1272,6 +1723,284 @@ def run_api_football_completed_sync(
                 skipped.append({"match_id": match["id"], "reason": "fixture_not_returned"})
                 continue
             synced.append(store_api_football_fixture_snapshot(conn, match, fixture, data))
+
+    return {
+        "ok": True,
+        "dry_run": False,
+        "synced": synced,
+        "skipped": skipped,
+        "linking": linking,
+        "requests_today": api_football_request_count_today(),
+        "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+    }
+
+
+def api_football_team_links() -> dict[str, dict[str, Any]]:
+    with get_db() as conn:
+        rows = execute(
+            conn,
+            """
+            SELECT local_team_id, api_team_id, api_team_name, confidence, linked_at
+            FROM api_football_team_links
+            """,
+        ).fetchall()
+    return {row["local_team_id"]: dict(row) for row in rows}
+
+
+def seed_api_football_team_links_from_fixture_links(data: dict[str, Any]) -> int:
+    matches = {match["id"]: match for match in data["matches"]}
+    seeded = 0
+    with get_db() as conn:
+        rows = execute(
+            conn,
+            """
+            SELECT match_id, api_home_team_id, api_away_team_id,
+                   api_home_team_name, api_away_team_name, confidence
+            FROM api_football_fixture_links
+            """,
+        ).fetchall()
+        for row in rows:
+            match = matches.get(row["match_id"])
+            if not match:
+                continue
+            before = seeded
+            if row["api_home_team_id"] is not None:
+                upsert_api_football_team_link(
+                    conn,
+                    match.get("home_team_id"),
+                    int(row["api_home_team_id"]),
+                    row["api_home_team_name"],
+                    row["confidence"],
+                )
+                seeded += 1
+            if row["api_away_team_id"] is not None:
+                upsert_api_football_team_link(
+                    conn,
+                    match.get("away_team_id"),
+                    int(row["api_away_team_id"]),
+                    row["api_away_team_name"],
+                    row["confidence"],
+                )
+                seeded += 1
+            if seeded == before:
+                continue
+    return seeded
+
+
+def due_api_football_teams(
+    data: dict[str, Any],
+    force: bool = False,
+    limit: int = API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE,
+) -> list[dict[str, Any]]:
+    links = api_football_team_links()
+    current = utc_now()
+    due: list[dict[str, Any]] = []
+    with get_db() as conn:
+        snapshot_rows = execute(
+            conn,
+            """
+            SELECT local_team_id, synced_at
+            FROM api_football_team_squad_snapshots
+            """,
+        ).fetchall()
+    synced_at_by_team = {
+        row["local_team_id"]: parse_iso_datetime(row["synced_at"]) for row in snapshot_rows
+    }
+
+    for team in sorted(data["teams"], key=lambda item: item["name"]):
+        link = links.get(team["id"])
+        if not link:
+            continue
+        synced_at = synced_at_by_team.get(team["id"])
+        if synced_at:
+            next_refresh = synced_at + timedelta(hours=API_FOOTBALL_SQUAD_REFRESH_HOURS)
+            if not force and current < next_refresh:
+                continue
+        due.append({"team": team, "link": link})
+        if len(due) >= max(1, int(limit)):
+            break
+    return due
+
+
+def coach_name(coach: dict[str, Any]) -> str:
+    name = clean_text(coach.get("name"))
+    if name:
+        return name
+    return clean_text(f"{coach.get('firstname', '')} {coach.get('lastname', '')}")
+
+
+def store_api_football_team_profile_snapshot(
+    conn: Any,
+    local_team_id: str,
+    api_team_id: int,
+    squad_payload: dict[str, Any],
+    coach_payload: dict[str, Any] | None,
+) -> dict[str, Any]:
+    squad_json = json.dumps(squad_payload, sort_keys=True)
+    coach_json = json.dumps(coach_payload, sort_keys=True) if coach_payload else None
+    execute(
+        conn,
+        """
+        INSERT INTO api_football_team_squad_snapshots (
+            local_team_id, api_team_id, squad_payload_json, coach_payload_json, synced_at
+        )
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(local_team_id)
+        DO UPDATE SET api_team_id = excluded.api_team_id,
+                      squad_payload_json = excluded.squad_payload_json,
+                      coach_payload_json = excluded.coach_payload_json,
+                      synced_at = CURRENT_TIMESTAMP
+        """,
+        (local_team_id, api_team_id, squad_json, coach_json),
+    )
+    execute(
+        conn,
+        """
+        INSERT INTO api_football_team_squad_snapshot_history (
+            local_team_id, api_team_id, squad_payload_json, coach_payload_json, synced_at
+        )
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        (local_team_id, api_team_id, squad_json, coach_json),
+    )
+
+    execute(conn, "DELETE FROM team_squad_players WHERE local_team_id = ?", (local_team_id,))
+    player_count = 0
+    for squad_block in squad_payload.get("response") or []:
+        team = squad_block.get("team") or {}
+        source_team_id = int_or_none(team.get("id")) or api_team_id
+        if source_team_id != api_team_id:
+            continue
+        for player in squad_block.get("players") or []:
+            api_player_id = int_or_none(player.get("id"))
+            player_name = clean_text(player.get("name")) or "Unknown"
+            provider_player_key = str(api_player_id) if api_player_id is not None else compact_name(
+                player_name
+            )
+            execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, source_team_id, api_player_id,
+                    player_name, age, number, position, photo_url, raw_json, synced_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    local_team_id,
+                    provider_player_key,
+                    source_team_id,
+                    api_player_id,
+                    player_name,
+                    int_or_none(player.get("age")),
+                    int_or_none(player.get("number")),
+                    player.get("position"),
+                    player.get("photo"),
+                    json.dumps(player, sort_keys=True),
+                ),
+            )
+            player_count += 1
+
+    execute(conn, "DELETE FROM team_coaches WHERE local_team_id = ?", (local_team_id,))
+    coach_count = 0
+    if coach_payload:
+        for coach in coach_payload.get("response") or []:
+            api_coach_id = int_or_none(coach.get("id"))
+            name = coach_name(coach) or "Unknown"
+            provider_coach_key = str(api_coach_id) if api_coach_id is not None else compact_name(
+                name
+            )
+            execute(
+                conn,
+                """
+                INSERT INTO team_coaches (
+                    local_team_id, provider_coach_key, source_team_id, api_coach_id,
+                    coach_name, age, nationality, photo_url, raw_json, synced_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    local_team_id,
+                    provider_coach_key,
+                    api_team_id,
+                    api_coach_id,
+                    name,
+                    int_or_none(coach.get("age")),
+                    coach.get("nationality"),
+                    coach.get("photo"),
+                    json.dumps(coach, sort_keys=True),
+                ),
+            )
+            coach_count += 1
+
+    return {
+        "team_id": local_team_id,
+        "api_team_id": api_team_id,
+        "players": player_count,
+        "coaches": coach_count,
+    }
+
+
+def run_api_football_squad_sync(
+    data: dict[str, Any],
+    force: bool = False,
+    dry_run: bool = False,
+    limit: int = API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE,
+) -> dict[str, Any]:
+    if not API_FOOTBALL_KEY:
+        return {"ok": False, "error": "API_FOOTBALL_KEY is not configured."}
+
+    limit = max(1, min(48, int(limit)))
+    links = api_football_team_links()
+    linking = None
+    if len(links) < len(data.get("teams", [])):
+        seeded = seed_api_football_team_links_from_fixture_links(data)
+        links = api_football_team_links()
+        linking = {"seeded_from_fixture_links": seeded}
+    if len(links) < len(data.get("teams", [])) and not dry_run:
+        next_linking: dict[str, Any] = dict(linking or {})
+        next_linking["fixture_linking"] = api_football_link_fixtures(data)
+        linking = next_linking
+        links = api_football_team_links()
+
+    candidates = due_api_football_teams(data, force=force, limit=limit)
+    skipped = [
+        {"team_id": team["id"], "reason": "missing_api_football_team_link"}
+        for team in data.get("teams", [])
+        if team["id"] not in links
+    ]
+    if dry_run:
+        return {
+            "ok": True,
+            "dry_run": True,
+            "candidates": [
+                {
+                    "team_id": item["team"]["id"],
+                    "team_name": item["team"]["name"],
+                    "api_team_id": item["link"]["api_team_id"],
+                }
+                for item in candidates
+            ],
+            "skipped": skipped,
+            "linking": linking,
+        }
+
+    synced = []
+    with get_db() as conn:
+        for item in candidates:
+            local_team_id = item["team"]["id"]
+            api_team_id = int(item["link"]["api_team_id"])
+            squad_payload = api_football_get("players/squads", {"team": api_team_id})
+            try:
+                coach_payload = api_football_get("coachs", {"team": api_team_id})
+            except Exception as error:
+                logger.warning("Could not sync coach for %s: %s", local_team_id, error)
+                coach_payload = None
+            synced.append(
+                store_api_football_team_profile_snapshot(
+                    conn, local_team_id, api_team_id, squad_payload, coach_payload
+                )
+            )
 
     return {
         "ok": True,
@@ -2026,6 +2755,12 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
             row["user_id"]: row["team_id"]
             for row in execute(conn, "SELECT user_id, team_id FROM winner_predictions").fetchall()
         }
+        top_scorers = {
+            row["user_id"]: row["player_name"]
+            for row in execute(
+                conn, "SELECT user_id, player_name FROM top_scorer_predictions"
+            ).fetchall()
+        }
 
     by_user: dict[int, list[Any]] = {}
     for prediction in predictions:
@@ -2123,6 +2858,9 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
         winner_pick = winners.get(user["id"])
         if champion_id and winner_pick == champion_id:
             points += WINNER_POINTS
+        top_scorer_pick = top_scorers.get(user["id"])
+        top_scorer_points = top_scorer_prediction_points(data, top_scorer_pick)
+        points += top_scorer_points
         all_group_predictions_complete = group_stage_predictions >= len(group_stage_ids)
         leeuwtje_points = 0
         for prediction in user_predictions:
@@ -2174,6 +2912,8 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
                 ),
                 "winner_pick": winner_pick,
                 "winner_pick_name": teams.get(winner_pick, {}).get("name") if winner_pick else None,
+                "top_scorer_pick": top_scorer_pick,
+                "top_scorer_points": top_scorer_points,
                 "badges": badges,
                 "badge_count": len(badges),
                 "badge_progress": badge_progress_list(
@@ -2568,6 +3308,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
     quiz_prediction_rows = []
     leeuwtje_rows = []
     winner_pick = None
+    top_scorer_pick = None
     if user:
         with get_db() as conn:
             prediction_rows = execute(
@@ -2578,6 +3319,11 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             winner_row = execute(
                 conn,
                 "SELECT team_id FROM winner_predictions WHERE user_id = ?",
+                (user["id"],),
+            ).fetchone()
+            top_scorer_row = execute(
+                conn,
+                "SELECT player_name FROM top_scorer_predictions WHERE user_id = ?",
                 (user["id"],),
             ).fetchone()
             quiz_prediction_rows = execute(
@@ -2595,6 +3341,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
                 (user["id"],),
             ).fetchall()
         winner_pick = winner_row["team_id"] if winner_row else None
+        top_scorer_pick = top_scorer_row["player_name"] if top_scorer_row else None
 
     predictions = {
         row["match_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
@@ -2651,6 +3398,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         "quiz_predictions": quiz_predictions,
         "leeuwtjes_match_ids": leeuwtje_match_ids,
         "winner_pick": winner_pick,
+        "top_scorer_pick": top_scorer_pick,
         "leaderboard": leaderboard,
         "badge_catalog": badge_catalog(),
         "notifications": build_notifications(data, predictions, quiz_predictions, now),
@@ -2665,6 +3413,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             "required_group_predictions": required_group_predictions,
             "required_group_total": len(required_group_ids),
             "winner_selected": winner_pick is not None,
+            "top_scorer_selected": bool(top_scorer_pick),
             "knockout_open_count": len(knockout_open),
             "leeuwtjes_used": len(leeuwtje_match_ids),
             "leeuwtjes_total": LEEUWTJES_LIMIT,
@@ -2678,6 +3427,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             "match_scores": MATCH_SCORE_RULES,
             "group_position": GROUP_POSITION_POINTS,
             "world_cup_winner": WINNER_POINTS,
+            "world_cup_top_scorer": TOP_SCORER_POINTS,
             "quiz_yes_no": QUIZ_YES_NO_POINTS,
             "quiz_open": QUIZ_OPEN_POINTS,
             "quiz_viewership": QUIZ_VIEWERSHIP_POINTS,
@@ -2780,7 +3530,14 @@ def health():
             ),
             503,
         )
-    return jsonify({"ok": True, "database": database_label()})
+    return jsonify(
+        {
+            "ok": True,
+            "database": database_label(),
+            "schema_version": DB_SCHEMA_VERSION,
+            "static_data": static_data_manifest(),
+        }
+    )
 
 
 @app.get("/api/world-cup")
@@ -2796,10 +3553,13 @@ def me():
 @app.post("/api/auth/login")
 def login():
     payload = request.get_json(silent=True) or {}
-    name = normalize_identity(payload.get("name", ""))
+    name = clean_text(payload.get("name", ""))
+    name_key = normalize_identity(name)
     email = normalize_email(payload.get("email", ""))
-    if len(name) < 2:
+    if len(name_key) < 2:
         return jsonify({"error": "Username must be at least 2 characters."}), 400
+    if len(name) > 60:
+        return jsonify({"error": "Username must be at most 60 characters."}), 400
     if "@" not in email or "." not in email:
         return jsonify({"error": "Use a valid Talpa email address."}), 400
 
@@ -2819,13 +3579,13 @@ def login():
             row = execute(
                 conn, "SELECT id, name, email FROM users WHERE email = ?", (email,)
             ).fetchone()
-        elif normalize_identity(row["name"]) != name:
+        elif normalize_identity(row["name"]) != name_key:
             return jsonify({"error": "Use the username linked to this email address."}), 409
-        elif row["name"] != name or row["email"] != email:
+        elif row["email"] != email:
             execute(
                 conn,
-                "UPDATE users SET name = ?, email = ? WHERE id = ?",
-                (name, email, row["id"]),
+                "UPDATE users SET email = ? WHERE id = ?",
+                (email, row["id"]),
             )
             row = execute(
                 conn, "SELECT id, name, email FROM users WHERE id = ?", (row["id"],)
@@ -2838,6 +3598,34 @@ def login():
     session["user_id"] = user["id"]
     logger.info("User %s logged in", user["id"])
     return jsonify({"user": user})
+
+
+@app.patch("/api/me")
+def update_me():
+    user, error_response = require_current_user("Log in before changing your profile.")
+    if error_response:
+        return error_response
+    assert user is not None
+
+    payload = request.get_json(silent=True) or {}
+    name = clean_text(payload.get("name", ""))
+    if len(normalize_identity(name)) < 2:
+        return jsonify({"error": "Username must be at least 2 characters."}), 400
+    if len(name) > 60:
+        return jsonify({"error": "Username must be at most 60 characters."}), 400
+
+    with get_db() as conn:
+        execute(conn, "UPDATE users SET name = ? WHERE id = ?", (name, user["id"]))
+        row = execute(
+            conn, "SELECT id, name, email FROM users WHERE id = ?", (user["id"],)
+        ).fetchone()
+
+    updated_user = row_to_user(row)
+    if updated_user is None:
+        return jsonify({"error": "Could not update your username."}), 500
+    logger.info("User %s updated display name", updated_user["id"])
+    data = load_world_cup_data()
+    return jsonify(user_pool_state(updated_user, data))
 
 
 @app.post("/api/auth/logout")
@@ -2901,6 +3689,54 @@ def api_football_admin_sync():
     return jsonify(result), status_code
 
 
+@app.post("/api/admin/api-football/squads/sync")
+def api_football_admin_squad_sync():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    payload = request.get_json(silent=True) or {}
+    data = load_world_cup_data()
+    try:
+        result = run_api_football_squad_sync(
+            data,
+            force=bool(payload.get("force", False)),
+            dry_run=bool(payload.get("dry_run", False)),
+            limit=int(payload.get("limit", API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE)),
+        )
+    except Exception as error:
+        logger.exception("API-Football squad sync failed")
+        result = {
+            "ok": False,
+            "error": str(error),
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+    status_code = 200 if result.get("ok") else 503
+    return jsonify(result), status_code
+
+
+@app.get("/api/admin/database/status")
+def database_admin_status():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    return jsonify(database_snapshot(include_rows=False))
+
+
+@app.get("/api/admin/database/backup")
+def database_admin_backup():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    snapshot = database_snapshot(include_rows=True)
+    response = jsonify(snapshot)
+    filename_time = utc_now().strftime("%Y%m%dT%H%M%SZ")
+    response.headers["Content-Disposition"] = (
+        f'attachment; filename="wk-hub-backup-{filename_time}.json"'
+    )
+    return response
+
+
 @app.get("/api/cron/api-football-sync")
 def api_football_cron_sync():
     token_error = require_sync_token()
@@ -2911,6 +3747,26 @@ def api_football_cron_sync():
         result = run_api_football_completed_sync(data)
     except Exception as error:
         logger.exception("API-Football cron sync failed")
+        result = {
+            "ok": False,
+            "error": str(error),
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+    status_code = 200 if result.get("ok") else 503
+    return jsonify(result), status_code
+
+
+@app.get("/api/cron/api-football-squad-sync")
+def api_football_squad_cron_sync():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    data = load_world_cup_data()
+    try:
+        result = run_api_football_squad_sync(data)
+    except Exception as error:
+        logger.exception("API-Football squad cron sync failed")
         result = {
             "ok": False,
             "error": str(error),
@@ -3032,6 +3888,8 @@ def save_predictions():
     quiz_items = payload.get("quiz_predictions")
     leeuwtje_items = payload.get("leeuwtjes_match_ids")
     winner_team_id = payload.get("winner_team_id")
+    top_scorer_submitted = "top_scorer_name" in payload
+    top_scorer_name = clean_text(payload.get("top_scorer_name")) if top_scorer_submitted else None
     now = utc_now()
 
     if not isinstance(prediction_items, list):
@@ -3053,6 +3911,11 @@ def save_predictions():
         existing_winner = execute(
             conn,
             "SELECT team_id FROM winner_predictions WHERE user_id = ?",
+            (user["id"],),
+        ).fetchone()
+        existing_top_scorer = execute(
+            conn,
+            "SELECT player_name FROM top_scorer_predictions WHERE user_id = ?",
             (user["id"],),
         ).fetchone()
         existing_quizzes = {
@@ -3137,7 +4000,7 @@ def save_predictions():
                 return jsonify({"error": f"Quiz for match {match_id} is closed."}), 400
             if answer or viewership_prediction is not None:
                 cleaned_quizzes.append((user["id"], match_id, answer, viewership_prediction))
-            else:
+            elif existing:
                 quiz_deletes.append((user["id"], match_id))
 
     submitted_leeuwtjes: set[str] | None = None
@@ -3166,8 +4029,49 @@ def save_predictions():
     )
     if winner_change_locked:
         return jsonify({"error": "The tournament winner pick is closed."}), 400
+    existing_top_scorer_name = existing_top_scorer["player_name"] if existing_top_scorer else ""
+    if top_scorer_name is not None and len(top_scorer_name) > 120:
+        return jsonify({"error": "Top scorer must be at most 120 characters."}), 400
+    top_scorer_changed = top_scorer_submitted and top_scorer_name != clean_text(
+        existing_top_scorer_name
+    )
+    if top_scorer_changed and is_winner_locked(data, now):
+        return jsonify({"error": "The top scorer pick is closed."}), 400
+
+    audit_payload = {
+        "predictions": [
+            {"match_id": match_id, "home_score": home_score, "away_score": away_score}
+            for _, match_id, home_score, away_score in cleaned
+        ],
+        "quiz_predictions": [
+            {
+                "match_id": match_id,
+                "answer": answer,
+                "viewership_prediction": viewership_prediction,
+            }
+            for _, match_id, answer, viewership_prediction in cleaned_quizzes
+        ],
+        "quiz_deletes": [match_id for _, match_id in quiz_deletes],
+        "leeuwtjes_match_ids": (
+            sorted(submitted_leeuwtjes) if submitted_leeuwtjes is not None else None
+        ),
+        "winner_team_id": winner_team_id or None,
+        "top_scorer_name": top_scorer_name if top_scorer_submitted else None,
+    }
 
     with get_db() as conn:
+        execute(
+            conn,
+            """
+            INSERT INTO prediction_audit_log (user_id, action, payload_json, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                user["id"],
+                "save_predictions",
+                json.dumps(audit_payload, ensure_ascii=False, sort_keys=True),
+            ),
+        )
         for prediction_row in cleaned:
             execute(
                 conn,
@@ -3227,12 +4131,32 @@ def save_predictions():
                 """,
                 (user["id"], winner_team_id),
             )
+        if top_scorer_submitted:
+            if top_scorer_name:
+                execute(
+                    conn,
+                    """
+                    INSERT INTO top_scorer_predictions (user_id, player_name, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id)
+                    DO UPDATE SET player_name = excluded.player_name,
+                                  updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (user["id"], top_scorer_name),
+                )
+            else:
+                execute(
+                    conn,
+                    "DELETE FROM top_scorer_predictions WHERE user_id = ?",
+                    (user["id"],),
+                )
 
     logger.info(
-        "Saved %s match predictions, %s quiz answers and winner=%s for user %s",
+        "Saved %s match predictions, %s quiz answers, winner=%s and top_scorer=%s for user %s",
         len(cleaned),
         len(cleaned_quizzes),
         bool(winner_team_id),
+        bool(top_scorer_name),
         user["id"],
     )
     return jsonify(user_pool_state(user, data))
