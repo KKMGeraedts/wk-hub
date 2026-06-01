@@ -448,20 +448,11 @@ function draftPredictions(draft) {
 function quizAnswerComplete(quiz, prediction) {
   if (!quiz) return true;
   const answer = String(prediction?.answer ?? "").trim();
-  if (!answer) return false;
-  if (quiz.viewership) {
-    const viewership = prediction?.viewership_prediction;
-    return viewership !== undefined && viewership !== null && viewership !== "";
-  }
-  return true;
+  return Boolean(answer);
 }
 
 function quizDraftHasValue(prediction) {
-  const viewership = prediction?.viewership_prediction;
-  return Boolean(
-    String(prediction?.answer ?? "").trim() ||
-      (viewership !== "" && viewership !== undefined && viewership !== null),
-  );
+  return Boolean(String(prediction?.answer ?? "").trim());
 }
 
 function draftQuizPredictions(draft, existing = {}) {
@@ -492,6 +483,10 @@ function formatNumber(value) {
   return new Intl.NumberFormat("nl-NL").format(Number(value));
 }
 
+function scoreInputValue(value) {
+  return String(value ?? "").replace(/\D/g, "").slice(0, 2);
+}
+
 function MatchPredictionEditor({
   match,
   teams,
@@ -514,8 +509,46 @@ function MatchPredictionEditor({
   const className = [
     "fixture-score-grid",
     compact ? "is-compact" : "",
+    compact ? "is-score-only" : "",
     showSubmit ? "" : "has-no-submit",
   ].filter(Boolean).join(" ");
+
+  if (compact) {
+    return (
+      <div className={className}>
+        <input
+          aria-label={`${teams.get(match.home_team_id)?.name ?? "Home"} score`}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          value={scores?.home_score ?? ""}
+          disabled={locked}
+          onFocus={(event) => event.target.select()}
+          onChange={(event) => onScore(match.id, "home_score", scoreInputValue(event.target.value))}
+          onKeyDown={submitOnEnter}
+        />
+        <span className="fixture-score-separator">-</span>
+        <input
+          aria-label={`${teams.get(match.away_team_id)?.name ?? "Away"} score`}
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          autoComplete="off"
+          value={scores?.away_score ?? ""}
+          disabled={locked}
+          onFocus={(event) => event.target.select()}
+          onChange={(event) => onScore(match.id, "away_score", scoreInputValue(event.target.value))}
+          onKeyDown={submitOnEnter}
+        />
+        {showSubmit && (
+          <button className="fixture-ok-button" type="button" onClick={onSubmit} disabled={!canSubmit}>
+            {saving ? "Saving..." : "OK"}
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className={className}>
@@ -523,16 +556,14 @@ function MatchPredictionEditor({
         <TeamBadge id={match.home_team_id} teams={teams} />
         <input
           aria-label={`${teams.get(match.home_team_id)?.name ?? "Home"} score`}
-          type="number"
+          type="text"
           inputMode="numeric"
           pattern="[0-9]*"
           autoComplete="off"
-          min="0"
-          max="30"
           value={scores?.home_score ?? ""}
           disabled={locked}
           onFocus={(event) => event.target.select()}
-          onChange={(event) => onScore(match.id, "home_score", event.target.value)}
+          onChange={(event) => onScore(match.id, "home_score", scoreInputValue(event.target.value))}
           onKeyDown={submitOnEnter}
         />
       </label>
@@ -541,16 +572,14 @@ function MatchPredictionEditor({
         <TeamBadge id={match.away_team_id} teams={teams} align="right" />
         <input
           aria-label={`${teams.get(match.away_team_id)?.name ?? "Away"} score`}
-          type="number"
+          type="text"
           inputMode="numeric"
           pattern="[0-9]*"
           autoComplete="off"
-          min="0"
-          max="30"
           value={scores?.away_score ?? ""}
           disabled={locked}
           onFocus={(event) => event.target.select()}
-          onChange={(event) => onScore(match.id, "away_score", event.target.value)}
+          onChange={(event) => onScore(match.id, "away_score", scoreInputValue(event.target.value))}
           onKeyDown={submitOnEnter}
         />
       </label>
@@ -568,28 +597,28 @@ function MatchQuizEditor({
   prediction,
   locked,
   onAnswer,
-  onViewership,
 }) {
   const quiz = match.quiz;
   if (!quiz) return null;
   const answer = prediction?.answer ?? "";
-  const viewership = prediction?.viewership_prediction ?? "";
   const complete = quizAnswerComplete(quiz, prediction);
 
   return (
     <section className={complete ? "fixture-quiz is-complete" : "fixture-quiz"} aria-label="Quizvraag">
       <div className="fixture-quiz-heading">
         <div>
-          <span className="game-kicker">Quizvraag</span>
           <strong>{quiz.question}</strong>
         </div>
-        <PredictionStatusPill complete={complete} locked={locked} />
       </div>
-      <div className={quiz.viewership ? "fixture-quiz-inputs has-viewership" : "fixture-quiz-inputs"}>
+      <div className="fixture-quiz-inputs">
         <label>
-          Antwoord
           {quiz.choices?.length ? (
-            <select value={answer} disabled={locked} onChange={(event) => onAnswer(match.id, event.target.value)}>
+            <select
+              aria-label="Antwoord"
+              value={answer}
+              disabled={locked}
+              onChange={(event) => onAnswer(match.id, event.target.value)}
+            >
               <option value="">Kies antwoord</option>
               {quiz.choices.map((choice) => (
                 <option key={choice} value={choice}>{choice}</option>
@@ -597,6 +626,7 @@ function MatchQuizEditor({
             </select>
           ) : (
             <input
+              aria-label="Antwoord"
               value={answer}
               disabled={locked}
               maxLength={160}
@@ -605,20 +635,6 @@ function MatchQuizEditor({
             />
           )}
         </label>
-        {quiz.viewership && (
-          <label>
-            Kijkcijfers
-            <input
-              value={viewership}
-              disabled={locked}
-              inputMode="numeric"
-              min="0"
-              placeholder="Aantal kijkers"
-              type="number"
-              onChange={(event) => onViewership(match.id, event.target.value)}
-            />
-          </label>
-        )}
       </div>
     </section>
   );
@@ -665,8 +681,6 @@ function MatchPredictionRow({
 }) {
   const complete = scoreComplete(scores);
   const venue = venues.get(match.venue_id);
-  const scoreLabel = complete ? `${scores.home_score} - ${scores.away_score}` : "— - —";
-  const showEditor = quickEntry || editing;
 
   return (
     <article
@@ -681,7 +695,7 @@ function MatchPredictionRow({
         <div className="fixture-open-button as-static">
           <span className="fixture-number">{index + 1}</span>
           <span>
-            <strong><TeamLabel id={match.home_team_id} teams={teams} /> vs <TeamLabel id={match.away_team_id} teams={teams} /></strong>
+            <strong><TeamLabel id={match.home_team_id} teams={teams} /> <TeamLabel id={match.away_team_id} teams={teams} /></strong>
             <em>{formatDate(match, true)} · {formatTime(match)} · {venue?.city ?? "Venue to confirm"}</em>
           </span>
         </div>
@@ -692,30 +706,22 @@ function MatchPredictionRow({
             remaining={leeuwtjesRemaining}
             onToggle={onToggleLeeuwtje}
           />
-          <PredictionStatusPill complete={complete} active={editing && !quickEntry} locked={locked} />
+          <PredictionStatusPill complete={complete} active={false} locked={locked} />
           <LockPill lock={{ locked }} />
         </div>
       </div>
 
-      {showEditor ? (
-        <MatchPredictionEditor
-          match={match}
-          teams={teams}
-          scores={scores}
-          locked={locked}
-          onScore={onScore}
-          onSubmit={onSubmit}
-          saving={saving}
-          compact={compact}
-          showSubmit={!quickEntry}
-        />
-      ) : (
-        <button className="fixture-preview" type="button" onClick={onEdit} disabled={locked}>
-          <TeamBadge id={match.home_team_id} teams={teams} />
-          <strong>{scoreLabel}</strong>
-          <TeamBadge id={match.away_team_id} teams={teams} align="right" />
-        </button>
-      )}
+      <MatchPredictionEditor
+        match={match}
+        teams={teams}
+        scores={scores}
+        locked={locked}
+        onScore={onScore}
+        onSubmit={onSubmit}
+        saving={saving}
+        compact={compact}
+        showSubmit={!quickEntry}
+      />
       <MatchQuizEditor
         match={match}
         prediction={quizPrediction}
@@ -2206,7 +2212,6 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   const [winnerDirty, setWinnerDirty] = useState(false);
   const [topScorer, setTopScorer] = useState(pool.top_scorer_pick ?? "");
   const [topScorerDirty, setTopScorerDirty] = useState(false);
-  const [quickEntry, setQuickEntry] = useState(true);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -2466,26 +2471,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                 <div className="prediction-step-header">
                   <div>
                     <h4>Group {selectedGroup.id} schedule</h4>
-                    <p>{quickEntry ? "Type scores straight through the group, then save once below." : "Click a score to edit it. Press OK or Enter to save and return to view mode."}</p>
-                  </div>
-                  <div className="segmented-control" aria-label="Prediction entry mode">
-                    <button
-                      className={quickEntry ? "is-active" : ""}
-                      type="button"
-                      onClick={() => {
-                        setQuickEntry(true);
-                        setEditingMatchId("");
-                      }}
-                    >
-                      Quick entry
-                    </button>
-                    <button
-                      className={!quickEntry ? "is-active" : ""}
-                      type="button"
-                      onClick={() => setQuickEntry(false)}
-                    >
-                      Row edit
-                    </button>
+                    <p>Type scores directly in each match row, then save once below.</p>
                   </div>
                 </div>
 
@@ -2509,13 +2495,13 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                         leeuwtjeActive={leeuwtjeMatchIds.has(match.id)}
                         canToggleLeeuwtje={leeuwtjeMatchIds.has(match.id) || leeuwtjeMatchIds.size < leeuwtjeTotal}
                         leeuwtjesRemaining={leeuwtjesRemaining}
-                        onEdit={() => !quickEntry && setEditingMatchId(match.id)}
                         onScore={setScore}
                         onQuizAnswer={setQuizAnswer}
                         onQuizViewership={setQuizViewership}
                         onToggleLeeuwtje={() => toggleLeeuwtje(match.id)}
                         onSubmit={() => save(true)}
-                        quickEntry={quickEntry}
+                        compact
+                        quickEntry
                       />
                     );
                   })}
@@ -2579,7 +2565,6 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [quickEntry, setQuickEntry] = useState(true);
 
   const selectedGroup = data.groups.find((group) => group.id === selectedGroupId);
   const selectedMatches = selectedGroupId ? matchesByGroup.get(selectedGroupId) ?? [] : [];
@@ -2816,26 +2801,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                 <div className="prediction-step-header">
                   <div>
                     <h4>Group {selectedGroup.id} schedule</h4>
-                    <p>{quickEntry ? "Change open scores inline; changes are saved automatically." : "Locked rows are read-only; open rows can still be changed."}</p>
-                  </div>
-                  <div className="segmented-control" aria-label="Prediction entry mode">
-                    <button
-                      className={quickEntry ? "is-active" : ""}
-                      type="button"
-                      onClick={() => {
-                        setQuickEntry(true);
-                        setEditingMatchId("");
-                      }}
-                    >
-                      Quick entry
-                    </button>
-                    <button
-                      className={!quickEntry ? "is-active" : ""}
-                      type="button"
-                      onClick={() => setQuickEntry(false)}
-                    >
-                      Row edit
-                    </button>
+                    <p>Change open scores inline; changes are saved automatically.</p>
                   </div>
                 </div>
                 <div className="prediction-fixture-list">
@@ -2858,14 +2824,13 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                         leeuwtjeActive={leeuwtjeMatchIds.has(match.id)}
                         canToggleLeeuwtje={leeuwtjeMatchIds.has(match.id) || leeuwtjeMatchIds.size < leeuwtjeTotal}
                         leeuwtjesRemaining={leeuwtjesRemaining}
-                        onEdit={() => !quickEntry && setEditingMatchId(match.id)}
                         onScore={setScore}
                         onQuizAnswer={setQuizAnswer}
                         onQuizViewership={setQuizViewership}
                         onToggleLeeuwtje={() => toggleLeeuwtje(match.id)}
                         onSubmit={() => save(true)}
                         compact
-                        quickEntry={quickEntry}
+                        quickEntry
                       />
                     );
                   })}

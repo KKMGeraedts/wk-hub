@@ -2748,13 +2748,13 @@ tr.highlight td {
 
 .prediction-fixture-list {
   display: grid;
-  gap: 10px;
+  gap: 7px;
 }
 
 .prediction-fixture-row {
   display: grid;
-  gap: 12px;
-  padding: 12px;
+  gap: 7px;
+  padding: 7px 9px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
@@ -2778,14 +2778,14 @@ tr.highlight td {
 .fixture-row-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
+  gap: 7px;
   align-items: start;
 }
 
 .fixture-open-button {
   display: inline-grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 7px;
   align-items: center;
   min-width: 0;
   border: 0;
@@ -2808,45 +2808,51 @@ tr.highlight td {
 
 .fixture-open-button strong {
   overflow: hidden;
-  font-size: 15px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .fixture-open-button em {
-  margin-top: 2px;
+  margin-top: 1px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 10px;
   font-style: normal;
   font-weight: 800;
 }
 
 .fixture-number {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 24px;
+  height: 24px;
   place-items: center;
   border-radius: 999px;
   background: #ffeadb;
   color: var(--orange-dark);
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 900;
 }
 
 .fixture-row-status {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 4px;
   justify-content: flex-end;
+}
+
+.prediction-fixture-row .pill {
+  min-height: 20px;
+  padding: 0 6px;
+  font-size: 10px;
 }
 
 .leeuwtje-button {
   display: inline-grid;
-  grid-template-columns: 22px minmax(0, auto);
-  gap: 6px;
+  grid-template-columns: 16px minmax(0, auto);
+  gap: 4px;
   align-items: center;
-  min-height: 32px;
-  padding: 4px 9px 4px 5px;
+  min-height: 24px;
+  padding: 2px 7px 2px 3px;
   border: 1px solid rgba(243, 108, 33, 0.28);
   border-radius: 999px;
   background: #ffffff;
@@ -2856,12 +2862,12 @@ tr.highlight td {
 
 .leeuwtje-button span {
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: 16px;
+  height: 16px;
   place-items: center;
   border-radius: 999px;
   background: #fff0e6;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 950;
 }
 
@@ -2869,7 +2875,7 @@ tr.highlight td {
 .leeuwtje-button em {
   display: block;
   min-width: 0;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.1;
 }
 
@@ -2894,7 +2900,7 @@ tr.highlight td {
 .fixture-preview {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 12px;
+  gap: 7px;
   align-items: center;
 }
 
@@ -2907,17 +2913,35 @@ tr.highlight td {
 }
 
 .fixture-score-grid.is-compact {
-  grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr) auto;
 }
 
 .fixture-score-grid.is-compact.has-no-submit {
-  grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 16px minmax(0, 1fr);
+}
+
+.fixture-score-grid.is-score-only {
+  grid-template-columns: 38px 12px 38px auto;
+  justify-content: center;
+}
+
+.fixture-score-grid.is-score-only.has-no-submit {
+  grid-template-columns: 38px 12px 38px;
+}
+
+.fixture-score-grid.is-score-only input {
+  min-height: 30px;
+  padding: 0 6px;
+  color: var(--orange-dark);
+  font-size: 16px;
+  font-weight: 900;
+  text-align: center;
 }
 
 .fixture-team-input {
-  gap: 10px;
+  gap: 6px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   text-transform: none;
 }
 
@@ -2927,21 +2951,21 @@ tr.highlight td {
 }
 
 .fixture-team-input input {
-  min-height: 58px;
+  min-height: 38px;
   color: var(--orange-dark);
-  font-size: 28px;
+  font-size: 20px;
   font-weight: 900;
   text-align: center;
 }
 
 .fixture-score-grid.is-compact .fixture-team-input {
-  grid-template-columns: minmax(0, 1fr) 82px;
+  grid-template-columns: minmax(0, 1fr) 54px;
   align-items: center;
 }
 
 .fixture-score-grid.is-compact .fixture-team-input input {
-  min-height: 48px;
-  font-size: 22px;
+  min-height: 34px;
+  font-size: 17px;
 }
 
 .fixture-ok-button {
@@ -2961,12 +2985,37 @@ tr.highlight td {
   opacity: 0.62;
 }
 
+.fixture-score-grid.is-score-only .fixture-ok-button {
+  min-height: 30px;
+  padding: 0 10px;
+}
+
 .fixture-score-separator,
 .fixture-preview > strong {
   color: var(--orange-dark);
-  font-size: 28px;
+  font-size: 17px;
   font-weight: 900;
   text-align: center;
+}
+
+.prediction-fixture-row .team-badge {
+  gap: 6px;
+}
+
+.prediction-fixture-row .team-badge-flag {
+  flex-basis: 26px;
+  width: 26px;
+  height: 19px;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.prediction-fixture-row .team-badge strong {
+  font-size: 12px;
+}
+
+.prediction-fixture-row .team-badge em {
+  font-size: 10px;
 }
 
 .fixture-preview {
@@ -2990,8 +3039,8 @@ tr.highlight td {
 
 .fixture-quiz {
   display: grid;
-  gap: 10px;
-  padding: 12px;
+  gap: 5px;
+  padding: 7px;
   border: 1px solid rgba(220, 226, 234, 0.84);
   border-radius: 8px;
   background: #f8fafc;
@@ -3005,20 +3054,32 @@ tr.highlight td {
 .fixture-quiz-heading {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
-  align-items: flex-start;
+  gap: 7px;
+  align-items: center;
 }
 
 .fixture-quiz-heading strong {
   display: block;
-  margin-top: 2px;
-  font-size: 14px;
+  margin-top: 1px;
+  font-size: 12px;
+  line-height: 1.25;
 }
 
 .fixture-quiz-inputs {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 10px;
+  gap: 6px;
+}
+
+.fixture-quiz-inputs label {
+  gap: 0;
+  font-size: 10px;
+}
+
+.fixture-quiz-inputs input,
+.fixture-quiz-inputs select {
+  min-height: 32px;
+  padding: 0 9px;
 }
 
 .fixture-quiz-inputs.has-viewership {
@@ -3255,5 +3316,15 @@ tr.highlight td {
   }
   .prompt-score-separator {
     display: none;
+  }
+}
+
+@media (min-width: 520px) {
+  .prediction-fixture-row .fixture-row-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .prediction-fixture-row .fixture-score-grid.is-score-only {
+    justify-content: center;
   }
 }
