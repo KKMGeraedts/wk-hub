@@ -2565,6 +2565,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [pendingScoreMatchId, setPendingScoreMatchId] = useState("");
 
   const selectedGroup = data.groups.find((group) => group.id === selectedGroupId);
   const selectedMatches = selectedGroupId ? matchesByGroup.get(selectedGroupId) ?? [] : [];
@@ -2596,6 +2597,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
     setTopScorer(pool.top_scorer_pick ?? "");
     setInitialized(true);
     setDirty(false);
+    setPendingScoreMatchId("");
   }, [pool, groupMatches]);
 
   function setScore(matchId, key, value) {
@@ -2603,6 +2605,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
       ...current,
       [matchId]: { ...current[matchId], [key]: value },
     }));
+    setPendingScoreMatchId(matchId);
     setDirty(true);
   }
 
@@ -2670,6 +2673,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
       onPoolUpdate(updated);
       if (closeEditor) setEditingMatchId("");
       setDirty(false);
+      setPendingScoreMatchId("");
       return updated;
     } catch (err) {
       setError(err.message);
@@ -2681,11 +2685,23 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
 
   useEffect(() => {
     if (!initialized || !dirty) return undefined;
+    if (pendingScoreMatchId && !scoreComplete(draft[pendingScoreMatchId])) {
+      return undefined;
+    }
     const timer = window.setTimeout(() => {
       save();
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [draft, quizDraft, leeuwtjeMatchIds, winner, topScorer, initialized, dirty]);
+  }, [
+    draft,
+    quizDraft,
+    leeuwtjeMatchIds,
+    winner,
+    topScorer,
+    initialized,
+    dirty,
+    pendingScoreMatchId,
+  ]);
 
   async function saveAndGoHome() {
     const updated = await save(true);
