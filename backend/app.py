@@ -39,6 +39,7 @@ load_env_file(ROOT / ".env")
 
 DATA_PATH = ROOT / "backend" / "worldcup-2026.json"
 QUIZ_PATH = ROOT / "backend" / "quiz-2026.json"
+TEAM_PROFILES_PATH = ROOT / "backend" / "team-profiles-2026.json"
 DB_PATH = Path(os.environ.get("WK_HUB_SQLITE_PATH", ROOT / "backend" / "pool.db"))
 DB_SCHEMA_VERSION = 4
 DB_BACKUP_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -174,6 +175,10 @@ def static_data_manifest() -> dict[str, Any]:
         "worldcup_sha256": file_sha256(DATA_PATH),
         "quiz_path": str(QUIZ_PATH.relative_to(ROOT)) if QUIZ_PATH.exists() else None,
         "quiz_sha256": file_sha256(QUIZ_PATH),
+        "team_profiles_path": (
+            str(TEAM_PROFILES_PATH.relative_to(ROOT)) if TEAM_PROFILES_PATH.exists() else None
+        ),
+        "team_profiles_sha256": file_sha256(TEAM_PROFILES_PATH),
     }
 
 
@@ -191,11 +196,60 @@ def load_world_cup_data() -> dict[str, Any]:
                 match["quiz"] = quiz
         data.setdefault("meta", {})["quiz_answer_source"] = quiz_data.get("answerSource")
 
+    apply_static_team_profiles(data)
+
     if not CONFIG_ERROR:
         apply_synced_team_profiles(data)
         apply_synced_match_results(data)
 
     return data
+
+
+def merge_team_profile(team: dict[str, Any], profile: dict[str, Any]) -> None:
+    current = dict(team.get("profile") or team.get("team_profile") or {})
+    for key, value in profile.items():
+        if key == "sources":
+            current_sources = list_value(current.get("sources"))
+            for source in list_value(value):
+                if source not in current_sources:
+                    current_sources.append(source)
+            if current_sources:
+                current["sources"] = current_sources
+        elif value not in (None, "", []):
+            current[key] = value
+    if current:
+        team["profile"] = current
+
+
+def apply_static_team_profiles(data: dict[str, Any]) -> None:
+    if not TEAM_PROFILES_PATH.exists():
+        return
+    try:
+        with TEAM_PROFILES_PATH.open(encoding="utf-8") as profiles_file:
+            profiles_data = json.load(profiles_file)
+    except Exception:
+        logger.exception("Could not load static team profiles")
+        return
+
+    by_team = {
+        team.get("id"): team
+        for team in profiles_data.get("teams", [])
+        if isinstance(team, dict) and team.get("id")
+    }
+    source = profiles_data.get("source") or {}
+    for team in data.get("teams", []):
+        profile = by_team.get(team.get("id"))
+        if not profile:
+            continue
+        profile_payload: dict[str, Any] = {}
+        if profile.get("squad"):
+            profile_payload["squad"] = profile["squad"]
+        if profile.get("head_coach"):
+            profile_payload["head_coach"] = profile["head_coach"]
+            profile_payload["coaching_staff"] = [profile["head_coach"]]
+        if source:
+            profile_payload["sources"] = [source]
+        merge_team_profile(team, profile_payload)
 
 
 def utc_now() -> datetime:

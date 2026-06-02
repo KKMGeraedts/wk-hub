@@ -1,0 +1,6536 @@
+{
+  "notes": "Static team profile snapshot loaded at runtime before database/API overlays. Squads marked as expected in the source may be empty or provisional.",
+  "source": {
+    "captured_at": "2026-06-02",
+    "label": "ESPN WK 2026 selecties",
+    "url": "https://www.espn.nl/voetbal/artikel/_/id/16696859/wk-2026-overzicht-selecties-alle-48-landen"
+  },
+  "teams": [
+    {
+      "head_coach": {
+        "name": "Miroslav Koubek",
+        "role": "Head coach"
+      },
+      "id": "cze",
+      "source_name": "Tsjechië",
+      "squad": [
+        {
+          "club": "Braga SC",
+          "name": "Lukáš Horníček",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "PSV",
+          "name": "Matěj Kovář",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "Jindřich Staněk",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "TSG Hoffenheim",
+          "name": "Vladimír Coufal",
+          "position": "Defender"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "David Douděra",
+          "position": "Defender"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "Tomáš Holeš",
+          "position": "Defender"
+        },
+        {
+          "club": "TSG Hoffenheim",
+          "name": "Robin Hranáč",
+          "position": "Defender"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "Štěpán Chaloupek",
+          "position": "Defender"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "David Jurásek",
+          "position": "Defender"
+        },
+        {
+          "club": "Wolverhampton Wanderers",
+          "name": "Ladislav Krejčí",
+          "position": "Defender"
+        },
+        {
+          "club": "AC Sparta Praag",
+          "name": "Jaroslav Zelený",
+          "position": "Defender"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "David Zima",
+          "position": "Defender"
+        },
+        {
+          "club": "Viktoria Plzeň",
+          "name": "Lukáš Červ",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Hradec Králové",
+          "name": "Vladimír Darida",
+          "position": "Midfielder"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "Lukáš Provod",
+          "position": "Midfielder"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "Michal Sadílek",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AC Sparta Praag",
+          "name": "Hugo Sochůrek",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Viktoria Plzeň",
+          "name": "Alexandr Sojka",
+          "position": "Midfielder"
+        },
+        {
+          "club": "West Ham United",
+          "name": "Tomáš Souček",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Olympique Lyonnais",
+          "name": "Pavel Šulc",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Viktoria Plzeň",
+          "name": "Denis Višinský",
+          "position": "Midfielder"
+        },
+        {
+          "club": "TSG Hoffenheim 1899",
+          "name": "Adam Hložek",
+          "position": "Forward"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "Tomáš Chorý",
+          "position": "Forward"
+        },
+        {
+          "club": "SK Slavia Praag",
+          "name": "Mojmír Chytil",
+          "position": "Forward"
+        },
+        {
+          "club": "AC Sparta Praag",
+          "name": "Jan Kuchta",
+          "position": "Forward"
+        },
+        {
+          "club": "Bayer 04 Leverkusen",
+          "name": "Patrik Schick",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 31 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Javier Aguirre",
+        "role": "Head coach"
+      },
+      "id": "mex",
+      "source_name": "Mexico",
+      "squad": [
+        {
+          "club": "Guadalajara",
+          "name": "Raúl Rangel",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "AEL Limassol",
+          "name": "Guillermo Ochoa",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Santos Laguna",
+          "name": "Carlos Acevedo",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Lokomotiv Moscow",
+          "name": "César Montes",
+          "position": "Defender"
+        },
+        {
+          "club": "Genoa",
+          "name": "Johan Vásquez",
+          "position": "Defender"
+        },
+        {
+          "club": "Toluca",
+          "name": "Jesús Gallardo",
+          "position": "Defender"
+        },
+        {
+          "club": "PAOK",
+          "name": "Jorge Sánchez",
+          "position": "Defender"
+        },
+        {
+          "club": "América",
+          "name": "Israel Reyes",
+          "position": "Defender"
+        },
+        {
+          "club": "AZ",
+          "name": "Mateo Chávez",
+          "position": "Defender"
+        },
+        {
+          "club": "Fenerbahçe",
+          "name": "Edson Álvarez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Guadalajara",
+          "name": "Brian Gutiérrez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Dynamo Moscow",
+          "name": "Luis Chávez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Guadalajara",
+          "name": "Luis Romo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Cruz Azul",
+          "name": "Érik Lira",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AEK Athens",
+          "name": "Orbelín Pineda",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Betis",
+          "name": "Álvaro Fidalgo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Atlético Madrid",
+          "name": "Obed Vargas",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Tijuana",
+          "name": "Gilberto Mora",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Fulham",
+          "name": "Raúl Jiménez",
+          "position": "Forward"
+        },
+        {
+          "club": "Anderlecht",
+          "name": "César Huerta",
+          "position": "Forward"
+        },
+        {
+          "club": "AC Milan",
+          "name": "Santiago Giménez",
+          "position": "Forward"
+        },
+        {
+          "club": "Toluca",
+          "name": "Alexis Vega",
+          "position": "Forward"
+        },
+        {
+          "club": "Guadalajara",
+          "name": "Roberto Alvarado",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Qadisiyah",
+          "name": "Julián Quiñones",
+          "position": "Forward"
+        },
+        {
+          "club": "UNAM",
+          "name": "Guillermo Martínez",
+          "position": "Forward"
+        },
+        {
+          "club": "Guadalajara",
+          "name": "Armando González",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 1 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Hugo Broos",
+        "role": "Head coach"
+      },
+      "id": "rsa",
+      "source_name": "Zuid-Afrika",
+      "squad": [
+        {
+          "club": "Mamelodi Sundowns FC",
+          "name": "Ronwen Williams",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Philadelphia Union",
+          "name": "Ricardo Goss",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Orlando Pirates FC",
+          "name": "Sipho Chaine",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Mamelodi Sundwons FC",
+          "name": "Khuliso Mudau",
+          "position": "Defender"
+        },
+        {
+          "club": "Orlando Pirates FC",
+          "name": "Nkosinathi Sibisi",
+          "position": "Defender"
+        },
+        {
+          "club": "Hannover 96",
+          "name": "Ime Okon",
+          "position": "Defender"
+        },
+        {
+          "club": "Mamelodi Sundowns FC",
+          "name": "Khulumani Ndamane",
+          "position": "Defender"
+        },
+        {
+          "club": "Mamelodi Sundowns FC",
+          "name": "Aubrey Modiba",
+          "position": "Defender"
+        },
+        {
+          "club": "Molde FK",
+          "name": "Samukele Kabini",
+          "position": "Defender"
+        },
+        {
+          "club": "Polokwane City FC",
+          "name": "Thabang Matuludi",
+          "position": "Defender"
+        },
+        {
+          "club": "Philadelphia Union",
+          "name": "Olwethu Makhanya",
+          "position": "Defender"
+        },
+        {
+          "club": "Orlando Pirates FC",
+          "name": "Kamogelo Sebelebele",
+          "position": "Defender"
+        },
+        {
+          "club": "Kaizer Chiefs FC",
+          "name": "Bradley Cross",
+          "position": "Defender"
+        },
+        {
+          "club": "Chicago Fire",
+          "name": "Mbekezeli Mbokazi",
+          "position": "Defender"
+        },
+        {
+          "club": "Mamelodi Sundowns FC",
+          "name": "Teboho Mokoena",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Orlando Pirates FC",
+          "name": "Thalente Mbatha",
+          "position": "Midfielder"
+        },
+        {
+          "club": "CD Tondela",
+          "name": "Sphephelo Sithole",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Mamelodi Sundowns FC",
+          "name": "Jayden Adams",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Orlando Pirates FC",
+          "name": "Oswin Appollis",
+          "position": "Forward"
+        },
+        {
+          "club": "Mamelodi Sundowns FC",
+          "name": "Iqraam Rayners",
+          "position": "Forward"
+        },
+        {
+          "club": "Orlando Pirates FC",
+          "name": "Tshepang Moremi",
+          "position": "Forward"
+        },
+        {
+          "club": "Orlando Pirates FC",
+          "name": "Relebohile Mofokeng",
+          "position": "Forward"
+        },
+        {
+          "club": "Orlando Pirates FC",
+          "name": "Evidence Makgopa",
+          "position": "Forward"
+        },
+        {
+          "club": "Mamelodi Sundowns FC",
+          "name": "Themba Zwane",
+          "position": "Forward"
+        },
+        {
+          "club": "Burnley FC",
+          "name": "Lyle Foster",
+          "position": "Forward"
+        },
+        {
+          "club": "AEL Limassol",
+          "name": "Thapelo Maseko",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 27 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Hong Myung-bo",
+        "role": "Head coach"
+      },
+      "id": "kor",
+      "source_name": "Zuid-Korea",
+      "squad": [
+        {
+          "club": "FC Tokyo",
+          "name": "Seung-Gyu Kim",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Jeonbuk Hyundai Motors",
+          "name": "Bum-keun Song",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Ulsan HD FC",
+          "name": "Hyeon-woo Jo",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Daejeon Hana Citizen",
+          "name": "Moon-hwan Kim",
+          "position": "Defender"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Min-jae Kim",
+          "position": "Defender"
+        },
+        {
+          "club": "Kashima Antlers",
+          "name": "Tae-hyeon Kim",
+          "position": "Defender"
+        },
+        {
+          "club": "Zhejiang FC",
+          "name": "Jin-seob Park",
+          "position": "Defender"
+        },
+        {
+          "club": "Rode Ster Belgrado",
+          "name": "Young-woo Seol",
+          "position": "Defender"
+        },
+        {
+          "club": "Borussia Mönchengladbach",
+          "name": "Jens Castrop",
+          "position": "Defender"
+        },
+        {
+          "club": "Gangwon FC",
+          "name": "Ki-hyuk Lee",
+          "position": "Defender"
+        },
+        {
+          "club": "FK Austria Wien",
+          "name": "Tae-seok Lee",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Midtjylland",
+          "name": "Han-beom Lee",
+          "position": "Defender"
+        },
+        {
+          "club": "Sharjah FC",
+          "name": "Yu-min Cho",
+          "position": "Defender"
+        },
+        {
+          "club": "Jeonbuk Hyundai Motors",
+          "name": "Jin-gyu Kim",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Stoke City",
+          "name": "Jun-ho Bae",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Birmingham City",
+          "name": "Seung-ho Paik",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Celtic FC",
+          "name": "Hyun-jun Yang",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Swansea City",
+          "name": "Ji-sung Eom",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Kang-in Lee",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Ulsan HD FC",
+          "name": "Dong-gyeong Lee",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FSV Mainz 05",
+          "name": "Jae-sung Lee",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Feyenoord",
+          "name": "In-beom Hwang",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Wolverhampton Wanderers",
+          "name": "Hee-chan Hwang",
+          "position": "Midfielder"
+        },
+        {
+          "club": "LAFC",
+          "name": "Heung-min Son",
+          "position": "Forward"
+        },
+        {
+          "club": "Besiktas",
+          "name": "Hyeon-gyu Oh",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Midtjylland",
+          "name": "Gue-sung Cho",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 16 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Sergej Barbarez",
+        "role": "Head coach"
+      },
+      "id": "bih",
+      "source_name": "Bosnië En Herzegovina",
+      "squad": [
+        {
+          "club": "FC St. Pauli",
+          "name": "Nikola Vasilj",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "HNK Rijeka",
+          "name": "Martin Zlomislić",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Slaven Belupo",
+          "name": "Osman Hadžikić",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Atalanta",
+          "name": "Sead Kolašinac",
+          "position": "Defender"
+        },
+        {
+          "club": "Benfica",
+          "name": "Amar Dedić",
+          "position": "Defender"
+        },
+        {
+          "club": "Gaziantep FK",
+          "name": "Nihad Mujakić",
+          "position": "Defender"
+        },
+        {
+          "club": "Schalke 04",
+          "name": "Nikola Katić",
+          "position": "Defender"
+        },
+        {
+          "club": "Sassuolo",
+          "name": "Tarik Muharemović",
+          "position": "Defender"
+        },
+        {
+          "club": "HNK Rijeka",
+          "name": "Stjepan Radeljić",
+          "position": "Defender"
+        },
+        {
+          "club": "Sampdoria",
+          "name": "Dennis Hadžikadunić",
+          "position": "Defender"
+        },
+        {
+          "club": "RC Lens",
+          "name": "Nidal Čelik",
+          "position": "Defender"
+        },
+        {
+          "club": "Hull City",
+          "name": "Amir Hadžiahmetović",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Pafos FC",
+          "name": "Ivan Šunjić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Astana",
+          "name": "Ivan Bašić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Karlsruher SC",
+          "name": "Dženis Burnić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Slovan Liberec",
+          "name": "Ermin Mahmić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Brøndby",
+          "name": "Benjamin Tahirović",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Viktoria Plzeň",
+          "name": "Amar Memić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Young Boys",
+          "name": "Armin Gigović",
+          "position": "Midfielder"
+        },
+        {
+          "club": "RB Salzburg",
+          "name": "Kerim Alajbegović",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PSV",
+          "name": "Esmir Bajraktarević",
+          "position": "Forward"
+        },
+        {
+          "club": "VfB Stuttgart",
+          "name": "Ermedin Demirović",
+          "position": "Forward"
+        },
+        {
+          "club": "Universitatea Cluj",
+          "name": "Jovo Lukić",
+          "position": "Forward"
+        },
+        {
+          "club": "Jagiellonia Białystok",
+          "name": "Samed Baždar",
+          "position": "Forward"
+        },
+        {
+          "club": "Borussia Mönchengladbach",
+          "name": "Haris Tabaković",
+          "position": "Forward"
+        },
+        {
+          "club": "Schalke 04",
+          "name": "Edin Džeko",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 11 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Jesse March",
+        "role": "Head coach"
+      },
+      "id": "can",
+      "source_name": "Canada",
+      "squad": [
+        {
+          "club": "Orlando City",
+          "name": "Maxime Crépeau",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Barnsley",
+          "name": "Owen Goodman",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Inter Miami",
+          "name": "Dayne St. Clair",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "OGC Nice",
+          "name": "Moïse Bombito",
+          "position": "Defender"
+        },
+        {
+          "club": "Olympique Marseille",
+          "name": "Derek Cornelius",
+          "position": "Defender"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Alphonso Davies",
+          "position": "Defender"
+        },
+        {
+          "club": "Fulham",
+          "name": "Luc de Fougerolles",
+          "position": "Defender"
+        },
+        {
+          "club": "Celtic",
+          "name": "Alistair Johnston",
+          "position": "Defender"
+        },
+        {
+          "club": "Middlesbrough",
+          "name": "Alfie Jones",
+          "position": "Defender"
+        },
+        {
+          "club": "Toronto FC",
+          "name": "Richie Laryea",
+          "position": "Defender"
+        },
+        {
+          "club": "Hajduk Split",
+          "name": "Niko Sigur",
+          "position": "Defender"
+        },
+        {
+          "club": "Chicago Fire",
+          "name": "Joel Waterman",
+          "position": "Defender"
+        },
+        {
+          "club": "Norwich City",
+          "name": "Ali Ahmed",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Villarreal",
+          "name": "Tajon Buchanan",
+          "position": "Midfielder"
+        },
+        {
+          "club": "LAFC",
+          "name": "Mathieu Choinière",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Porto",
+          "name": "Stephen Eustáquio",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Tigres UANL",
+          "name": "Marcelo Flores",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sassuolo",
+          "name": "Ismaël Koné",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Hull City",
+          "name": "Liam Millar",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Toronto FC",
+          "name": "Jonathan Osorio",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Anderlecht",
+          "name": "Nathan Saliba",
+          "position": "Midfielder"
+        },
+        {
+          "club": "LAFC",
+          "name": "Jacob Shaffelburg",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Juventus",
+          "name": "Jonathan David",
+          "position": "Forward"
+        },
+        {
+          "club": "Royale Union Saint-Gilloise",
+          "name": "Promise David",
+          "position": "Forward"
+        },
+        {
+          "club": "Real Mallorca",
+          "name": "Cyle Larin",
+          "position": "Forward"
+        },
+        {
+          "club": "Villarreal",
+          "name": "Tani Oluwaseyi",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 29 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Julen Lopetegui",
+        "role": "Head coach"
+      },
+      "id": "qat",
+      "source_name": "Qatar",
+      "squad": [
+        {
+          "club": "Al-Rayyan",
+          "name": "Mahmud Abunada",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Duhail",
+          "name": "Salah Zakaria",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Sadd",
+          "name": "Meshaal Barsham",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Sadd",
+          "name": "Pedro Miguel",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Wakrah",
+          "name": "Lucas Mendes",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Arabi",
+          "name": "Issa Laye",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Gharafa",
+          "name": "Ayoub Al-Oui",
+          "position": "Defender"
+        },
+        {
+          "club": "Cultural Leonesa",
+          "name": "Homam Ahmed",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Sadd",
+          "name": "Boualem Khoukhi",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Duhail",
+          "name": "Sultan Al-Brake",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Arabi",
+          "name": "Al-Hashmi Al-Hussain",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Rayyan",
+          "name": "Jassem Gaber",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Rayyan",
+          "name": "Abdulaziz Hatem",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Duhail",
+          "name": "Karim Boudiaf",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Arabi",
+          "name": "Ahmed Fathy",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Wakrah",
+          "name": "Assim Madibo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Duhail",
+          "name": "Tahsin Jamshid",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Shamal",
+          "name": "Mohamed Al-Mannai",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Rayyan",
+          "name": "Ahmed Alaaeldin",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Duhail",
+          "name": "Edmilson Junior",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Gharafa",
+          "name": "Mohammed Muntari",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Sadd, Akram Afif (Al-Sadd), Yusuf Abdurisag (Al-Wakrah), Ahmed Al-Ganehi (Al-Gharafa), Almoez Ali (Al-Duhail",
+          "name": "Hassan Al-Haydos",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 1 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Murat Yakin",
+        "role": "Head coach"
+      },
+      "id": "sui",
+      "source_name": "Zwitserland",
+      "squad": [
+        {
+          "club": "Borussia Dortmund",
+          "name": "Gregor Kobel",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Young Boys",
+          "name": "Marvin Keller",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Lorient",
+          "name": "Yvon Mvogo",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Real Betis",
+          "name": "Ricardo Rodríguez",
+          "position": "Defender"
+        },
+        {
+          "club": "Internazionale, huur",
+          "name": "Manuel Akanji",
+          "position": "Defender"
+        },
+        {
+          "club": "FSV Mainz 05",
+          "name": "Silvan Widmer",
+          "position": "Defender"
+        },
+        {
+          "club": "Hamburger SV",
+          "name": "Miro Muheim",
+          "position": "Defender"
+        },
+        {
+          "club": "Borussia Mönchengladbach",
+          "name": "Nico Elvedi",
+          "position": "Defender"
+        },
+        {
+          "club": "Valencia",
+          "name": "Eray Cömert",
+          "position": "Defender"
+        },
+        {
+          "club": "Eintracht Frankfurt",
+          "name": "Aurèle Amenda",
+          "position": "Defender"
+        },
+        {
+          "club": "VfB Stuttgart",
+          "name": "Luca Jaquez",
+          "position": "Defender"
+        },
+        {
+          "club": "Bologna",
+          "name": "Remo Freuler",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Granit Xhaka",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Leeds United",
+          "name": "Noah Okafor",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sevilla",
+          "name": "Djibril Sow",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AS Monaco",
+          "name": "Denis Zakaria",
+          "position": "Midfielder"
+        },
+        {
+          "club": "SC Freiburg",
+          "name": "Johan Manzambi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AC Milan",
+          "name": "Ardon Jashari",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Young Boys",
+          "name": "Christian Fassnacht",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Pisa",
+          "name": "Michel Aebischer",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Nottingham Forest",
+          "name": "Dan Ndoye",
+          "position": "Forward"
+        },
+        {
+          "club": "Burnley",
+          "name": "Zeki Amdouni",
+          "position": "Forward"
+        },
+        {
+          "club": "Stade Rennais",
+          "name": "Breel Embolo",
+          "position": "Forward"
+        },
+        {
+          "club": "Sevilla",
+          "name": "Ruben Vargas",
+          "position": "Forward"
+        },
+        {
+          "club": "Augsburg",
+          "name": "Fabian Rieder",
+          "position": "Forward"
+        },
+        {
+          "club": "Fortuna Düsseldorf",
+          "name": "Cedric Itten",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 20 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Carlo Ancelotti",
+        "role": "Head coach"
+      },
+      "id": "bra",
+      "source_name": "Brazilië",
+      "squad": [
+        {
+          "club": "Liverpool",
+          "name": "Alisson Becker",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Fenerbahçe",
+          "name": "Ederson",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Gremio",
+          "name": "Weverton",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Alex Sandro",
+          "position": "Defender"
+        },
+        {
+          "club": "Juventus",
+          "name": "Bremer",
+          "position": "Defender"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Danilo",
+          "position": "Defender"
+        },
+        {
+          "club": "Zenit Sint-Petersburg",
+          "name": "Douglas Santos",
+          "position": "Defender"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Gabriel Magalhães",
+          "position": "Defender"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Leo Pereira",
+          "position": "Defender"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Marquinhos",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Ahli",
+          "name": "Roger Ibañez",
+          "position": "Defender"
+        },
+        {
+          "club": "AS Roma",
+          "name": "Wesley",
+          "position": "Defender"
+        },
+        {
+          "club": "Newcastle United",
+          "name": "Bruno Guimarães",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Casemiro",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Botafogo",
+          "name": "Danilo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Ittihad",
+          "name": "Fabinho",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Lucas Paqueta",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Olympique Lyon",
+          "name": "Endrick",
+          "position": "Forward"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Gabriel Martinelli",
+          "position": "Forward"
+        },
+        {
+          "club": "Brentford",
+          "name": "Igor Thiago",
+          "position": "Forward"
+        },
+        {
+          "club": "Zenit Sint-Petersburg",
+          "name": "Luiz Henrique",
+          "position": "Forward"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Matheus Cunha",
+          "position": "Forward"
+        },
+        {
+          "club": "Santos",
+          "name": "Neymar",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Raphinha",
+          "position": "Forward"
+        },
+        {
+          "club": "Bournemouth",
+          "name": "Rayan",
+          "position": "Forward"
+        },
+        {
+          "club": "Real Madrid",
+          "name": "Vinicius Junior",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 18 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Sébastien Migné",
+        "role": "Head coach"
+      },
+      "id": "hai",
+      "source_name": "Haïti",
+      "squad": [
+        {
+          "club": "SC Bastia",
+          "name": ": Johny Placide",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "FC Sochaux",
+          "name": "Alexandre Pierre",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Cosmos Koblenz",
+          "name": "Josué Duverger",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Angers",
+          "name": ": Carlens Arcus",
+          "position": "Defender"
+        },
+        {
+          "club": "Zulte Waregem",
+          "name": "Wilguens Paugain",
+          "position": "Defender"
+        },
+        {
+          "club": "LDU Quito",
+          "name": "Ricardo Adé",
+          "position": "Defender"
+        },
+        {
+          "club": "KAA Gent",
+          "name": "Jean Kévin Duverne",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Lugano",
+          "name": "Hannes Delcroix",
+          "position": "Defender"
+        },
+        {
+          "club": "Young Boys",
+          "name": "Keeto Thermoncy",
+          "position": "Defender"
+        },
+        {
+          "club": "AS Nancy",
+          "name": "Martin Expérience",
+          "position": "Defender"
+        },
+        {
+          "club": "Colorado Springs",
+          "name": "Duke Lacroix",
+          "position": "Defender"
+        },
+        {
+          "club": "AJ Auxerre",
+          "name": ": Josué Casimir",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Vizela",
+          "name": "Leverton Pierre",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Tatran Presov",
+          "name": "Dominique Simon",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Violette AC",
+          "name": "Woodensky Pierre",
+          "position": "Midfielder"
+        },
+        {
+          "club": "El Paso Locomotive",
+          "name": "Carl Fred Sainté",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Philadelphia Union",
+          "name": "Danley Jean-Jacques",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Wolverhampton",
+          "name": "Jean Ricner Bellegarde",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Esteghlal",
+          "name": ": Duckens Nazon",
+          "position": "Forward"
+        },
+        {
+          "club": "Rizespor",
+          "name": "Frantzdy Pierrot",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Dallas",
+          "name": "Deedson Louicius",
+          "position": "Forward"
+        },
+        {
+          "club": "Almere City",
+          "name": "Ruben Providence",
+          "position": "Forward"
+        },
+        {
+          "club": "Vizela",
+          "name": "Yassin Fortuné",
+          "position": "Forward"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Wilson Isidor",
+          "position": "Forward"
+        },
+        {
+          "club": "Ferencváros",
+          "name": "Lenny Joseph",
+          "position": "Forward"
+        },
+        {
+          "club": "Toronto FC",
+          "name": "Derrick Etienne jr.",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 15 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Mohamed Ouahbi",
+        "role": "Head coach"
+      },
+      "id": "mar",
+      "source_name": "Marokko",
+      "squad": [
+        {
+          "club": "RS Berkane",
+          "name": "Mounir El Kajoui",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Hilal",
+          "name": "Yassine Bounou",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "AS FAR Rabat",
+          "name": "Ahmed Reda Tagnaouti",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Achraf Hakimi",
+          "position": "Defender"
+        },
+        {
+          "club": "Olympique Marseille",
+          "name": "Nayef Aguerd",
+          "position": "Defender"
+        },
+        {
+          "club": "Fulham",
+          "name": "Issa Diop",
+          "position": "Defender"
+        },
+        {
+          "club": "PSV",
+          "name": "Anass Salah-Eddine",
+          "position": "Defender"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Chadi Riad",
+          "position": "Defender"
+        },
+        {
+          "club": "KV Mechelen",
+          "name": "Redouane Halhal",
+          "position": "Defender"
+        },
+        {
+          "club": "KRC Genk",
+          "name": "Zakaria El Ouahdi",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Ahly",
+          "name": "Youssef Belammari",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Noussair Mazraoui",
+          "position": "Defender"
+        },
+        {
+          "club": "Girona",
+          "name": "Azzeddine Ounahi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "VfB Stuttgart",
+          "name": "Bilal El Khannouss",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PSV",
+          "name": "Ismael Saibari",
+          "position": "Midfielder"
+        },
+        {
+          "club": "LOSC Lille",
+          "name": "Ayyoub Bouaddi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Betis",
+          "name": "Sofyan Amrabat",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AS Roma",
+          "name": "Neil El Aynaoui",
+          "position": "Midfielder"
+        },
+        {
+          "club": "RC Strasbourg",
+          "name": "Samir El Mourabet",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Madrid",
+          "name": "Brahim Díaz",
+          "position": "Forward"
+        },
+        {
+          "club": "Real Betis",
+          "name": "Abdessamad Ezzalzouli",
+          "position": "Forward"
+        },
+        {
+          "club": "RC Strasbourg",
+          "name": "Yassine Gessime",
+          "position": "Forward"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Chemsdine Talbi",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Ain",
+          "name": "Soufiane Rahimi",
+          "position": "Forward"
+        },
+        {
+          "club": "Olympiakos",
+          "name": "Ayoub El Kaabi",
+          "position": "Forward"
+        },
+        {
+          "club": "Eintracht Frankfurt",
+          "name": "Ayoube Amaimouni",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 26 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Steve Clarke",
+        "role": "Head coach"
+      },
+      "id": "sco",
+      "source_name": "Schotland",
+      "squad": [
+        {
+          "club": "Hearts",
+          "name": "Craig Gordon",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Nottingham Forest",
+          "name": "Angus Gunn",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Rangers",
+          "name": "Liam Kelly",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Hibernian",
+          "name": "Grant Hanley",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Etiffaq",
+          "name": "Jack Hendry",
+          "position": "Defender"
+        },
+        {
+          "club": "Brentford",
+          "name": "Aaron Hickey",
+          "position": "Defender"
+        },
+        {
+          "club": "Wrexham",
+          "name": "Dom Hyam",
+          "position": "Defender"
+        },
+        {
+          "club": "Dinamo Zagreb",
+          "name": "Scott McKenna",
+          "position": "Defender"
+        },
+        {
+          "club": "Everton",
+          "name": "Nathan Patterson",
+          "position": "Defender"
+        },
+        {
+          "club": "Celtic",
+          "name": "Anthony Ralston",
+          "position": "Defender"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Andy Robertson",
+          "position": "Defender"
+        },
+        {
+          "club": "Rangers",
+          "name": "John Souttar",
+          "position": "Defender"
+        },
+        {
+          "club": "Celtic",
+          "name": "Kieran Tierney",
+          "position": "Defender"
+        },
+        {
+          "club": "Bournemouth",
+          "name": "Ryan Christie",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Kilmarnock",
+          "name": "Finlay Curtis",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bologna",
+          "name": "Lewis Ferguson",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bournemouth",
+          "name": "Ben Gannon-Doak",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "John McGinn",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Norwich",
+          "name": "Kenny McLean",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Napoli",
+          "name": "Scott McTominay",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Tyler Fletcher",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Torino",
+          "name": "Che Adams",
+          "position": "Forward"
+        },
+        {
+          "club": "Charlton Athletic",
+          "name": "Lyndon Dykes",
+          "position": "Forward"
+        },
+        {
+          "club": "Ipswich",
+          "name": "George Hirst",
+          "position": "Forward"
+        },
+        {
+          "club": "Hearts",
+          "name": "Lawrence Shankland",
+          "position": "Forward"
+        },
+        {
+          "club": "Southampton",
+          "name": "Ross Stewart",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 19 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Tony Popović",
+        "role": "Head coach"
+      },
+      "id": "aus",
+      "source_name": "Australië",
+      "squad": [
+        {
+          "club": "Levante UD",
+          "name": ": Mathew Ryan",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Randers FC",
+          "name": "Paul Izzo",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Melbourne City FC",
+          "name": "Patrick Beach",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Feyenoord",
+          "name": ": Jordan Bos",
+          "position": "Defender"
+        },
+        {
+          "club": "Melbourne City FC",
+          "name": "Aziz Behich",
+          "position": "Defender"
+        },
+        {
+          "club": "Leicester City",
+          "name": "Harry Souttar",
+          "position": "Defender"
+        },
+        {
+          "club": "Parma",
+          "name": "Alessandro Circati",
+          "position": "Defender"
+        },
+        {
+          "club": "Colorado Rapids",
+          "name": "Lucas Herrington",
+          "position": "Defender"
+        },
+        {
+          "club": "Swansea City",
+          "name": "Cameron Burgess",
+          "position": "Defender"
+        },
+        {
+          "club": "New York City FC",
+          "name": "Kai Trewin",
+          "position": "Defender"
+        },
+        {
+          "club": "APOEL Nicosia",
+          "name": "Miloš Degenek",
+          "position": "Defender"
+        },
+        {
+          "club": "Albirex Niigata",
+          "name": "Jason Geria",
+          "position": "Defender"
+        },
+        {
+          "club": "Grazeker AK 1902",
+          "name": "Jacob Italiano",
+          "position": "Defender"
+        },
+        {
+          "club": "St. Pauli",
+          "name": ": Jackson Irvine",
+          "position": "Midfielder"
+        },
+        {
+          "club": "New York City FC",
+          "name": "Aiden O'Neill",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sydney FC",
+          "name": "Paul Okon-Engstler",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Heart of Midlothian FC",
+          "name": "Cameron Devlin",
+          "position": "Midfielder"
+        },
+        {
+          "club": "St. Pauli",
+          "name": ": Connor Metcalfe",
+          "position": "Forward"
+        },
+        {
+          "club": "Melbourne City FC",
+          "name": "Matthew Leckie",
+          "position": "Forward"
+        },
+        {
+          "club": "Melbourne Victory",
+          "name": "Nishan Velupillay",
+          "position": "Forward"
+        },
+        {
+          "club": "US Sassuolo",
+          "name": "Cristian Volpato",
+          "position": "Forward"
+        },
+        {
+          "club": "Watford",
+          "name": "Nestory Irankunda",
+          "position": "Forward"
+        },
+        {
+          "club": "CD Castellón",
+          "name": "Awer Mabil",
+          "position": "Forward"
+        },
+        {
+          "club": "Heracles Almelo",
+          "name": "Ajdin Hrustić",
+          "position": "Forward"
+        },
+        {
+          "club": "Norwich City",
+          "name": "Mohamed Touré",
+          "position": "Forward"
+        },
+        {
+          "club": "Machida Zelvia",
+          "name": "Tete Yengi",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 31 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Gustavo Alfaro",
+        "role": "Head coach"
+      },
+      "id": "par",
+      "source_name": "Paraguay",
+      "squad": [
+        {
+          "club": "San Lorenzo",
+          "name": "Orlando Gill",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Club Cerro Porteño",
+          "name": "Roberto Junior Fernández",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Olympia Asunción",
+          "name": "Gastón Olveira",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Dinamo Moskou",
+          "name": "Juan José Cáceres",
+          "position": "Defender"
+        },
+        {
+          "club": "Club Cerro Porteño",
+          "name": "Gustavo Velázquez",
+          "position": "Defender"
+        },
+        {
+          "club": "Palmeiras",
+          "name": "Gustavo Gómez",
+          "position": "Defender"
+        },
+        {
+          "club": "Atlético Mineiro",
+          "name": "Júnior Alonso",
+          "position": "Defender"
+        },
+        {
+          "club": "Lanús",
+          "name": "José Canale",
+          "position": "Defender"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Omar Alderete",
+          "position": "Defender"
+        },
+        {
+          "club": "CA Tallares",
+          "name": "Alexandro Maidana",
+          "position": "Defender"
+        },
+        {
+          "club": "Gremio",
+          "name": "Fabián Balbuena",
+          "position": "Defender"
+        },
+        {
+          "club": "Brighton & Hove Albion",
+          "name": "Diego Gómez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Palmeiras",
+          "name": "Mauricio Magalhães",
+          "position": "Midfielder"
+        },
+        {
+          "club": "São Paulo",
+          "name": "Damián Bobadilla",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Orlando City",
+          "name": "Braian Ojeda",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Vancouver Whitecaps",
+          "name": "Andrés Cubas",
+          "position": "Midfielder"
+        },
+        {
+          "club": "CA Tallares",
+          "name": "Matías Galarza",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Ain",
+          "name": "Alejandro Gamarra",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Portsmouth",
+          "name": "Gustavo Caballero",
+          "position": "Forward"
+        },
+        {
+          "club": "Palmeiras",
+          "name": "Ramón Sosa",
+          "position": "Forward"
+        },
+        {
+          "club": "CS Independiente Rivadavia",
+          "name": "Álex Arce",
+          "position": "Forward"
+        },
+        {
+          "club": "Red Bull Bragantino",
+          "name": "Isidro Pitta",
+          "position": "Forward"
+        },
+        {
+          "club": "CA Independiente",
+          "name": "Gabriel Ávalos",
+          "position": "Forward"
+        },
+        {
+          "club": "Atlanta United",
+          "name": "Miguel Almirón",
+          "position": "Forward"
+        },
+        {
+          "club": "Strasbourg",
+          "name": "Julio Enciso",
+          "position": "Forward"
+        },
+        {
+          "club": "Cremonense",
+          "name": "Antonio Sanabria",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 1 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Vincenzo Montella",
+        "role": "Head coach"
+      },
+      "id": "tur",
+      "source_name": "Turkije",
+      "status_note": "Verwacht op 1 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Mauricio Pochettino",
+        "role": "Head coach"
+      },
+      "id": "usa",
+      "source_name": "Verenigde Staten",
+      "squad": [
+        {
+          "club": "Chicago Fire",
+          "name": "Chris Brady",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "New York City",
+          "name": "Matt Freese",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "New England Revolution",
+          "name": "Matt Turner",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Columbus Crew",
+          "name": "Max Arfsten",
+          "position": "Defender"
+        },
+        {
+          "club": "PSV",
+          "name": "Sergiño Dest",
+          "position": "Defender"
+        },
+        {
+          "club": "Villarreal",
+          "name": "Alex Freeman",
+          "position": "Defender"
+        },
+        {
+          "club": "Toulouse",
+          "name": "Mark McKenzie",
+          "position": "Defender"
+        },
+        {
+          "club": "Charlotte FC",
+          "name": "Tim Ream",
+          "position": "Defender"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Chris Richards",
+          "position": "Defender"
+        },
+        {
+          "club": "Fulham",
+          "name": "Antonee Robinson",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Cincinnati",
+          "name": "Miles Robinson",
+          "position": "Defender"
+        },
+        {
+          "club": "Borussia Mönchengladbach",
+          "name": "Joe Scally",
+          "position": "Defender"
+        },
+        {
+          "club": "Celtic",
+          "name": "Auston Trusty",
+          "position": "Defender"
+        },
+        {
+          "club": "AFC Bournemouth",
+          "name": "Tyler Adams",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Vancouver Whitecaps",
+          "name": "Sebastian Berhalter",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Juventus",
+          "name": "Weston McKennie",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Seattle Sounders",
+          "name": "Cristian Roldan",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bayer Leverkusen",
+          "name": "Malik Tillman",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Leeds United",
+          "name": "Brenden Aaronson",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AS Monaco",
+          "name": "Folarin Balogun",
+          "position": "Forward"
+        },
+        {
+          "club": "PSV",
+          "name": "Ricardo Pepi",
+          "position": "Forward"
+        },
+        {
+          "club": "Coventry City",
+          "name": "Haji Wright",
+          "position": "Forward"
+        },
+        {
+          "club": "Milan",
+          "name": "Christian Pulisic",
+          "position": "Forward"
+        },
+        {
+          "club": "Borussia Mönchengladbach",
+          "name": "Giovanni Reyna",
+          "position": "Forward"
+        },
+        {
+          "club": "Marseille",
+          "name": "Timothy Weah",
+          "position": "Forward"
+        },
+        {
+          "club": "Club América",
+          "name": "Alejandro Zendejas",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 26 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Dick Advocaat",
+        "role": "Head coach"
+      },
+      "id": "cuw",
+      "source_name": "Curaçao",
+      "squad": [
+        {
+          "club": "Telstar",
+          "name": "Tyrick Bodak",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "VVV-Venlo",
+          "name": "Trevor Doornbusch",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Miami FC",
+          "name": "Eloy Room",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Konyaspor",
+          "name": "Riechedly Bazoer",
+          "position": "Defender"
+        },
+        {
+          "club": "Kayserispor",
+          "name": "Joshua Brenet",
+          "position": "Defender"
+        },
+        {
+          "club": "RKC Waalwijk",
+          "name": "Roshon Van Eijma",
+          "position": "Defender"
+        },
+        {
+          "club": "PEC Zwolle",
+          "name": "Sherel Floranus",
+          "position": "Defender"
+        },
+        {
+          "club": "N.E.C.",
+          "name": "Deveron Fonville",
+          "position": "Defender"
+        },
+        {
+          "club": "Abha Club",
+          "name": "Juriën Gaari",
+          "position": "Defender"
+        },
+        {
+          "club": "PSV",
+          "name": "Armando Obispo",
+          "position": "Defender"
+        },
+        {
+          "club": "Sparta Rotterdam",
+          "name": "Shurandy Sambo",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Volendam",
+          "name": "Juninho Bacuna",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Iğdır",
+          "name": "Leandro Bacuna",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Zürich",
+          "name": "Livano Comenencia",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Den Bosch",
+          "name": "Kevin Felida",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Rotherham United",
+          "name": "Ar’Jany Martha",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Telstar",
+          "name": "Tyrese Noslin",
+          "position": "Midfielder"
+        },
+        {
+          "club": "RKC Waalwijk",
+          "name": "Godfried Roemeratoe",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AE Kifisia",
+          "name": "Jeremy Antonisse",
+          "position": "Forward"
+        },
+        {
+          "club": "Sheffield United",
+          "name": "Tahith Chong",
+          "position": "Forward"
+        },
+        {
+          "club": "Maccabi Haifa",
+          "name": "Kenji Gorré",
+          "position": "Forward"
+        },
+        {
+          "club": "Middlesbrough",
+          "name": "Sontje Hansen",
+          "position": "Forward"
+        },
+        {
+          "club": "Terengganu FC",
+          "name": "Gervane Kastaneer",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Volendam",
+          "name": "Brandley Kuwas",
+          "position": "Forward"
+        },
+        {
+          "club": "Miami FC",
+          "name": "Jürgen Locadia",
+          "position": "Forward"
+        },
+        {
+          "club": "SK Beveren",
+          "name": "Jearl Margaritha",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 18 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Sebastián Beccacece",
+        "role": "Head coach"
+      },
+      "id": "ecu",
+      "source_name": "Ecuador",
+      "squad": [
+        {
+          "club": "Huracán",
+          "name": "Hernán Galindez",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Kifisia",
+          "name": "Moisés Ramírez",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "LDU Quito",
+          "name": "Gonzalo Valle",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Atlético Mineiro",
+          "name": "Angelo Preciado",
+          "position": "Defender"
+        },
+        {
+          "club": "AC Milan",
+          "name": "Pervis Estupiñán",
+          "position": "Defender"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Piero Hincapié",
+          "position": "Defender"
+        },
+        {
+          "club": "Internacional",
+          "name": "Félix Torres",
+          "position": "Defender"
+        },
+        {
+          "club": "PSG",
+          "name": "Willian Pacho",
+          "position": "Defender"
+        },
+        {
+          "club": "Club Brugge",
+          "name": "Joel Ordóñez",
+          "position": "Defender"
+        },
+        {
+          "club": "Tijuana",
+          "name": "Jackson Porozo",
+          "position": "Defender"
+        },
+        {
+          "club": "Chelsea",
+          "name": "Moisés Caicedo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Atlético Mineiro",
+          "name": "Alan Franco",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Gonzalo Plata",
+          "position": "Midfielder"
+        },
+        {
+          "club": "River Plate",
+          "name": "Kendry Paez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Venezia",
+          "name": "John Yeboah",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Atlético Mineiro",
+          "name": "Alan Minda",
+          "position": "Midfielder"
+        },
+        {
+          "club": "UNAM",
+          "name": "Pedro Vite",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Independiente del Valle",
+          "name": "Jordy Alcivar",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Midtjylland",
+          "name": "Denil Castillo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Genk",
+          "name": "Yaimar Medina",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Pachuca",
+          "name": "Enner Valencia",
+          "position": "Forward"
+        },
+        {
+          "club": "Union Saint-Gilloise",
+          "name": "Kevin Rodríguez",
+          "position": "Forward"
+        },
+        {
+          "club": "Huracán",
+          "name": "Jordy Caicedo",
+          "position": "Forward"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Nilson Angulo",
+          "position": "Forward"
+        },
+        {
+          "club": "VfB Stuttgart",
+          "name": "Jeremy Arevalo",
+          "position": "Forward"
+        },
+        {
+          "club": "Antwerp",
+          "name": "Anthony Valencia",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 1 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Julian Nagelsmann",
+        "role": "Head coach"
+      },
+      "id": "ger",
+      "source_name": "Duitsland",
+      "squad": [
+        {
+          "club": "Bayern München",
+          "name": "Manuel Neuer",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "TSG Hoffenheim",
+          "name": "Oliver Baumann",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "VfB Stuttgart",
+          "name": "Alexander Nübel",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Nico Schlotterbeck",
+          "position": "Defender"
+        },
+        {
+          "club": "Real Madrid",
+          "name": "Antonio Rüdiger",
+          "position": "Defender"
+        },
+        {
+          "club": "RB Leipzig",
+          "name": "David Raum",
+          "position": "Defender"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Jonathan Tah",
+          "position": "Defender"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Waldemar Anton",
+          "position": "Defender"
+        },
+        {
+          "club": "Eintracht Frankfurt",
+          "name": "Nathaniel Brown",
+          "position": "Defender"
+        },
+        {
+          "club": "Newcastle United",
+          "name": "Malick Thiaw",
+          "position": "Defender"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Joshua Kimmich",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Jamal Musiala",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Brighton & Hove Albion",
+          "name": "Pascal Gross",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Leon Goretzka",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Florian Wirtz",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Aleksander Pavlovic",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Felix Nmecha",
+          "position": "Midfielder"
+        },
+        {
+          "club": "VfB Stuttgart",
+          "name": "Angelo Stiller",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FSV Mainz",
+          "name": "Nadiem Amiri",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Galatasaray",
+          "name": "Leroy Sané",
+          "position": "Forward"
+        },
+        {
+          "club": "Newcastle United",
+          "name": "Nick Woltemade",
+          "position": "Forward"
+        },
+        {
+          "club": "VfB Stuttgart",
+          "name": "Deniz Undav",
+          "position": "Forward"
+        },
+        {
+          "club": "VfB Stuttgart",
+          "name": "Jamie Leweling",
+          "position": "Forward"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Kai Havertz",
+          "position": "Forward"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Lennart Karl",
+          "position": "Forward"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Maximilian Beier",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 21 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Emerse Faé",
+        "role": "Head coach"
+      },
+      "id": "civ",
+      "source_name": "Ivoorkust",
+      "squad": [
+        {
+          "club": "Çaykur Rizespor",
+          "name": "Yahia Fofana",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Sporting Charleroi",
+          "name": "Mohamed Koné",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Panathinaikos",
+          "name": "Alban Lafont",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Sporting CP",
+          "name": "Ousmane Diomandé",
+          "position": "Defender"
+        },
+        {
+          "club": "Gil Vicente",
+          "name": "Ghislain Konan",
+          "position": "Defender"
+        },
+        {
+          "club": "Atalanta",
+          "name": "Odilon Kossounou",
+          "position": "Defender"
+        },
+        {
+          "club": "Strasbourg",
+          "name": "Guéla Doué",
+          "position": "Defender"
+        },
+        {
+          "club": "Beşiktaş",
+          "name": "Emmanuel Agbadou",
+          "position": "Defender"
+        },
+        {
+          "club": "AS Roma",
+          "name": "Evan Ndicka",
+          "position": "Defender"
+        },
+        {
+          "club": "AJ Auxerre",
+          "name": "Clement Akpa",
+          "position": "Defender"
+        },
+        {
+          "club": "Galatasaray",
+          "name": "Wilfried Singo",
+          "position": "Defender"
+        },
+        {
+          "club": "NK Maribor",
+          "name": "Jean Michaël Seri",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Porto",
+          "name": "Seko Fofana",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Ahli",
+          "name": "Franck Kessié",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Nottingham Forest",
+          "name": "Ibrahim Sangaré",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Trabzonspor",
+          "name": "Christ Inao Oulaï",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Charleroi",
+          "name": "Parfait Guiagon",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Stade de Reims",
+          "name": "Oumar Diakité",
+          "position": "Forward"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Amad Diallo",
+          "position": "Forward"
+        },
+        {
+          "club": "Villarreal",
+          "name": "Nicolas Pépé",
+          "position": "Forward"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Evann Guessand",
+          "position": "Forward"
+        },
+        {
+          "club": "AS Monaco",
+          "name": "Simon Adingra",
+          "position": "Forward"
+        },
+        {
+          "club": "Inter",
+          "name": "Ange-Yoan Bonny",
+          "position": "Forward"
+        },
+        {
+          "club": "RB Leipzig",
+          "name": "Yan Diomande",
+          "position": "Forward"
+        },
+        {
+          "club": "TSG 1899 Hoffenheim",
+          "name": "Bazoumana Toure",
+          "position": "Forward"
+        },
+        {
+          "club": "OGC Nice) Reservelijst: Sebastien Haller (FC Utrecht",
+          "name": "Elye Wahi",
+          "position": "Forward"
+        },
+        {
+          "club": "Galaxy FC",
+          "name": "Ira Tapé",
+          "position": "Forward"
+        },
+        {
+          "club": "Basaksehir FK",
+          "name": "Christopher Operi",
+          "position": "Forward"
+        },
+        {
+          "club": "Swansea City",
+          "name": "Malick Yalcouye",
+          "position": "Forward"
+        },
+        {
+          "club": "RC Strasbourg",
+          "name": "Martial Godo",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 15 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Hajime Moriyasu",
+        "role": "Head coach"
+      },
+      "id": "jpn",
+      "source_name": "Japan",
+      "squad": [
+        {
+          "club": "Parma",
+          "name": "Zion Suzuki",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Sanfrecce Hiroshima",
+          "name": "Keisuke Osako",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Kashima Antlers",
+          "name": "Tomoki Hayakawa",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "FC Tokyo",
+          "name": "Yuta Nagatomo",
+          "position": "Defender"
+        },
+        {
+          "club": "Sint-Truiden",
+          "name": "Shogo Taniguchi",
+          "position": "Defender"
+        },
+        {
+          "club": "Ajax",
+          "name": "Ko Itakura",
+          "position": "Defender"
+        },
+        {
+          "club": "Feyenoord",
+          "name": "Tsuyoshi Watanabe",
+          "position": "Defender"
+        },
+        {
+          "club": "Ajax",
+          "name": "Takehiro Tomiyasu",
+          "position": "Defender"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Hiroki Ito",
+          "position": "Defender"
+        },
+        {
+          "club": "Le Havre",
+          "name": "Ayumu Seko",
+          "position": "Defender"
+        },
+        {
+          "club": "Werder Bremen",
+          "name": "Yukinari Sugawara",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Kopenhagen",
+          "name": "Junnosuke Suzuki",
+          "position": "Defender"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Wataru Endo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Genk",
+          "name": "Junya Ito",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Daichi Kamada",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Eintracht Frankfurt",
+          "name": "Ritsu Doan",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Leeds United",
+          "name": "Ao Tanaka",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Mainz",
+          "name": "Kaishu Sano",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Freiburg",
+          "name": "Yuito Suzuki",
+          "position": "Midfielder"
+        },
+        {
+          "club": "N.E.C.",
+          "name": "Kōki Ogawa",
+          "position": "Forward"
+        },
+        {
+          "club": "Celtic",
+          "name": "Daizen Maeda",
+          "position": "Forward"
+        },
+        {
+          "club": "Feyenoord",
+          "name": "Ayase Ueda",
+          "position": "Forward"
+        },
+        {
+          "club": "VfL Wolfsburg",
+          "name": "Kento Shiogai",
+          "position": "Forward"
+        },
+        {
+          "club": "Sint-Truiden",
+          "name": "Keisuke Gotō",
+          "position": "Forward"
+        },
+        {
+          "club": "Reims",
+          "name": "Keito Nakamura",
+          "position": "Forward"
+        },
+        {
+          "club": "Real Sociedad",
+          "name": "Takefusa Kubo",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 15 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Ronald Koeman",
+        "role": "Head coach"
+      },
+      "id": "ned",
+      "source_name": "Nederland",
+      "squad": [
+        {
+          "club": "Brighton",
+          "name": "Bart Verbruggen",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Robin Roefs",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Bayer Leverkusen",
+          "name": "Mark Flekken",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Internazionale",
+          "name": "Denzel Dumfries",
+          "position": "Defender"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Jurrien Timber",
+          "position": "Defender"
+        },
+        {
+          "club": "Liverpool FC",
+          "name": "Virgil van Dijk",
+          "position": "Defender"
+        },
+        {
+          "club": "Tottenham Hotspur",
+          "name": "Micky van de Ven",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Nathan Aké",
+          "position": "Defender"
+        },
+        {
+          "club": "Chelsea",
+          "name": "Jorrel Hato",
+          "position": "Defender"
+        },
+        {
+          "club": "Brighton",
+          "name": "Jan Paul van Hecke",
+          "position": "Defender"
+        },
+        {
+          "club": "Brighton",
+          "name": "Mats Wieffer",
+          "position": "Defender"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Ryan Gravenberch",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Frenkie de Jong",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Tijjani Reijnders",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Juventus",
+          "name": "Teun Koopmeiners",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Atalanta",
+          "name": "Marten de Roon",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PSV",
+          "name": "Guus Til",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Olympique Marseille",
+          "name": "Quinten Timber",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AS Roma",
+          "name": "Donyell Malen",
+          "position": "Forward"
+        },
+        {
+          "club": "Corinthians",
+          "name": "Memphis Depay",
+          "position": "Forward"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Cody Gakpo",
+          "position": "Forward"
+        },
+        {
+          "club": "Ajax",
+          "name": "Wout Weghorst",
+          "position": "Forward"
+        },
+        {
+          "club": "Bournemouth",
+          "name": "Justin Kluivert",
+          "position": "Forward"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Brian Brobbey",
+          "position": "Forward"
+        },
+        {
+          "club": "West Ham United",
+          "name": "Crysencio Summerville",
+          "position": "Forward"
+        },
+        {
+          "club": "Napoli/Galatasaray",
+          "name": "Noa Lang",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 27 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Graham Potter",
+        "role": "Head coach"
+      },
+      "id": "swe",
+      "source_name": "Zweden",
+      "squad": [
+        {
+          "club": "AIK Solna",
+          "name": "Kristoffer Nordfeldt",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Stoke City",
+          "name": "Viktor Johansson",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Derby County",
+          "name": "Jacob Widell Zetterström",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Daniel Svensson",
+          "position": "Defender"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "Victor Lindelöf",
+          "position": "Defender"
+        },
+        {
+          "club": "Atalanta",
+          "name": "Isak Hien",
+          "position": "Defender"
+        },
+        {
+          "club": "Celta Vigo",
+          "name": "Carl Starfelt",
+          "position": "Defender"
+        },
+        {
+          "club": "Mjällby AIF",
+          "name": "Elliot Stroud",
+          "position": "Defender"
+        },
+        {
+          "club": "SC Braga",
+          "name": "Gustaf Lagerbielke",
+          "position": "Defender"
+        },
+        {
+          "club": "Leeds United",
+          "name": "Gabriel Gudmundsson",
+          "position": "Defender"
+        },
+        {
+          "club": "Burnley",
+          "name": "Hjalmar Ekdal",
+          "position": "Defender"
+        },
+        {
+          "club": "FC St. Pauli",
+          "name": "Eric Smith",
+          "position": "Defender"
+        },
+        {
+          "club": "Brighton",
+          "name": "Yasin Ayari",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Tottenham Hotspur",
+          "name": "Lucas Bergvall",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Udinese",
+          "name": "Jesper Karlström",
+          "position": "Midfielder"
+        },
+        {
+          "club": "VfL Wolfsburg",
+          "name": "Mattias Svanberg",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Union Saint-Gilloise",
+          "name": "Besfort Zeneli",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Dallas",
+          "name": "Herman Johansson",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Malmö FF",
+          "name": "Taha Ali",
+          "position": "Forward"
+        },
+        {
+          "club": "Newcastle United",
+          "name": "Anthony Elanga",
+          "position": "Forward"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Viktor Gyökeres",
+          "position": "Forward"
+        },
+        {
+          "club": "Club Brugge",
+          "name": "Gustaf Nilsson",
+          "position": "Forward"
+        },
+        {
+          "club": "Celtic",
+          "name": "Benjamin Nygren",
+          "position": "Forward"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Alexander Isak",
+          "position": "Forward"
+        },
+        {
+          "club": "Holstein Kiel",
+          "name": "Alexander Bernhardsson",
+          "position": "Forward"
+        },
+        {
+          "club": "Pafos FC",
+          "name": "Ken Sema",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 12 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Sabri Lamouchi",
+        "role": "Head coach"
+      },
+      "id": "tun",
+      "source_name": "Tunesië",
+      "squad": [
+        {
+          "club": "CS Sfaxien",
+          "name": ": Aymen Dahmen",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Es Sahel",
+          "name": "Sabri Ben Hassen",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Club Africain",
+          "name": "Abdelmouhib Chamakh",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Young Boys",
+          "name": ": Yan Valéry",
+          "position": "Defender"
+        },
+        {
+          "club": "IFK Norrköping",
+          "name": "Moutaz Neffati",
+          "position": "Defender"
+        },
+        {
+          "club": "Servette FC",
+          "name": "Dylan Bronn",
+          "position": "Defender"
+        },
+        {
+          "club": "US Monastir",
+          "name": "Raed Chikhaoui",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Lorient",
+          "name": "Montassar Talbi",
+          "position": "Defender"
+        },
+        {
+          "club": "Kasimpasa",
+          "name": "Adem Arous",
+          "position": "Defender"
+        },
+        {
+          "club": "NK Maribor",
+          "name": "Omar Rekik",
+          "position": "Defender"
+        },
+        {
+          "club": "OGC Nice",
+          "name": "Ali Abdi",
+          "position": "Defender"
+        },
+        {
+          "club": "Esperance",
+          "name": "Mohamed Ben Hmida",
+          "position": "Defender"
+        },
+        {
+          "club": "Eintract Frankfurt",
+          "name": ": Ellyes Skhiri",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Norwich City",
+          "name": "Anis Ben Slimane",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Union Berlin",
+          "name": "Rani Khedira",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Kasimpasa",
+          "name": "Mortada Ben Ouanes",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Augsburg",
+          "name": "Ismaël Gharbi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Lugano",
+          "name": "Mohamed Hadj-Mahmoud",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Burnley",
+          "name": "Hannibal Mejrbi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Hannover 96",
+          "name": ": Elias Saad",
+          "position": "Forward"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Khalil Ayari",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Kopenhagen",
+          "name": "Elias Achouri",
+          "position": "Forward"
+        },
+        {
+          "club": "Celtic",
+          "name": "Sebastien Tounekti",
+          "position": "Forward"
+        },
+        {
+          "club": "Dynamo Machatsjkala",
+          "name": "Hazem Mastouri",
+          "position": "Forward"
+        },
+        {
+          "club": "Club Africain",
+          "name": "Firas Chawat",
+          "position": "Forward"
+        },
+        {
+          "club": "Vancouver Whitecaps",
+          "name": "Rayan Elloumi",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 15 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Rudi Garcia",
+        "role": "Head coach"
+      },
+      "id": "bel",
+      "source_name": "België",
+      "squad": [
+        {
+          "club": "Real Madrid",
+          "name": ": Thibaut Courtois",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Senne Lammens",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Strasbourg",
+          "name": "Mike Penders",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Eintracht Frankfurt",
+          "name": ": Arthur Theate",
+          "position": "Defender"
+        },
+        {
+          "club": "Club Brugge",
+          "name": "Brandon Mechele",
+          "position": "Defender"
+        },
+        {
+          "club": "Lille",
+          "name": "Nathan Ngoy",
+          "position": "Defender"
+        },
+        {
+          "club": "AC Milan",
+          "name": "Koni De Winter",
+          "position": "Defender"
+        },
+        {
+          "club": "Sporting",
+          "name": "Zeno Debast",
+          "position": "Defender"
+        },
+        {
+          "club": "Brighton",
+          "name": "Maxim De Cuyper",
+          "position": "Defender"
+        },
+        {
+          "club": "Club Brugge",
+          "name": "Joaquin Seys",
+          "position": "Defender"
+        },
+        {
+          "club": "Lille",
+          "name": "Thomas Meunier",
+          "position": "Defender"
+        },
+        {
+          "club": "Fulham",
+          "name": "Timothy Castagne",
+          "position": "Defender"
+        },
+        {
+          "club": "Rangers",
+          "name": ": Nicolas Raskin",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Girona",
+          "name": "Axel Witsel",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Club Brugge",
+          "name": "Hans Vanaken",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Napoli",
+          "name": "Kevin De Bruyne",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "Youri Tielemans",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "Amadou Onana",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester City",
+          "name": ": Jeremy Doku",
+          "position": "Forward"
+        },
+        {
+          "club": "AC Milan",
+          "name": "Alexis Saelemaekers",
+          "position": "Forward"
+        },
+        {
+          "club": "Lille",
+          "name": "Matías Fernández Pardo",
+          "position": "Forward"
+        },
+        {
+          "club": "Strasbourg",
+          "name": "Diego Moreira",
+          "position": "Forward"
+        },
+        {
+          "club": "Napoli",
+          "name": "Romelu Lukaku",
+          "position": "Forward"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Leandro Trossard",
+          "position": "Forward"
+        },
+        {
+          "club": "Atalanta",
+          "name": "Charles De Ketelaere",
+          "position": "Forward"
+        },
+        {
+          "club": "Benfica",
+          "name": "Dodi Lukebakio",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 15 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Hossam Hassan",
+        "role": "Head coach"
+      },
+      "id": "egy",
+      "source_name": "Egypte",
+      "squad": [
+        {
+          "club": "Al-Ahly",
+          "name": "Mohamed Elshenawy",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Ahly",
+          "name": "Mostafa Shobeir",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Zamalek SC",
+          "name": "El-Mahdy Soliman",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "El-Gounah",
+          "name": "Mohamed Alaa",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Ahly",
+          "name": "Mohamed Hany",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Ain",
+          "name": "Ramy Rabia",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Ahly",
+          "name": "Yasser Ibrahim",
+          "position": "Defender"
+        },
+        {
+          "club": "Zed FC",
+          "name": "Tarek Alaa",
+          "position": "Defender"
+        },
+        {
+          "club": "OGC Nice",
+          "name": "Mohamed Abdelmonem",
+          "position": "Defender"
+        },
+        {
+          "club": "Pyramids FC",
+          "name": "Karim Hafez",
+          "position": "Defender"
+        },
+        {
+          "club": "Zamalek SC",
+          "name": "Hossam Abdelmeguid",
+          "position": "Defender"
+        },
+        {
+          "club": "Zamalek SC",
+          "name": "Ahmed Fatouh",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Ahly",
+          "name": "Marwan Attia",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Wakrah",
+          "name": "Hamdy Fathy",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Pyramids FC",
+          "name": "Mohanad Lasheen",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Zed FC",
+          "name": "Mahmoud Saber",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Ahly",
+          "name": "Emam Ashour",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Ahly",
+          "name": "Ahmed Sayed Zizo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Jazira",
+          "name": "Ibrahim Adel",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Pyramids FC",
+          "name": "Mostafa Ziko",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Nejma",
+          "name": "Nabil Emad Donga",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Omar Marmoush",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Ahly",
+          "name": "Mahmoud Trézéguet",
+          "position": "Forward"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Mohamed Salah",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Barcelona B",
+          "name": "Hamza Abdelkarim",
+          "position": "Forward"
+        },
+        {
+          "club": "Real Oviedo",
+          "name": "Haissem Hassen",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 20 mei."
+    },
+    {
+      "head_coach": {
+        "name": "Amir Ghalenoei",
+        "role": "Head coach"
+      },
+      "id": "irn",
+      "source_name": "Iran",
+      "squad": [
+        {
+          "club": "Tractor",
+          "name": "Alireza Beiranvand",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Sepahan",
+          "name": "Hossein Hosseini",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Persepolis",
+          "name": "Payam Niazmand",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Malavan",
+          "name": "Danial Eiri",
+          "position": "Defender"
+        },
+        {
+          "club": "Sepahan",
+          "name": "Ehsan Hajsafi",
+          "position": "Defender"
+        },
+        {
+          "club": "Esteghlal",
+          "name": "Saleh Hardani",
+          "position": "Defender"
+        },
+        {
+          "club": "Persepolis",
+          "name": "Hossein Kanaani",
+          "position": "Defender"
+        },
+        {
+          "club": "Tractor",
+          "name": "Shoja Khalilzadeh",
+          "position": "Defender"
+        },
+        {
+          "club": "Persepolis",
+          "name": "Milad Mohammadi",
+          "position": "Defender"
+        },
+        {
+          "club": "Foolad",
+          "name": "Ali Nemati Omid Noorafkan",
+          "position": "Defender"
+        },
+        {
+          "club": "Foolad",
+          "name": "Ramin Rezaeian",
+          "position": "Defender"
+        },
+        {
+          "club": "Esteghlal",
+          "name": "Rouzbeh Cheshmi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Shabab Al-Ahli",
+          "name": "Saeid Ezatolahi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Nassr",
+          "name": "Mehdi Ghaedi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Kalba",
+          "name": "Saman Ghoddos",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Wahda",
+          "name": "Mohammad Ghorbani",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Dender",
+          "name": "Alireza Jahanbakhsh",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Rostov",
+          "name": "Mohammad Mohebi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Esteghlal",
+          "name": "Amir Mohammad Razzaghinia",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Tractor",
+          "name": "Mehdi Torabi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sepahan",
+          "name": "Aria Yousefi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Persepolis",
+          "name": "Ali Alipour",
+          "position": "Forward"
+        },
+        {
+          "club": "Standard Luik",
+          "name": "Dennis Dargahi",
+          "position": "Forward"
+        },
+        {
+          "club": "Tractor",
+          "name": "Amirhossein Hosseinzadeh",
+          "position": "Forward"
+        },
+        {
+          "club": "Kalba",
+          "name": "Shahriyar Moghanlou",
+          "position": "Forward"
+        },
+        {
+          "club": "Olympiakos Piraeus",
+          "name": "Mehdi Taremi",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 1 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Darren Bazeley",
+        "role": "Head coach"
+      },
+      "id": "nzl",
+      "source_name": "Nieuw-Zeeland",
+      "squad": [
+        {
+          "club": "Millwall",
+          "name": "Max Crocombe",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Lechia Gdańsk",
+          "name": "Alex Paulsen",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Auckland FC",
+          "name": "Michael Woud",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Wellington Phoenix",
+          "name": "Tim Payne",
+          "position": "Defender"
+        },
+        {
+          "club": "Auckland FC",
+          "name": "Francis De Vries",
+          "position": "Defender"
+        },
+        {
+          "club": "Nottingham Forest",
+          "name": "Tyler Bindon",
+          "position": "Defender"
+        },
+        {
+          "club": "Minnesota United",
+          "name": "Michael Boxall",
+          "position": "Defender"
+        },
+        {
+          "club": "Wrexham",
+          "name": "Liberato Cacace",
+          "position": "Defender"
+        },
+        {
+          "club": "Auckland FC",
+          "name": "Nando Pijnaker",
+          "position": "Defender"
+        },
+        {
+          "club": "Portland Timbers",
+          "name": "Finn Surman",
+          "position": "Defender"
+        },
+        {
+          "club": "Auckland FC",
+          "name": "Callan Elliot",
+          "position": "Defender"
+        },
+        {
+          "club": "Braintree Town",
+          "name": "Tommy Smith",
+          "position": "Defender"
+        },
+        {
+          "club": "Viking FK",
+          "name": "Joe Bell",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Peterborough United",
+          "name": "Matt Garbett",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Swansea City",
+          "name": "Marko Stamenic",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Wellington Phoenix",
+          "name": "Sarpreet Singh",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Wellington Phoenix",
+          "name": "Alex Rufer",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PEC Zwolle",
+          "name": "Ryan Thomas",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Nottingham Forest",
+          "name": "Chris Wood",
+          "position": "Forward"
+        },
+        {
+          "club": "Motherwell",
+          "name": "Eli Just",
+          "position": "Forward"
+        },
+        {
+          "club": "Western Sydney Wanderers",
+          "name": "Kosta Barbarouses",
+          "position": "Forward"
+        },
+        {
+          "club": "Port Vale",
+          "name": "Ben Waine",
+          "position": "Forward"
+        },
+        {
+          "club": "Saint-Étienne",
+          "name": "Ben Old",
+          "position": "Forward"
+        },
+        {
+          "club": "Silkeborg IF",
+          "name": "Callum McCowatt",
+          "position": "Forward"
+        },
+        {
+          "club": "Auckland FC",
+          "name": "Jesse Randall",
+          "position": "Forward"
+        },
+        {
+          "club": "Newcastle Jets",
+          "name": "Lachlan Bayliss",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 14 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Bubista",
+        "role": "Head coach"
+      },
+      "id": "cpv",
+      "source_name": "Kaapverdië",
+      "squad": [
+        {
+          "club": "San Diego",
+          "name": "Carlos dos ​Santos",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Montana 1921",
+          "name": "⁠Marcio Rosa",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Chaves",
+          "name": "Vozinha",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Benfica",
+          "name": "Sidny Cabral",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Bataeh",
+          "name": "Diney Borges",
+          "position": "Defender"
+        },
+        {
+          "club": "Villarreal",
+          "name": "Logan Costa",
+          "position": "Defender"
+        },
+        {
+          "club": "Shamrock Rovers",
+          "name": "Roberto Lopes",
+          "position": "Defender"
+        },
+        {
+          "club": "Columbus Crew",
+          "name": "Steven Moreira",
+          "position": "Defender"
+        },
+        {
+          "club": "Trabzonspor",
+          "name": "Wagner Pina",
+          "position": "Defender"
+        },
+        {
+          "club": "SJK Seinäjoki, Finland",
+          "name": "Kelvin Pires",
+          "position": "Defender"
+        },
+        {
+          "club": "Torreense",
+          "name": "Stopira",
+          "position": "Defender"
+        },
+        {
+          "club": "Vitoria Guimaraes",
+          "name": "Telmo Arcanjo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Ludogorets",
+          "name": "Deroy Duarte",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Puskas Akademia",
+          "name": "Laros Duarte",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Oțelul Galați",
+          "name": "⁠Joao ​Paulo Fernandes",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PEC Zwolle",
+          "name": "Jamiro Monteiro",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FK Krasnodar",
+          "name": "Kevin Pina",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Farense",
+          "name": "​Yannick Semedo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Gilson Benchimol",
+          "name": "Gilson Benchimol",
+          "position": "Forward"
+        },
+        {
+          "club": "Estrela Amadora",
+          "name": "Jovane Cabral",
+          "position": "Forward"
+        },
+        {
+          "club": "Casa Pia",
+          "name": "Dailon Livramento",
+          "position": "Forward"
+        },
+        {
+          "club": "Igdir FK",
+          "name": "Ryan Mendes",
+          "position": "Forward"
+        },
+        {
+          "club": "Istanbul Basaksehir",
+          "name": "Nuno da Costa",
+          "position": "Forward"
+        },
+        {
+          "club": "Apollon Limassol",
+          "name": "Garry Rodrigues",
+          "position": "Forward"
+        },
+        {
+          "club": "Omonia Nicosia",
+          "name": "Willy ​Semedo",
+          "position": "Forward"
+        },
+        {
+          "club": "Maccabi Tel Aviv",
+          "name": "Helio Varela",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 18 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Georgios Donis",
+        "role": "Head coach"
+      },
+      "id": "ksa",
+      "source_name": "Saoedi-Arabië",
+      "squad": [
+        {
+          "club": "Al Ula",
+          "name": "Mohammed Al Owais",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Nawaf Al Aqidi",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al Qadsiah",
+          "name": "Ahmed Al Kassar",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Abdulelah Al Amri",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Hilal",
+          "name": "Hassan Tambakti",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Qadsiah",
+          "name": "Jehad Thikri",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Hilal",
+          "name": "Ali Lajami",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Ittihad",
+          "name": "Hassan Kadesh",
+          "position": "Defender"
+        },
+        {
+          "club": "Lens",
+          "name": "Saud Abdulhamid",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Qadsiah",
+          "name": "Mohammed Abu Al Shamat",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Ahli",
+          "name": "Ali Majrashi",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Hilal",
+          "name": "Moteb Al Harbi",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Nawaf Boushal",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Sultan Al-Ghannam",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Hilal",
+          "name": "Mohammed Kanno",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Abdullah Al Khaibari",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Ahli",
+          "name": "Ziyad Al Johani",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Hilal",
+          "name": "Nasser Al Dawsari",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Qadsiah",
+          "name": "Musab Al Juwayr",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Neom",
+          "name": "Alaa Al Hajji",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Hilal",
+          "name": "Salem Al Dawsari",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Ettifaq",
+          "name": "Khalid Al Ghannam",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Ayman Yahya",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Ahli",
+          "name": "Firas Al Buraikan",
+          "position": "Forward"
+        },
+        {
+          "club": "Al Ittihad",
+          "name": "Saleh Al Shehri",
+          "position": "Forward"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Abdullah Al Hamdan",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 1 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Luis de la Fuente",
+        "role": "Head coach"
+      },
+      "id": "esp",
+      "source_name": "Spanje",
+      "squad": [
+        {
+          "club": "Athletic Club",
+          "name": "Unai Simón",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Arsenal",
+          "name": "David Raya",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Joan Garcia",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Chelsea",
+          "name": "Marc Cucurella",
+          "position": "Defender"
+        },
+        {
+          "club": "Bayer Leverkussen",
+          "name": "Alejandro Grimaldo",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Pau Cubarsí",
+          "position": "Defender"
+        },
+        {
+          "club": "Athletic Club",
+          "name": "Aymeric Laporte",
+          "position": "Defender"
+        },
+        {
+          "club": "Atletico Madrid",
+          "name": "Marc Pubill",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Eric Garcia",
+          "position": "Defender"
+        },
+        {
+          "club": "Atletico Madrid",
+          "name": "Marcos Llorente",
+          "position": "Defender"
+        },
+        {
+          "club": "Tottenham Hotspur",
+          "name": "Pedro Porro",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Pedri",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Fabián Ruiz",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Martín Zubimendi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Gavi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Rodri",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Atletico Madrid",
+          "name": "Álex Baena",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Mikel Merino",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Sociedad",
+          "name": "Mikel Oyarzabal",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Dani Olmo",
+          "position": "Forward"
+        },
+        {
+          "club": "Athletic Club",
+          "name": "Nico Williams",
+          "position": "Forward"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Yeremy Pino",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Ferran Torres",
+          "position": "Forward"
+        },
+        {
+          "club": "Celta de Vigo",
+          "name": "Borja Iglesias",
+          "position": "Forward"
+        },
+        {
+          "club": "Osasuna",
+          "name": "Victor Munoz",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Lamine Yamal",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 25 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Marcelo Bielsa",
+        "role": "Head coach"
+      },
+      "id": "uru",
+      "source_name": "Uruguay",
+      "squad": [
+        {
+          "club": "Estudiantes de La Plata",
+          "name": "Fernando Muslera",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "International",
+          "name": "Sergio Rochet",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Monterrey",
+          "name": "Santiago Mele",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Ronald Araujo",
+          "position": "Defender"
+        },
+        {
+          "club": "Club América",
+          "name": "Sebastián Cáceres",
+          "position": "Defender"
+        },
+        {
+          "club": "Wolves",
+          "name": "Santiago Bueno",
+          "position": "Defender"
+        },
+        {
+          "club": "Napoli",
+          "name": "Mathías Olivera",
+          "position": "Defender"
+        },
+        {
+          "club": "River Plate",
+          "name": "Matías Viña",
+          "position": "Defender"
+        },
+        {
+          "club": "Palmeiras",
+          "name": "Joaquín Piquerez",
+          "position": "Defender"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Guillermo Varela",
+          "position": "Defender"
+        },
+        {
+          "club": "Real Salt Lake",
+          "name": "Juan Manuel Sanabria",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Manuel Ugarte",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Madrid",
+          "name": "Federico Valverde",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Tottenham Hotspur",
+          "name": "Rodrigo Bentancur",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Palmeiras",
+          "name": "Emiliano Martínez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Giorgian De Arrascaeta",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Nicolás De la Cruz",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sporting Portugal",
+          "name": "Rodrigo Zalazar",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Fluminense",
+          "name": "Agustín Canobbio",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Panathninaikos",
+          "name": "Facundo Pellistri",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Club América) en Maxi Araújo (Sporting Portugal",
+          "name": "Brian Rodríguez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Oviedo",
+          "name": "Federico Viñas",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Hilal",
+          "name": "Darwin Núñez",
+          "position": "Forward"
+        },
+        {
+          "club": "Tigres",
+          "name": "Rodrigo Aguirre",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 31 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Didier Deschamps",
+        "role": "Head coach"
+      },
+      "id": "fra",
+      "source_name": "Frankrijk",
+      "squad": [
+        {
+          "club": "AC Milan",
+          "name": "Mike Maignan",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "RC Lens",
+          "name": "Robin Risser Birckel",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Stade Rennais",
+          "name": "Brice Samba",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "Lucas Digne",
+          "position": "Defender"
+        },
+        {
+          "club": "Chelsea",
+          "name": "Malo Gusto",
+          "position": "Defender"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Lucas Hernandez",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Hilal",
+          "name": "Théo Hernandez",
+          "position": "Defender"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Ibrahima Konaté",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Jules Koundé",
+          "position": "Defender"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Maxence Lacroix",
+          "position": "Defender"
+        },
+        {
+          "club": "Arsenal",
+          "name": "William Saliba",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Bayern München",
+          "name": "Dayot Upamecano",
+          "position": "Defender"
+        },
+        {
+          "club": "Fenerbahce",
+          "name": "N’Golo Kanté",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AS Roma",
+          "name": "Manu Koné",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AC Milan",
+          "name": "Adrien Rabiot",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Madrid",
+          "name": "Aurélien Tchouaméni",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Warren Zaïre-Emery",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AS Monaco",
+          "name": "Maghnes Akliouche",
+          "position": "Forward"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Bradley Barcola",
+          "position": "Forward"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Rayan Cherki",
+          "position": "Forward"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Ousmane Dembélé",
+          "position": "Forward"
+        },
+        {
+          "club": "Paris Saint-Germain",
+          "name": "Désiré Doué",
+          "position": "Forward"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Jean-Philippe Mateta",
+          "position": "Forward"
+        },
+        {
+          "club": "Real Madrid",
+          "name": "Kylian Mbappé",
+          "position": "Forward"
+        },
+        {
+          "club": "Bayern Munchen",
+          "name": "Michael Olise",
+          "position": "Forward"
+        },
+        {
+          "club": "Inter Milan",
+          "name": "Marcus Thuram",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 14 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Graham Arnold",
+        "role": "Head coach"
+      },
+      "id": "irq",
+      "source_name": "Irak",
+      "squad": [
+        {
+          "club": "Al-Talaba SC",
+          "name": "Fahad Talib",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Zawraa SC",
+          "name": "Jalal Hassan",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Shorta SC",
+          "name": "Ahmed Basil",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Pogon Szczecin",
+          "name": "Hussein Ali",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Shorta SC",
+          "name": "Manaf Younis",
+          "position": "Defender"
+        },
+        {
+          "club": "Pachtakor Tasjkent",
+          "name": "Zaid Tahseen",
+          "position": "Defender"
+        },
+        {
+          "club": "Port FC",
+          "name": "Rebin Sulaka",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Zawraa SC",
+          "name": "Akam Hashem",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Viktoria Pilsen",
+          "name": "Merchas Doski",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Shorta SC",
+          "name": "Ahmed Yahya",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Shorta SC",
+          "name": "Mustafa Saadoon",
+          "position": "Defender"
+        },
+        {
+          "club": "Persib Bandung",
+          "name": "Frans Putros",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Utrecht",
+          "name": "Zidane Iqbal",
+          "position": "Midfielder"
+        },
+        {
+          "club": "KS Cracovia",
+          "name": "Amir Al-Ammari",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Talaba SC",
+          "name": "Zaid Ismail",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sarpsborg 08",
+          "name": "Aimar Sher",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Aarhus GF",
+          "name": "Kevin Yakob",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Dhafra FC",
+          "name": "Ibrahim Bayesh",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Venezia FC",
+          "name": "Marko Farji",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AEK Larnaca",
+          "name": "Youssef Amyn",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Ahmed Qasem",
+          "name": "Ahmed Qasem",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Najma SC",
+          "name": "Ali Jassim",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Dibba SCC",
+          "name": "Mohanad Ali",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Karma",
+          "name": "Aymen Hussein",
+          "position": "Forward"
+        },
+        {
+          "club": "Luton Lown",
+          "name": "Ali Al-Hamadi",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Talaba SC",
+          "name": "Ali Yousef",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 1 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Ståle Solbakken",
+        "role": "Head coach"
+      },
+      "id": "nor",
+      "source_name": "Noorwegen",
+      "squad": [
+        {
+          "club": "Sevilla",
+          "name": "⁠Orjan Haskjold Nyland",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Watford",
+          "name": "Egil Selvik",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Hamburger SV",
+          "name": "Sander Tangvik",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Julian Ryerson",
+          "position": "Defender"
+        },
+        {
+          "club": "Torino",
+          "name": "Marcus Holmgren Pedersen",
+          "position": "Defender"
+        },
+        {
+          "club": "Wolverhampton",
+          "name": "David Moller Wolfe",
+          "position": "Defender"
+        },
+        {
+          "club": "Bodo/Glimt",
+          "name": "Fredrik Bjorkan",
+          "position": "Defender"
+        },
+        {
+          "club": "Brentford",
+          "name": "Kristoffer Ajer",
+          "position": "Defender"
+        },
+        {
+          "club": "Bologna",
+          "name": "Torbjorn Heggem",
+          "position": "Defender"
+        },
+        {
+          "club": "Genoa",
+          "name": "Leo Skiri Ostigard",
+          "position": "Defender"
+        },
+        {
+          "club": "Derby County",
+          "name": "Sondre Langas",
+          "position": "Defender"
+        },
+        {
+          "club": "Viking",
+          "name": "Henrik ⁠Falchener",
+          "position": "Defender"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Martin ​Odegaard",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Fulham",
+          "name": "Sander Berge",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Benfica",
+          "name": "Fredrik Aursnes",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bodo/Glimt",
+          "name": "Patrick Berg",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sassuolo",
+          "name": "Kristian ​Thorstvedt",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Cremonese",
+          "name": "Morten Thorsby",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Rangers",
+          "name": "Thelo Aasgaard",
+          "position": "Midfielder"
+        },
+        {
+          "club": "RB Leipzig",
+          "name": "Antonio Nusa",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Fulham",
+          "name": "Oscar ​Bobb",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Benfica",
+          "name": "Andreas Schjelderup",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bodo/Glimt",
+          "name": "Jens Petter Hauge",
+          "position": "Midfielder"
+        },
+        {
+          "name": "Erling Haaland",
+          "position": "Forward"
+        },
+        {
+          "name": "Alexander Sørloth",
+          "position": "Forward"
+        },
+        {
+          "name": "Jørgen Strand Larsen",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 21 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Pape Thiaw",
+        "role": "Head coach"
+      },
+      "id": "sen",
+      "source_name": "Senegal",
+      "squad": [
+        {
+          "club": "Al Ahli",
+          "name": "Édouard Mendy",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Le Havre",
+          "name": "Mory Diaw",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "OGC Nice",
+          "name": "Yehvann Diouf",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "AS Monaco",
+          "name": "Krépin Diatta",
+          "position": "Defender"
+        },
+        {
+          "club": "OGC Nice",
+          "name": "Antoine Mendy",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Hilal",
+          "name": "Kalidou Koulibaly",
+          "position": "Defender"
+        },
+        {
+          "club": "West Ham",
+          "name": "El Hadji Malick Diouf",
+          "position": "Defender"
+        },
+        {
+          "club": "Chelsea",
+          "name": "Mamadou Sarr",
+          "position": "Defender"
+        },
+        {
+          "club": "Olympique Lyon",
+          "name": "Moussa Niakhaté",
+          "position": "Defender"
+        },
+        {
+          "club": "Paris FC",
+          "name": "Moustapha Mbow",
+          "position": "Defender"
+        },
+        {
+          "club": "Maccabi Haifa",
+          "name": "Abdoulaye Seck",
+          "position": "Defender"
+        },
+        {
+          "club": "Galatasaray",
+          "name": "Ismail Jakobs",
+          "position": "Defender"
+        },
+        {
+          "club": "Anderlecht",
+          "name": "Ilay Camara",
+          "position": "Defender"
+        },
+        {
+          "club": "Everton",
+          "name": "Idrissa Gana Gueye",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Villarreal",
+          "name": "Pape Gueye",
+          "position": "Midfielder"
+        },
+        {
+          "club": "AS Monaco",
+          "name": "Lamine Camara",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Habib Diarra",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Rayo Vallecano",
+          "name": "Pathé Ciss",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Tottenham Hotspur",
+          "name": "Pape Matar Sarr",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Bara Sapoko Ndiaye",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Sadio Mané",
+          "position": "Forward"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Ismaïla Sarr",
+          "position": "Forward"
+        },
+        {
+          "club": "Everton",
+          "name": "Iliman Ndiaye",
+          "position": "Forward"
+        },
+        {
+          "club": "Como",
+          "name": "Assane Diao",
+          "position": "Forward"
+        },
+        {
+          "club": "PSG",
+          "name": "Ibrahim Mbaye",
+          "position": "Forward"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Nicolas Jackson",
+          "position": "Forward"
+        },
+        {
+          "club": "Lorient",
+          "name": "Bamba Dieng",
+          "position": "Forward"
+        },
+        {
+          "club": "Samsunspor",
+          "name": "Cherif Ndiaye",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "(vallen nog 2 spelers af)"
+    },
+    {
+      "head_coach": {
+        "name": "Vladimir Petković",
+        "role": "Head coach"
+      },
+      "id": "alg",
+      "source_name": "Algerije",
+      "squad": [
+        {
+          "club": "Granada CF",
+          "name": ": Luca Zidane",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "USM Alger",
+          "name": "Oussama Benbot",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Stade Nyonnais, gehuurd van Lausanne-Sport",
+          "name": "Melvin Mastil",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "MC Alger",
+          "name": "Abdelatif Ramdane",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Hellas Verona",
+          "name": ": Rafik Belghali",
+          "position": "Defender"
+        },
+        {
+          "club": "Paris FC",
+          "name": "Samir Chergui",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Rayan Aït-Nouri",
+          "position": "Defender"
+        },
+        {
+          "club": "BSC Young Boys",
+          "name": "Jaouen Hadjam",
+          "position": "Defender"
+        },
+        {
+          "club": "LOSC Lille",
+          "name": "Aïssa Mandi",
+          "position": "Defender"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Ramy Bensebaïni",
+          "position": "Defender"
+        },
+        {
+          "club": "JS Kabylie",
+          "name": "Zineddine Belaïd",
+          "position": "Defender"
+        },
+        {
+          "club": "USM Alger",
+          "name": "Achref Abada",
+          "position": "Defender"
+        },
+        {
+          "club": "Espérance de Tunis",
+          "name": "Mohamed Amine Tougaï",
+          "position": "Defender"
+        },
+        {
+          "club": "LOSC Lille",
+          "name": ": Nabil Bentaleb",
+          "position": "Midfielder"
+        },
+        {
+          "club": "OGC Nice",
+          "name": "Hicham Boudaoui",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Ittihad",
+          "name": "Houssem Aouar",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Eintracht Frankfurt",
+          "name": "Farès Chaïbi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bayer Leverkusen",
+          "name": "Ibrahim Maza",
+          "position": "Midfielder"
+        },
+        {
+          "club": "R. Charleroi SC",
+          "name": "Yacine Titraoui",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Twente, gehuurd van Feyenoord",
+          "name": "Ramiz Zerrouki",
+          "position": "Midfielder"
+        },
+        {
+          "club": "VfL Wolfsburg",
+          "name": ": Mohamed Amine Amoura",
+          "position": "Forward"
+        },
+        {
+          "club": "ETO FC",
+          "name": "Nadhir Benbouali",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Duhail SC",
+          "name": "Adil Boulbina",
+          "position": "Forward"
+        },
+        {
+          "club": "Frosinone",
+          "name": "Farès Ghedjemis",
+          "position": "Forward"
+        },
+        {
+          "club": "Olympique Marseille",
+          "name": "Amine Gouiri",
+          "position": "Forward"
+        },
+        {
+          "club": "Feyenoord",
+          "name": "Anis Hadj Moussa",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Ahli",
+          "name": "Riyad Mahrez",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 31 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Lionel Scaloni",
+        "role": "Head coach"
+      },
+      "id": "arg",
+      "source_name": "Argentinië",
+      "squad": [
+        {
+          "club": "Olympique Marseille",
+          "name": "Gerónimo Rulli",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "Emilio Martinez",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Atlético Madrid",
+          "name": "Juan Musso",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Olympique Marseille",
+          "name": "Leonardo Balerdi",
+          "position": "Defender"
+        },
+        {
+          "club": "Olympique Lyonnais",
+          "name": "Nicolás Tagliafico",
+          "position": "Defender"
+        },
+        {
+          "club": "River Plate",
+          "name": "Gonzalo Montiel",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Lisandro Martinez",
+          "position": "Defender"
+        },
+        {
+          "club": "Tottenham Hotspur",
+          "name": "Cristian Romero",
+          "position": "Defender"
+        },
+        {
+          "club": "Benfica",
+          "name": "Nicolas Otamendi",
+          "position": "Defender"
+        },
+        {
+          "club": "Olympique Marseille",
+          "name": "Facundo Medina",
+          "position": "Defender"
+        },
+        {
+          "club": "Atlético Madrid",
+          "name": "Nahuel Molina",
+          "position": "Defender"
+        },
+        {
+          "club": "Boca Juniors",
+          "name": "Leandro Paredes",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Inter Miami",
+          "name": "Rodrigo De Paul",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Strasbourg",
+          "name": "Valentin Barco",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Betis",
+          "name": "Giovani Lo Celso",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bayer Leverkusen",
+          "name": "Exequiel Palacios",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Liverpool",
+          "name": "Alexis Mac Allister",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Chelsea",
+          "name": "Enzo Fernandez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Inter Miami",
+          "name": "Lionel Messi",
+          "position": "Forward"
+        },
+        {
+          "club": "Atletico Madrid",
+          "name": "Julian Álvarez",
+          "position": "Forward"
+        },
+        {
+          "club": "Atletico Madrid",
+          "name": "Nicolás González",
+          "position": "Forward"
+        },
+        {
+          "club": "Atletico Madrid",
+          "name": "Thiago Almada",
+          "position": "Forward"
+        },
+        {
+          "club": "Atlético Madrid",
+          "name": "Giuliano Simeone",
+          "position": "Forward"
+        },
+        {
+          "club": "Como 1907",
+          "name": "Nico Paz",
+          "position": "Forward"
+        },
+        {
+          "club": "Palmeiras",
+          "name": "Lopez",
+          "position": "Forward"
+        },
+        {
+          "club": "Internazionale",
+          "name": "Lautaro Martinez",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 28 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Ralf Rangnick",
+        "role": "Head coach"
+      },
+      "id": "aut",
+      "source_name": "Oostenrijk",
+      "squad": [
+        {
+          "club": "Bröndby IF) Alexander Schlager (Red Bull Salzburg",
+          "name": "Patrick Pentz",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Viktoria Pilsen",
+          "name": "Florian Wiegele",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Elche CF",
+          "name": "David Affengruber",
+          "position": "Defender"
+        },
+        {
+          "club": "Real Madrid",
+          "name": "David Alaba",
+          "position": "Defender"
+        },
+        {
+          "club": "Tottenham Hotspur",
+          "name": "Kevin Danso",
+          "position": "Defender"
+        },
+        {
+          "club": "Werder Bremen",
+          "name": "Marco Friedl",
+          "position": "Defender"
+        },
+        {
+          "club": "SC Freiburg",
+          "name": "Philipp Lienhart",
+          "position": "Defender"
+        },
+        {
+          "club": "FSV Mainz 05",
+          "name": "Phillipp Mwene",
+          "position": "Defender"
+        },
+        {
+          "club": "FSV Mainz 05",
+          "name": "Stefan Posch",
+          "position": "Defender"
+        },
+        {
+          "club": "TSG 1899 Hoffenheim",
+          "name": "Alexander Prass",
+          "position": "Defender"
+        },
+        {
+          "club": "Venezia FC",
+          "name": "Michael Svoboda",
+          "position": "Defender"
+        },
+        {
+          "club": "RB Leipzig",
+          "name": "Christoph Baumgartner",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Carney Chukwuemeka",
+          "position": "Midfielder"
+        },
+        {
+          "club": "SC Braga",
+          "name": "Florian Grillitsch",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Bayern München",
+          "name": "Konrad Laimer",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Borussia Dortmund",
+          "name": "Marcel Sabitzer",
+          "position": "Midfielder"
+        },
+        {
+          "club": "RB Leipzig",
+          "name": "Xaver Schlager",
+          "position": "Midfielder"
+        },
+        {
+          "club": "RB Leipzig",
+          "name": "Nicolas Seiwald",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Werder Bremen",
+          "name": "Romano Schmid",
+          "position": "Midfielder"
+        },
+        {
+          "club": "RZ Pellets WAC",
+          "name": "Alessandro Schöpf",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PSV Eindhoven",
+          "name": "Paul Wanner",
+          "position": "Midfielder"
+        },
+        {
+          "club": "VfL Wolfsburg",
+          "name": "Patrick Wimmer",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FK Crvena Zvezda",
+          "name": "Marko Arnautovic",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Augsburg",
+          "name": "Michael Gregoritsch",
+          "position": "Forward"
+        },
+        {
+          "club": "LASK",
+          "name": "Sasa Kalajdzic",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 18 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Jamal Sellami",
+        "role": "Head coach"
+      },
+      "id": "jor",
+      "source_name": "Jordanië",
+      "squad": [
+        {
+          "club": "Al-Hussein",
+          "name": "Yazid Abulaila",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Wehdat",
+          "name": "Abdallah Al-Fakhouri",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Shabab Al-Ordon",
+          "name": "Ahmad Al-Juiadi",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Al-Faisaly",
+          "name": "Nour Bani Attiah",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Selangor",
+          "name": "Mohammad Abualnadi",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Hussein",
+          "name": "Yousef Abu Al-Jazar",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Faisaly",
+          "name": "Husam Abu Dahab",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Karma",
+          "name": "Mohammed Abu Hashish",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Quwa Al-Jawiya",
+          "name": "Mohannad Abu Taha",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Seoul",
+          "name": "Yazan Al-Arab",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Hussein",
+          "name": "Saed Al-Rosna",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Hussein",
+          "name": "Ahmad Assaf",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Faisaly",
+          "name": "Anas Badawi",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Zawraa",
+          "name": "Abdallah Nasib",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Hussein",
+          "name": "Ehsan Haddad",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Hussein",
+          "name": "Saleem Obaid",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Quwa Al-Jawiya",
+          "name": "Mohammad Abu Taha",
+          "position": "Defender"
+        },
+        {
+          "club": "Al-Wehdat",
+          "name": "Mohammed Al-Dawoud",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Qatar SC",
+          "name": "Nizar Al-Rashdan",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Selangor",
+          "name": "Noor Al-Rawabdeh",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Hussein",
+          "name": "Rajaei Ayed",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Zawraa",
+          "name": "Amer Jamous",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Hussein",
+          "name": "Yousef Qashi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Karma",
+          "name": "Ibrahim Sadeh",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Raja Casablanca",
+          "name": "Mohammed Abu Zraiq",
+          "position": "Forward"
+        },
+        {
+          "club": "Rennes",
+          "name": "Mousa Al-Tamari",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Shabab",
+          "name": "Ali Azaizeh",
+          "position": "Forward"
+        },
+        {
+          "club": "Pyramids",
+          "name": "Odeh Al-Fakhouri",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Sailiaya",
+          "name": "Ali Olwan",
+          "position": "Forward"
+        },
+        {
+          "club": "Lokomotiva Zagreb",
+          "name": "Ibrahim Sabra",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Verwacht op 1 juni (vallen nog 4 spelers af)"
+    },
+    {
+      "head_coach": {
+        "name": "Néstor Lorenzo",
+        "role": "Head coach"
+      },
+      "id": "col",
+      "source_name": "Colombia",
+      "squad": [
+        {
+          "club": "Atlas",
+          "name": "Camilo Vargas",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Vélez Sarsfield",
+          "name": "Álvaro Montero",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Atlético Nacional",
+          "name": "David Ospina",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Galatasaray",
+          "name": "Dávinson Sánchez",
+          "position": "Defender"
+        },
+        {
+          "club": "Bologna",
+          "name": "Jhon Lucumí",
+          "position": "Defender"
+        },
+        {
+          "club": "Cagliari Calcio",
+          "name": "Yerry Mina",
+          "position": "Defender"
+        },
+        {
+          "club": "Cruz Azul",
+          "name": "Willer Ditta",
+          "position": "Defender"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Daniel Muñoz",
+          "position": "Defender"
+        },
+        {
+          "club": "Independiente",
+          "name": "Santiago Arias",
+          "position": "Defender"
+        },
+        {
+          "club": "R.C.D Mallorca",
+          "name": "Johan Mojica",
+          "position": "Defender"
+        },
+        {
+          "club": "Nantes",
+          "name": "Deiver Machado",
+          "position": "Defender"
+        },
+        {
+          "club": "Benfica",
+          "name": "Richard Ríos",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Jefferson Lerma",
+          "position": "Midfielder"
+        },
+        {
+          "club": "River Plate",
+          "name": "Kevin Castaño",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Athletico Paranaense",
+          "name": "Juan Camilo Portilla",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Racing de Santander",
+          "name": "Gustavo Puerta",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Palmeiras",
+          "name": "Jhon Arias",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Flamengo",
+          "name": "Jorge Carrascal",
+          "position": "Midfielder"
+        },
+        {
+          "club": "River Plate",
+          "name": "Juan Fernando Quintero",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Minnesota United FC",
+          "name": "James Rodríguez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Rosario Central",
+          "name": "Jaminton Campaz",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Betis",
+          "name": "Juan Camilo Hernández",
+          "position": "Forward"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Luis Díaz",
+          "position": "Forward"
+        },
+        {
+          "club": "Sporting CP",
+          "name": "Luis Suárez",
+          "position": "Forward"
+        },
+        {
+          "club": "Vasco da Gama",
+          "name": "Carlos Andrés Gómez",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Krasnodar",
+          "name": "Jhon Córdoba",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 25 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Sébastien Desabre",
+        "role": "Head coach"
+      },
+      "id": "cod",
+      "source_name": "Congo Dr",
+      "squad": [
+        {
+          "club": "FC Noah",
+          "name": "Timothy Fayulu",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Le Havre",
+          "name": "Lionel Mpasi",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Standard Luik",
+          "name": "Mattieu Epolo",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "West Ham",
+          "name": "Aaron Wan-Bissaka",
+          "position": "Defender"
+        },
+        {
+          "club": "Aris",
+          "name": "Gedeon Kalulu",
+          "position": "Defender"
+        },
+        {
+          "club": "LOSC",
+          "name": "Chancel Mbemba",
+          "position": "Defender"
+        },
+        {
+          "club": "Widzew Lodz",
+          "name": "Steve Kapuadi",
+          "position": "Defender"
+        },
+        {
+          "club": "Burnley",
+          "name": "Axel Tuanzebe",
+          "position": "Defender"
+        },
+        {
+          "club": "Larissa",
+          "name": "Dylan Batubinsika",
+          "position": "Defender"
+        },
+        {
+          "club": "Kilmarnock",
+          "name": "Aaron Tshibola",
+          "position": "Defender"
+        },
+        {
+          "club": "RC Lens",
+          "name": "Arthur Masuaku",
+          "position": "Defender"
+        },
+        {
+          "club": "KRC Genk",
+          "name": "Joris Kayembe",
+          "position": "Defender"
+        },
+        {
+          "club": "Atromitos",
+          "name": "Samuel Moutoussamy",
+          "position": "Midfielder"
+        },
+        {
+          "club": "LOSC",
+          "name": "Ngal'Ayel Mukau",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Larissa",
+          "name": "Gaël Kakuta",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Espanyol",
+          "name": "Charles Pickel",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Sunderland",
+          "name": "Noah Sadiki",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Watford",
+          "name": "Edo Kayembe",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Spartak Moskou",
+          "name": "Théo Bongonda",
+          "position": "Forward"
+        },
+        {
+          "club": "Montpellier",
+          "name": "Nathanaël Mbuku",
+          "position": "Forward"
+        },
+        {
+          "club": "Real Betis",
+          "name": "Cédric Bakambu",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Jazira",
+          "name": "Simon Banza",
+          "position": "Forward"
+        },
+        {
+          "club": "Pyramids FC",
+          "name": "Fiston Mayele",
+          "position": "Forward"
+        },
+        {
+          "club": "CD Castellon",
+          "name": "Brian Cipenga",
+          "position": "Forward"
+        },
+        {
+          "club": "Newcastle",
+          "name": "Yoane Wissa",
+          "position": "Forward"
+        },
+        {
+          "club": "Alanyaspor",
+          "name": "Meschack Elia",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 18 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Roberto Martínez",
+        "role": "Head coach"
+      },
+      "id": "por",
+      "source_name": "Portugal",
+      "squad": [
+        {
+          "club": "FC Porto",
+          "name": "Diogo Costa",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Wolverhampton Wanderers",
+          "name": "José Sá",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Sporting CP",
+          "name": "Rui Silva",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Genclerbirligi Ankara",
+          "name": "Ricardo Velho",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Diogo Dalot",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Matheus Nunes",
+          "position": "Defender"
+        },
+        {
+          "club": "Fenerbahce SK",
+          "name": "Nélson Semedo",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "João Cancelo",
+          "position": "Defender"
+        },
+        {
+          "club": "PSG",
+          "name": "Nuno Mendes",
+          "position": "Defender"
+        },
+        {
+          "club": "Sporting CP",
+          "name": "Gonçalo Inácio",
+          "position": "Defender"
+        },
+        {
+          "club": "Villarreal",
+          "name": "Renato Veiga",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Rúben Dias",
+          "position": "Defender"
+        },
+        {
+          "club": "SL Benfica",
+          "name": "Tomás Araújo",
+          "position": "Defender"
+        },
+        {
+          "club": "Al Hilal",
+          "name": "Rúben Neves",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Mallorca",
+          "name": "Samuel Costa",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PSG",
+          "name": "João Neves",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PSG",
+          "name": "Vitinha",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Bruno Fernandes",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Bernardo Silva",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "João Félix",
+          "position": "Forward"
+        },
+        {
+          "club": "Sporting CP",
+          "name": "Francisco Trincão",
+          "position": "Forward"
+        },
+        {
+          "club": "Juventus",
+          "name": "Francisco Conceição",
+          "position": "Forward"
+        },
+        {
+          "club": "Chelsea",
+          "name": "Pedro Neto",
+          "position": "Forward"
+        },
+        {
+          "club": "AC Milan",
+          "name": "Rafael Leão",
+          "position": "Forward"
+        },
+        {
+          "club": "Real Sociedad",
+          "name": "Gonçalo Guedes",
+          "position": "Forward"
+        },
+        {
+          "club": "PSG",
+          "name": "Gonçalo Ramos",
+          "position": "Forward"
+        },
+        {
+          "club": "Al Nassr",
+          "name": "Cristiano Ronaldo",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "(er valt nog één speler af)"
+    },
+    {
+      "head_coach": {
+        "name": "Fabio Cannavaro",
+        "role": "Head coach"
+      },
+      "id": "uzb",
+      "source_name": "Oezbekistan",
+      "status_note": "Verwacht op 2 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Zlatko Dalić",
+        "role": "Head coach"
+      },
+      "id": "cro",
+      "source_name": "Kroatië",
+      "squad": [
+        {
+          "club": "Dinamo",
+          "name": "Dominik Livaković",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Copenhagen",
+          "name": "Dominik Kotarski",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Hull City",
+          "name": "Ivor Pandur",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Joško Gvardiol",
+          "position": "Defender"
+        },
+        {
+          "club": "Real Sociedad",
+          "name": "Duje Ćaleta-Car",
+          "position": "Defender"
+        },
+        {
+          "club": "Ajax",
+          "name": "Josip Šutalo",
+          "position": "Defender"
+        },
+        {
+          "club": "Bayern",
+          "name": "Josip Stanišić",
+          "position": "Defender"
+        },
+        {
+          "club": "Fiorentina",
+          "name": "Marin Pongračić",
+          "position": "Defender"
+        },
+        {
+          "club": "Midtjylland",
+          "name": "Martin Erlić",
+          "position": "Defender"
+        },
+        {
+          "club": "HSV",
+          "name": "Luka Vušković",
+          "position": "Defender"
+        },
+        {
+          "club": "Milan",
+          "name": "Luka Modrić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Mateo Kovačić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Atalanta",
+          "name": "Mario Pašalić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Torino",
+          "name": "Nikola Vlašić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Sociedad",
+          "name": "Luka Sučić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Como",
+          "name": "Martin Baturina",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Augsburg",
+          "name": "Kristijan Jakić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Inter",
+          "name": "Petar Sučić",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Bologna",
+          "name": "Nikola Moro",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Rijeka",
+          "name": "Toni Fruk",
+          "position": "Midfielder"
+        },
+        {
+          "club": "PSV",
+          "name": "Ivan Perišić",
+          "position": "Forward"
+        },
+        {
+          "club": "Hoffenheim",
+          "name": "Andrej Kramarić",
+          "position": "Forward"
+        },
+        {
+          "club": "Osasuna",
+          "name": "Ante Budimir",
+          "position": "Forward"
+        },
+        {
+          "club": "Orlando City",
+          "name": "Marco Pašalić",
+          "position": "Forward"
+        },
+        {
+          "club": "Dallas",
+          "name": "Petar Musa",
+          "position": "Forward"
+        },
+        {
+          "club": "Freiburg",
+          "name": "Igor Matanović",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 18 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Thomas Tuchel",
+        "role": "Head coach"
+      },
+      "id": "eng",
+      "source_name": "Engeland",
+      "squad": [
+        {
+          "club": "Everton",
+          "name": "Jordan Pickford",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Crystal Palace",
+          "name": "Dean Henderson",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Manchester City",
+          "name": "James Trafford",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "Ezri Konsa",
+          "position": "Defender"
+        },
+        {
+          "club": "Bayer Leverkusen",
+          "name": "Jarell Quansah",
+          "position": "Defender"
+        },
+        {
+          "club": "Newcastle United",
+          "name": "Tino Livramento",
+          "position": "Defender"
+        },
+        {
+          "club": "Newcastle United",
+          "name": "Dan Burn",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Marc Guéhi",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester City",
+          "name": "John Stones",
+          "position": "Defender"
+        },
+        {
+          "club": "Tottenham Hotspur",
+          "name": "Djed Spence",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Nico O'Reilly",
+          "position": "Defender"
+        },
+        {
+          "club": "Chelsea",
+          "name": "Reece James",
+          "position": "Defender"
+        },
+        {
+          "club": "Manchester United",
+          "name": "Kobbie Mainoo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Nottingham Forest",
+          "name": "Elliot Anderson",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Declan Rice",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Madrid",
+          "name": "Jude Bellingham",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Brentford",
+          "name": "Jordan Henderson",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Eberechi Eze",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "Morgan Rogers",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Bukayo Saka",
+          "position": "Forward"
+        },
+        {
+          "club": "Arsenal",
+          "name": "Noni Madueke",
+          "position": "Forward"
+        },
+        {
+          "club": "Newcastle United",
+          "name": "Anthony Gordon",
+          "position": "Forward"
+        },
+        {
+          "club": "FC Barcelona",
+          "name": "Marcus Rashford",
+          "position": "Forward"
+        },
+        {
+          "club": "Bayern München",
+          "name": "Harry Kane",
+          "position": "Forward"
+        },
+        {
+          "club": "Al-Ahli",
+          "name": "Ivan Toney",
+          "position": "Forward"
+        },
+        {
+          "club": "Aston Villa",
+          "name": "Ollie Watkins",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 22 mei"
+    },
+    {
+      "head_coach": {
+        "name": "Carlos Queiroz",
+        "role": "Head coach"
+      },
+      "id": "gha",
+      "source_name": "Ghana",
+      "squad": [
+        {
+          "club": "Hearts of Oak",
+          "name": "Benjamin Asare",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "FC St. Gallen 1879",
+          "name": "Lawrence Ati-Zigi",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "St. Patrick's Athletic",
+          "name": "Joseph Anang",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "PAOK",
+          "name": "Baba Abdul Rahman",
+          "position": "Defender"
+        },
+        {
+          "club": "AJ Auxerre",
+          "name": "Gideon Mensah",
+          "position": "Defender"
+        },
+        {
+          "club": "AJ Auxerre",
+          "name": "Marvin Senaya",
+          "position": "Defender"
+        },
+        {
+          "club": "Stade Rennes",
+          "name": "Alidu Seidu",
+          "position": "Defender"
+        },
+        {
+          "club": "Rayo Vallecano",
+          "name": "Abdul Mumin",
+          "position": "Defender"
+        },
+        {
+          "club": "Basaksehir FK",
+          "name": "Jerome Opoku",
+          "position": "Defender"
+        },
+        {
+          "club": "VfL Wolfsburg",
+          "name": "Jonas Adjetey",
+          "position": "Defender"
+        },
+        {
+          "club": "OGC Nice",
+          "name": "Kojo Oppong Peprah",
+          "position": "Defender"
+        },
+        {
+          "club": "Pafos FC",
+          "name": "Derrick Luckassen",
+          "position": "Defender"
+        },
+        {
+          "club": "AJ Auxerre",
+          "name": "Elisha Owusu",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Villarreal CF",
+          "name": "Thomas Partey",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Real Oviedo",
+          "name": "Kwasi Sibo",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Saint-Étienne",
+          "name": "Augustine Boakye",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Nordsjaelland",
+          "name": "Caleb Yirenkyi",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Leicester City",
+          "name": "Abdul Fatawu Issahaku",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Atalanta",
+          "name": "Kamal Deen Sulemana",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Al-Qadsiah",
+          "name": "Christopher Bonsu Baah",
+          "position": "Forward"
+        },
+        {
+          "club": "Olympique Lyon",
+          "name": "Ernest Nuamah",
+          "position": "Forward"
+        },
+        {
+          "club": "Manchester City",
+          "name": "Antoine Semenyo",
+          "position": "Forward"
+        },
+        {
+          "club": "Coventry City",
+          "name": "Brandon Thomas-Asante",
+          "position": "Forward"
+        },
+        {
+          "club": "Viktoria Pilsen",
+          "name": "Prince Kwabena Adu",
+          "position": "Forward"
+        },
+        {
+          "club": "Athletic Bilbao",
+          "name": "Inaki Williams",
+          "position": "Forward"
+        },
+        {
+          "club": "Leicester City",
+          "name": "Jordan Ayew",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 2 juni"
+    },
+    {
+      "head_coach": {
+        "name": "Thomas Christiansen",
+        "role": "Head coach"
+      },
+      "id": "pan",
+      "source_name": "Panama",
+      "squad": [
+        {
+          "club": "Al-Fayha FC",
+          "name": "Orlando Mosquera",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Club Nacional",
+          "name": "Luis Mejía",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "CD Marathon",
+          "name": "César Samudio",
+          "position": "Goalkeeper"
+        },
+        {
+          "club": "Slovan Bratislava",
+          "name": "César Blackman",
+          "position": "Defender"
+        },
+        {
+          "club": "Deportivo La Guaira",
+          "name": "Jorge Gutiérrez",
+          "position": "Defender"
+        },
+        {
+          "club": "Besiktas",
+          "name": "Amir Murillo",
+          "position": "Defender"
+        },
+        {
+          "club": "Deportivo Saprissa",
+          "name": "Fidel Escobar",
+          "position": "Defender"
+        },
+        {
+          "club": "LASK",
+          "name": "Andrés Andrade",
+          "position": "Defender"
+        },
+        {
+          "club": "FC Pari Nizhniy Novgorod",
+          "name": "Edgardo Fariña",
+          "position": "Defender"
+        },
+        {
+          "club": "Norwich City",
+          "name": "José Córdoba",
+          "position": "Defender"
+        },
+        {
+          "club": "CD Plaza Amador",
+          "name": "Eric Davis",
+          "position": "Defender"
+        },
+        {
+          "club": "Academia Puerto Cabello",
+          "name": "Jiovani Ramos",
+          "position": "Defender"
+        },
+        {
+          "club": "Turan Tovuz",
+          "name": "Roderick Miller",
+          "position": "Defender"
+        },
+        {
+          "club": "San Diego FC",
+          "name": "Aníbal Godoy",
+          "position": "Midfielder"
+        },
+        {
+          "club": "UNAM Pumas",
+          "name": "Adalberto Carrasquilla",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Minnesota United FC",
+          "name": "Carlos Harvey",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Ironi Kiryat Shmona",
+          "name": "Cristian Martínez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "FC Juarez",
+          "name": "José Luis Rodríguez",
+          "position": "Midfielder"
+        },
+        {
+          "club": "CD Cobresal",
+          "name": "Cesar Yanis",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Mazatlan FC",
+          "name": "Yoel Bárcenas",
+          "position": "Midfielder"
+        },
+        {
+          "club": "CD Plaza Amador",
+          "name": "Alberto Quintero",
+          "position": "Midfielder"
+        },
+        {
+          "club": "CD Universidad Catolica",
+          "name": "Azarías Londoño",
+          "position": "Midfielder"
+        },
+        {
+          "club": "Club Leon FC",
+          "name": "Ismael Díaz",
+          "position": "Forward"
+        },
+        {
+          "club": "Universidad de Concepcion",
+          "name": "Cecilio Waterman",
+          "position": "Forward"
+        },
+        {
+          "club": "CD Universidad Catolica",
+          "name": "José Fajardo",
+          "position": "Forward"
+        },
+        {
+          "club": "Deportivo Saprissa",
+          "name": "Tomás Rodríguez",
+          "position": "Forward"
+        }
+      ],
+      "status_note": "Werd bekend op 26 mei"
+    }
+  ]
+}
