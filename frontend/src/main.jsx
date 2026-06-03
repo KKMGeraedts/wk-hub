@@ -166,6 +166,9 @@ const NEWS_ARTICLES = [
   },
 ];
 
+const PROFILE_IMAGE_MAX_DIMENSION = 512;
+const PROFILE_IMAGE_MAX_UPLOAD_BYTES = 750 * 1024;
+
 function normalizeRoute(pathname) {
   const path = pathname.replace(/\/+$/, "");
   return path || "/";
@@ -300,6 +303,51 @@ async function apiJson(path, options = {}) {
   }
   if (!response.ok) throw new Error(data?.error || `API returned ${response.status}`);
   return data ?? {};
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => resolve(reader.result));
+    reader.addEventListener("error", () => reject(new Error("De afbeelding kon niet worden gelezen.")));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener("load", () => resolve(image));
+    image.addEventListener("error", () => reject(new Error("De afbeelding kon niet worden geladen.")));
+    image.src = src;
+  });
+}
+
+async function resizeProfileImage(file) {
+  if (!file?.type?.startsWith("image/")) {
+    throw new Error("Kies een afbeelding.");
+  }
+
+  const sourceUrl = await fileToDataUrl(file);
+  const image = await loadImage(sourceUrl);
+  const scale = Math.min(
+    1,
+    PROFILE_IMAGE_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight),
+  );
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.drawImage(image, 0, 0, width, height);
+
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
+  const estimatedBytes = Math.ceil((dataUrl.length - dataUrl.indexOf(",") - 1) * 0.75);
+  if (estimatedBytes > PROFILE_IMAGE_MAX_UPLOAD_BYTES) {
+    throw new Error("Kies een kleinere afbeelding.");
+  }
+  return dataUrl;
 }
 
 function FieldMark() {
@@ -1400,17 +1448,31 @@ function GroupPanel({ group, data, teams }) {
 function LoginPanel({ onLogin }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [resetMode, setResetMode] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
     setSaving(true);
     setError("");
+    setSuccess("");
     try {
+      if (resetMode) {
+        const result = await apiJson("/api/auth/forgot-password", {
+          method: "POST",
+          body: JSON.stringify({ email: resetEmail }),
+        });
+        setSuccess(result.message ?? "Password reset. Use default-password to log in.");
+        return;
+      }
+
       const result = await apiJson("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ name, email }),
+        body: JSON.stringify({ name, email, password }),
       });
       await onLogin(result.user);
     } catch (err) {
@@ -1424,23 +1486,78 @@ function LoginPanel({ onLogin }) {
     <article className="panel pool-login">
       <div className="panel-header">
         <div>
-          <h3>Join the Talpa WK Pool</h3>
-          <p>Log in once, then fill in group-stage scores and your tournament picks.</p>
+          <h3>{resetMode ? "Restore password" : "Join the Talpa WK Pool"}</h3>
+          <p>
+            {resetMode
+              ? "Enter your account email and use the default password after reset."
+              : "Log in, or create a new account with a password."}
+          </p>
         </div>
-        <span className="pill orange">Login</span>
+        <span className="pill orange">{resetMode ? "Reset" : "Login"}</span>
       </div>
       <form className="panel-body login-form" onSubmit={submit}>
-        <label>
-          Username
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="your username" />
-        </label>
-        <label>
-          Email
-          <input value={email} onChange={(event) => setEmail(event.target.value)} inputMode="email" autoComplete="email" placeholder="name@talpa.nl" />
-        </label>
+        {resetMode ? (
+          <label>
+            Email
+            <input
+              value={resetEmail}
+              onChange={(event) => setResetEmail(event.target.value)}
+              inputMode="email"
+              autoComplete="email"
+              placeholder="name@talpa.nl"
+            />
+          </label>
+        ) : (
+          <>
+            <label>
+              Username
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="your username"
+                autoComplete="username"
+              />
+            </label>
+            <label>
+              Email
+              <input
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                inputMode="email"
+                autoComplete="email"
+                placeholder="name@talpa.nl"
+              />
+            </label>
+            <label>
+              Password
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                type="password"
+                autoComplete="current-password"
+                minLength="8"
+                placeholder="at least 8 characters"
+              />
+            </label>
+          </>
+        )}
         {error && <div className="form-error">{error}</div>}
+        {success && <div className="form-success">{success}</div>}
         <button className="primary-button" type="submit" disabled={saving}>
-          {saving ? "Logging in..." : "Log in"}
+          {saving ? "Saving..." : resetMode ? "Reset password" : "Log in"}
+        </button>
+        <button
+          className="text-button"
+          type="button"
+          disabled={saving}
+          onClick={() => {
+            setResetMode((current) => !current);
+            setResetEmail(email);
+            setError("");
+            setSuccess("");
+          }}
+        >
+          {resetMode ? "Back to login" : "Forgot password?"}
         </button>
       </form>
     </article>
@@ -1463,15 +1580,69 @@ function LoginPage({ onLogin }) {
 
 function ProfileAvatar({ player, size = "medium" }) {
   const avatar = player?.profile_picture ?? {};
+  const label = `${player?.name ?? "Player"} profile picture`;
   return (
     <span
       className={`profile-avatar ${size}`}
       style={{ "--avatar-hue": avatar.hue ?? 24 }}
       role="img"
-      aria-label={`${player?.name ?? "Player"} profile picture`}
+      aria-label={label}
     >
-      {avatar.initials ?? "?"}
+      {avatar.image_url ? <img src={avatar.image_url} alt="" aria-hidden="true" /> : avatar.initials ?? "?"}
     </span>
+  );
+}
+
+function ProfileImageEditor({ player, canEdit, onUpdateImage }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function changeImage(event) {
+    const [file] = event.target.files ?? [];
+    event.target.value = "";
+    if (!file) return;
+    setSaving(true);
+    setError("");
+    try {
+      const imageUrl = await resizeProfileImage(file);
+      await onUpdateImage(imageUrl);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeImage() {
+    setSaving(true);
+    setError("");
+    try {
+      await onUpdateImage(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!canEdit) return <ProfileAvatar player={player} size="large" />;
+
+  return (
+    <div className="profile-image-editor">
+      <ProfileAvatar player={player} size="large" />
+      <div className="profile-image-actions">
+        <label className="text-button profile-image-upload">
+          {saving ? "Uploaden..." : "Icoon uploaden"}
+          <input type="file" accept="image/*" onChange={changeImage} disabled={saving} />
+        </label>
+        {player?.profile_picture?.image_url && (
+          <button className="text-button" type="button" onClick={removeImage} disabled={saving}>
+            Verwijderen
+          </button>
+        )}
+      </div>
+      {error && <span className="form-error">{error}</span>}
+    </div>
   );
 }
 
@@ -1550,6 +1721,86 @@ function ProfileNameEditor({ player, canEdit, onUpdateName }) {
   );
 }
 
+function ChangePasswordPanel({ canEdit, onChangePassword }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  if (!canEdit) return null;
+
+  async function submit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      await onChangePassword({
+        current_password: currentPassword,
+        password,
+        confirm_password: confirmPassword,
+      });
+      setCurrentPassword("");
+      setPassword("");
+      setConfirmPassword("");
+      setSuccess("Password changed.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <article className="panel change-password-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Change password</h3>
+          <p>Use default-password as current password if your account was migrated.</p>
+        </div>
+      </div>
+      <form className="panel-body change-password-form" onSubmit={submit}>
+        <label>
+          Current password
+          <input
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+            type="password"
+            autoComplete="current-password"
+          />
+        </label>
+        <label>
+          New password
+          <input
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            type="password"
+            autoComplete="new-password"
+            minLength="8"
+          />
+        </label>
+        <label>
+          Confirm new password
+          <input
+            value={confirmPassword}
+            onChange={(event) => setConfirmPassword(event.target.value)}
+            type="password"
+            autoComplete="new-password"
+            minLength="8"
+          />
+        </label>
+        {error && <div className="form-error">{error}</div>}
+        {success && <div className="form-success">{success}</div>}
+        <button className="primary-button" type="submit" disabled={saving}>
+          {saving ? "Saving..." : "Change password"}
+        </button>
+      </form>
+    </article>
+  );
+}
+
 function ScoringRulesPanel({ rules }) {
   const groupRule = rules?.match_scores?.["Group Stage"] ?? {};
   const knockoutRule = rules?.match_scores?.["Round of 16"] ?? {};
@@ -1606,8 +1857,6 @@ function HomePage({ onSchedule, recap, rules, newsletters = [] }) {
 
       <DailyRecap recap={recap} />
 
-      <ScoringRulesPanel rules={rules} />
-
       <section className="news-grid" aria-label="World Cup news">
         {articles.map((article) => (
           <article className="news-card" key={article.url}>
@@ -1623,6 +1872,8 @@ function HomePage({ onSchedule, recap, rules, newsletters = [] }) {
           </article>
         ))}
       </section>
+
+      <ScoringRulesPanel rules={rules} />
     </div>
   );
 }
@@ -2261,6 +2512,8 @@ function PlayerProfile({
   badgeCatalog,
   onBack,
   onUpdateName,
+  onUpdateImage,
+  onChangePassword,
 }) {
   if (!player) {
     return (
@@ -2303,7 +2556,11 @@ function PlayerProfile({
               <span className="fifa-position">PTS</span>
               <span className="fifa-rank">{rankLabel}</span>
             </div>
-            <ProfileAvatar player={player} size="large" />
+            <ProfileImageEditor
+              player={player}
+              canEdit={isSelf}
+              onUpdateImage={onUpdateImage}
+            />
           </div>
           <div className="fifa-card-name">
             <ProfileNameEditor
@@ -2367,6 +2624,7 @@ function PlayerProfile({
           </div>
         </article>
       </div>
+      <ChangePasswordPanel canEdit={isSelf} onChangePassword={onChangePassword} />
       <LeeuwtjesHelpToggle used={player.leeuwtjes_used ?? 0} total={5} />
       <BadgeProgressSection player={player} badgeCatalog={badgeCatalog} canView />
       <PlayerPredictions player={player} canView={canViewPredictions} />
@@ -3233,6 +3491,7 @@ function fallbackProfile(pool) {
     top_scorer_picks: [],
     striker_picks: [],
     profile_picture: {
+      image_url: user.profile_picture?.image_url,
       initials: user.name
         .replace("-", " ")
         .split(" ")
@@ -3413,6 +3672,22 @@ function App() {
     });
     setPool(updatedPool);
     return updatedPool;
+  }
+
+  async function updateUserImage(profileImageUrl) {
+    const updatedPool = await apiJson("/api/me", {
+      method: "PATCH",
+      body: JSON.stringify({ profile_image_url: profileImageUrl }),
+    });
+    setPool(updatedPool);
+    return updatedPool;
+  }
+
+  async function changePassword(payload) {
+    return apiJson("/api/me/password", {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
   }
 
   if (!authChecked) {
@@ -3618,6 +3893,8 @@ function App() {
               badgeCatalog={pool.badge_catalog ?? []}
               onBack={() => navigateToView("leaderboard")}
               onUpdateName={updateUserName}
+              onUpdateImage={updateUserImage}
+              onChangePassword={changePassword}
             />
           </section>
         )}

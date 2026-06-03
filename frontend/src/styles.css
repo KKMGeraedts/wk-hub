@@ -1204,6 +1204,7 @@ tr.highlight td {
 
 .profile-avatar {
   --avatar-hue: 24;
+  overflow: hidden;
   display: inline-grid;
   flex: 0 0 auto;
   place-items: center;
@@ -1214,6 +1215,12 @@ tr.highlight td {
   color: #ffffff;
   font-weight: 950;
   box-shadow: 0 8px 18px rgba(18, 43, 75, 0.18);
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .profile-avatar.small {
@@ -1233,6 +1240,33 @@ tr.highlight td {
   height: 168px;
   border-width: 5px;
   font-size: 46px;
+}
+
+.profile-image-editor {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+}
+
+.profile-image-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.profile-image-upload {
+  cursor: pointer;
+}
+
+.profile-image-upload input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .profile-page {
@@ -1379,6 +1413,24 @@ tr.highlight td {
 .profile-name-form .primary-button,
 .profile-name-form .text-button {
   min-height: 34px;
+}
+
+.change-password-panel {
+  width: min(100%, 810px);
+}
+
+.change-password-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.change-password-form .form-error,
+.change-password-form .form-success,
+.change-password-form .primary-button {
+  grid-column: 1 / -1;
+  justify-self: start;
 }
 
 .fifa-card-name p {
@@ -3391,6 +3443,9 @@ tr.highlight td {
   .clock-display strong { font-size: 36px; }
   .clock-display b { font-size: 30px; }
   .profile-top-layout {
+    grid-template-columns: 1fr;
+  }
+  .change-password-form {
     grid-template-columns: 1fr;
   }
   .fifa-card {
