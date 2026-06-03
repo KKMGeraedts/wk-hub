@@ -17,6 +17,10 @@
     {
       "path": "/api/cron/api-football-squad-sync",
       "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/cron/newsletters-refresh",
+      "schedule": "0 7 * * *"
     }
   ],
   "rewrites": [

@@ -4,362 +4,854 @@
     "m1": {
       "question": "Na hoeveel minuten wordt het eerste doelpunt van dit WK gemaakt?",
       "type": "choice",
-      "choices": ["0-15", "16-30", "31-45", "46-60", "61-75", "76-90", "90+"],
-      "viewership": true
+      "choices": [
+        "0-15",
+        "16-30",
+        "31-45",
+        "46-60",
+        "61-75",
+        "76-90",
+        "90+"
+      ],
+      "viewership": true,
+      "choice_points": {
+        "0-15": 9,
+        "16-30": 12,
+        "31-45": 17,
+        "46-60": 20,
+        "61-75": 20,
+        "76-90": 20,
+        "90+": 20
+      }
     },
     "m2": {
       "question": "Wordt er een penalty gegeven?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 12,
+        "nee": 4
+      }
     },
     "m3": {
       "question": "Blijft het 0-0 in de eerste helft?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 10,
+        "nee": 4
+      }
     },
     "m4": {
       "question": "Scoort de VS meer dan 1 goal?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 6,
+        "nee": 6
+      }
     },
     "m5": {
       "question": "Staat het bij rust op een gelijkspel?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 7,
+        "nee": 5
+      }
     },
     "m6": {
       "question": "Scoort Ziyech in deze wedstrijd?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 17,
+        "nee": 4
+      }
     },
     "m7": {
       "question": "Wordt er een doelpunt afgekeurd door VAR?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 17,
+        "nee": 4
+      }
     },
     "m8": {
       "question": "Valt het laatste doelpunt na minuut 75?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 8,
+        "nee": 5
+      }
     },
     "m9": {
       "question": "Komt er een doelpunt in de eerste 10 minuten?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 15,
+        "nee": 4
+      }
     },
     "m10": {
       "question": "Wie scoort het eerste doelpunt voor Nederland?",
       "type": "open",
-      "viewership": true
+      "viewership": true,
+      "dynamic_choice_points": 12
     },
     "m11": {
       "question": "In welke helft vallen de meeste goals?",
       "type": "choice",
-      "choices": ["1e helft", "2e helft", "gelijk"]
+      "choices": [
+        "1e helft",
+        "2e helft",
+        "gelijk"
+      ],
+      "choice_points": {
+        "1e helft": 9,
+        "2e helft": 7,
+        "gelijk": 15
+      }
     },
     "m12": {
       "question": "Krijgen beide teams minstens 3 corners?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 5,
+        "nee": 7
+      }
     },
     "m13": {
       "question": "Scoort Lamine Yamal in deze wedstrijd?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 11,
+        "nee": 4
+      }
     },
     "m14": {
       "question": "Scoort Belgie in de eerste helft?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 5,
+        "nee": 7
+      }
     },
     "m15": {
       "question": "Zijn er meer dan 4 gele kaarten?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 7,
+        "nee": 6
+      }
     },
     "m16": {
       "question": "Heeft een team minstens 60% balbezit?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 7,
+        "nee": 5
+      }
     },
     "m17": {
       "question": "Wordt er gescoord voor minuut 30?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 5,
+        "nee": 8
+      }
     },
     "m18": {
       "question": "Scoort Haaland in deze wedstrijd?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 7,
+        "nee": 5
+      }
     },
     "m19": {
       "question": "Scoort Messi in deze wedstrijd?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 8,
+        "nee": 5
+      }
     },
     "m20": {
       "question": "Heeft het winnende team meer dan 5 schoten op doel?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 5,
+        "nee": 7
+      }
     },
     "m21": {
       "question": "Eindigt deze wedstrijd met minder dan 22 spelers?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m22": {
       "question": "Wordt er gescoord van buiten de 16?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 11,
+        "nee": 4
+      }
     },
     "m23": {
       "question": "Welk land krijgt als eerste een gele kaart?",
       "type": "choice",
-      "choices": ["ghana", "panama"]
+      "choices": [
+        "ghana",
+        "panama"
+      ],
+      "choice_points": {
+        "ghana": 6,
+        "panama": 6
+      }
     },
     "m24": {
       "question": "Scoort een van de twee landen een eigen doelpunt?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m25": {
       "question": "Scoren beide landen in deze wedstrijd?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 6,
+        "nee": 6
+      }
     },
     "m26": {
       "question": "Wordt er een doelpunt gescoord via de binnenkant van de paal?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m27": {
       "question": "Scoort Qatar een doelpunt?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 9,
+        "nee": 5
+      }
     },
     "m28": {
       "question": "Welk team scoort het laatste doelpunt?",
       "type": "choice",
-      "choices": ["mexico", "zuid-korea"]
+      "choices": [
+        "mexico",
+        "zuid-korea"
+      ],
+      "choice_points": {
+        "mexico": 6,
+        "zuid-korea": 7
+      }
     },
     "m29": {
       "question": "Wordt de wedstrijd beslist in blessuretijd na minuut 90?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m30": {
       "question": "Komt een team terug van een achterstand?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 14,
+        "nee": 4
+      }
     },
     "m31": {
       "question": "Scoort Brazilie meer dan 3 doelpunten?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 6,
+        "nee": 6
+      }
     },
     "m32": {
       "question": "Krijgt een speler rood?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 19,
+        "nee": 4
+      }
     },
     "m33": {
       "question": "Welke speler wordt volgens de FIFA man van de wedstrijd?",
       "type": "open",
-      "viewership": true
+      "viewership": true,
+      "dynamic_choice_points": 12
     },
     "m34": {
       "question": "Wordt er in blessuretijd na minuut 90 nog gescoord?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 17,
+        "nee": 4
+      }
     },
     "m35": {
       "question": "Wordt er een doelpunt afgekeurd na een VAR-check?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 15,
+        "nee": 4
+      }
     },
     "m36": {
       "question": "Zijn er in totaal meer dan 6 corners?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 4,
+        "nee": 10
+      }
     },
     "m37": {
       "question": "Is er een speler die 2 of meer goals maakt?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 11,
+        "nee": 4
+      }
     },
     "m38": {
       "question": "Houdt Belgie de nul?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 6,
+        "nee": 6
+      }
     },
     "m39": {
       "question": "Heeft Kaapverdie meer dan 5 schoten op goal?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 17,
+        "nee": 4
+      }
     },
     "m40": {
       "question": "Staat het na 80 minuten nog 0-0?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m41": {
       "question": "Wordt er een doelpunt gemaakt met het hoofd of de hand?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 9,
+        "nee": 5
+      }
     },
     "m42": {
       "question": "Scoort er iemand een hattrick?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m43": {
       "question": "Heeft het verliezende team meer dan 1 doelpunt?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 4
+      }
     },
     "m44": {
       "question": "Wint het land dat het eerste doelpunt maakt?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 4,
+        "nee": 11
+      }
     },
     "m45": {
       "question": "Stopt een keeper een penalty?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m46": {
       "question": "Scoort er bij Engeland een verdediger?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 17,
+        "nee": 4
+      }
     },
     "m47": {
       "question": "Worden er meer dan 3 doelpunten gemaakt?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 9,
+        "nee": 5
+      }
     },
     "m48": {
       "question": "Wordt er een penalty toegekend na hands?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m49": {
       "question": "Wordt er meer dan 10 keer afgefloten voor buitenspel?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 17,
+        "nee": 4
+      }
     },
     "m50": {
       "question": "Zijn er twee doelpunten na elkaar binnen 10 minuten?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 11,
+        "nee": 4
+      }
     },
     "m51": {
       "question": "Wordt er gescoord door een invaller bij Brazilie?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 14,
+        "nee": 4
+      }
     },
     "m52": {
       "question": "Scoort Marokko in de eerste helft twee doelpunten?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 17,
+        "nee": 4
+      }
     },
     "m53": {
       "question": "Wordt er een doelpunt gemaakt in de eerste 10 minuten?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 15,
+        "nee": 4
+      }
     },
     "m54": {
       "question": "Haalt Mexico meer dan 10 overtredingen?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 5,
+        "nee": 7
+      }
     },
     "m55": {
       "question": "Scoort Duitsland twee keer binnen 15 minuten?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 12,
+        "nee": 4
+      }
     },
     "m56": {
       "question": "Heeft Curacao meer dan 5 schoten op doel?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 14,
+        "nee": 4
+      }
     },
     "m57": {
       "question": "Welke Nederlandse speler heeft het eerste schot op doel?",
       "type": "open",
-      "viewership": true
+      "viewership": true,
+      "dynamic_choice_points": 12
     },
     "m58": {
       "question": "Scoort een invaller binnen 10 minuten na invalbeurt?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 12,
+        "nee": 4
+      }
     },
     "m59": {
       "question": "Scoort Australie als eerste?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 7,
+        "nee": 5
+      }
     },
     "m60": {
       "question": "Wordt er een kaart gegeven in de eerste 15 minuten?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 10,
+        "nee": 4
+      }
     },
     "m61": {
       "question": "Scoort Mbappe in deze wedstrijd?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 7,
+        "nee": 5
+      }
     },
     "m62": {
       "question": "Valt het laatste doelpunt na minuut 85?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 12,
+        "nee": 4
+      }
     },
     "m63": {
       "question": "Heeft Spanje meer dan 60% balbezit?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 5,
+        "nee": 7
+      }
     },
     "m64": {
       "question": "Wint Kaapverdie voor het eerst op een WK?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 10,
+        "nee": 4
+      }
     },
     "m65": {
       "question": "Komt Belgie op achterstand?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m66": {
       "question": "Krijgen er 2 of meer spelers een rode kaart?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m67": {
       "question": "Worden er meer dan 6 wissels gedaan?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 3,
+        "nee": 20
+      }
     },
     "m68": {
       "question": "Scoort Engeland in beide helften?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 7,
+        "nee": 5
+      }
     },
     "m69": {
       "question": "Scoort Ronaldo in deze wedstrijd?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 8,
+        "nee": 5
+      }
     },
     "m70": {
       "question": "Scoort er iemand met een omhaal?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 20,
+        "nee": 3
+      }
     },
     "m71": {
       "question": "Wint het land dat het eerste doelpunt maakt?",
       "type": "yes_no",
-      "choices": ["ja", "nee"]
+      "choices": [
+        "ja",
+        "nee"
+      ],
+      "choice_points": {
+        "ja": 4,
+        "nee": 11
+      }
     },
     "m72": {
       "question": "Wie scoort het laatste doelpunt voor Argentinie?",
-      "type": "open"
+      "type": "open",
+      "dynamic_choice_points": 12
     }
   }
 }

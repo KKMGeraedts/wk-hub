@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import logging
 import os
+import re
 import sqlite3
 import time
 import unicodedata
+import xml.etree.ElementTree as ET
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -64,6 +67,7 @@ DB_BACKUP_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("match_events", ("match_id", "provider_event_key")),
     ("match_clean_sheets", ("match_id", "local_team_id")),
     ("player_match_stats", ("match_id", "provider_player_key")),
+    ("newsletter_articles", ("published_at", "url")),
 )
 DIST_DIR = ROOT / "frontend" / "dist"
 DATABASE_URL_ENV = "DATABASE_URL" if os.environ.get("DATABASE_URL") else None
@@ -91,10 +95,12 @@ AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 LEEUWTJES_LIMIT = 5
 GROUP_POSITION_POINTS = 25
 WINNER_POINTS = 250
-TOP_SCORER_POINTS = 150
+TOP_SCORER_POINTS = 100
+STRIKER_PICK_COUNT = 5
+STRIKER_GOAL_POINTS = 10
 QUIZ_YES_NO_POINTS = 15
-QUIZ_OPEN_POINTS = 50
-QUIZ_VIEWERSHIP_POINTS = 30
+QUIZ_OPEN_POINTS = 12
+QUIZ_VIEWERSHIP_POINTS = 15
 API_FOOTBALL_BASE_URL = os.environ.get(
     "API_FOOTBALL_BASE_URL", "https://v3.football.api-sports.io"
 ).rstrip("/")
@@ -119,6 +125,27 @@ API_FOOTBALL_FINAL_RESYNC_AFTER = timedelta(
 )
 API_FOOTBALL_FINAL_STATUSES = {"FT", "AET", "PEN"}
 API_FOOTBALL_MAX_BATCH_SIZE = 20
+NEWSLETTER_MAX_ARTICLES = int(os.environ.get("NEWSLETTER_MAX_ARTICLES", "6"))
+NEWSLETTER_FEEDS: tuple[dict[str, str], ...] = (
+    {
+        "name": "Google News NL",
+        "country": "Netherlands",
+        "url": (
+            "https://news.google.com/rss/search?"
+            "q=WK%202026%20voetbal%20OR%20Wereldkampioenschap%202026%20voetbal"
+            "&hl=nl&gl=NL&ceid=NL:nl"
+        ),
+    },
+    {
+        "name": "Google News BE",
+        "country": "Belgium",
+        "url": (
+            "https://news.google.com/rss/search?"
+            "q=WK%202026%20voetbal%20OR%20Rode%20Duivels%20WK%202026"
+            "&hl=nl&gl=BE&ceid=BE:nl"
+        ),
+    },
+)
 MATCH_SCORE_RULES = {
     "Group Stage": {"exact": 45, "outcome": 30},
     "Round of 32": {"exact": 90, "outcome": 60},
@@ -373,6 +400,189 @@ def database_snapshot(*, include_rows: bool) -> dict[str, Any]:
     }
 
 
+def strip_html(value: Any) -> str:
+    text = re.sub(r"<[^>]+>", " ", str(value or ""))
+    return clean_text(html.unescape(text))
+
+
+def parse_rss_datetime(value: str) -> str | None:
+    text = clean_text(value)
+    if not text:
+        return None
+    from email.utils import parsedate_to_datetime
+
+    try:
+        parsed = parsedate_to_datetime(text)
+    except (TypeError, ValueError):
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return iso_utc(parsed.astimezone(UTC))
+
+
+def fetch_newsletter_feed(feed: dict[str, str]) -> list[dict[str, Any]]:
+    request_obj = Request(
+        feed["url"],
+        headers={
+            "User-Agent": "wk-hub/1.0 (+https://wk-hub.local)",
+        },
+    )
+    with urlopen(request_obj, timeout=12) as response:
+        payload = response.read(2_000_000)
+    root = ET.fromstring(payload)
+    articles = []
+    for item in root.findall(".//item"):
+        title = clean_text(item.findtext("title"))
+        url = clean_text(item.findtext("link"))
+        if not title or not url:
+            continue
+        source_node = item.find("source")
+        publisher = (
+            clean_text(source_node.text if source_node is not None else "")
+            or feed["name"]
+        )
+        articles.append(
+            {
+                "title": title,
+                "publisher": publisher,
+                "country": feed["country"],
+                "summary": strip_html(item.findtext("description"))[:320],
+                "url": url,
+                "source": feed["name"],
+                "published_at": parse_rss_datetime(item.findtext("pubDate") or ""),
+            }
+        )
+    return articles
+
+
+def newsletter_articles_from_db(limit: int = NEWSLETTER_MAX_ARTICLES) -> list[dict[str, Any]]:
+    with get_db() as conn:
+        rows = execute(
+            conn,
+            """
+            SELECT title, publisher, country, summary, url, source, published_at, refreshed_at
+            FROM newsletter_articles
+            ORDER BY published_at DESC NULLS LAST, refreshed_at DESC, title
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    return [json_ready(row) for row in rows]
+
+
+def fallback_newsletter_articles() -> list[dict[str, Any]]:
+    return [
+        {
+            "title": "WK 2026 levert landen recordbedrag op",
+            "publisher": "NU.nl",
+            "country": "Netherlands",
+            "summary": (
+                "FIFA raises the prize pool for the 2026 World Cup, with a larger base "
+                "payout for every qualified country."
+            ),
+            "url": (
+                "https://www.nu.nl/voetbal/6379805/"
+                "wk-2026-levert-landen-recordbedrag-op-wereldkampioen-krijgt-42-miljoen-euro.html"
+            ),
+            "source": "Static fallback",
+            "published_at": None,
+            "refreshed_at": None,
+        },
+        {
+            "title": "FIFA WK voetbal 2026 en 2030 live bij de NOS",
+            "publisher": "NOS",
+            "country": "Netherlands",
+            "summary": "NOS outlines its broadcast role for the 2026 and 2030 men's World Cups.",
+            "url": "https://over.nos.nl/nieuws/fifa-wk-voetbal-2026-en-2030-live-bij-de-nos/",
+            "source": "Static fallback",
+            "published_at": None,
+            "refreshed_at": None,
+        },
+        {
+            "title": "Het volledige speelschema van de Rode Duivels",
+            "publisher": "VoetbalPrimeur.be",
+            "country": "Belgium",
+            "summary": (
+                "Belgian coverage of the Red Devils' group-stage schedule, opponents and "
+                "kick-off windows."
+            ),
+            "url": (
+                "https://www.voetbalprimeur.be/nieuws/1718992/"
+                "wk-voetbal-2026-ontdek-hier-het-volledige-speelschema-van-de-rode-duivels.html"
+            ),
+            "source": "Static fallback",
+            "published_at": None,
+            "refreshed_at": None,
+        },
+    ]
+
+
+def newsletter_articles(limit: int = NEWSLETTER_MAX_ARTICLES) -> list[dict[str, Any]]:
+    articles = newsletter_articles_from_db(limit)
+    return articles if articles else fallback_newsletter_articles()[:limit]
+
+
+def run_newsletter_refresh() -> dict[str, Any]:
+    fetched: list[dict[str, Any]] = []
+    errors = []
+    seen_urls = set()
+    for feed in NEWSLETTER_FEEDS:
+        try:
+            articles = fetch_newsletter_feed(feed)
+        except (ET.ParseError, HTTPError, TimeoutError, URLError, OSError) as error:
+            logger.warning("Newsletter feed refresh failed for %s: %s", feed["name"], error)
+            errors.append({"source": feed["name"], "error": str(error)})
+            continue
+        for article in articles:
+            if article["url"] in seen_urls:
+                continue
+            seen_urls.add(article["url"])
+            fetched.append(article)
+
+    fetched = sorted(
+        fetched,
+        key=lambda article: article.get("published_at") or "",
+        reverse=True,
+    )[:NEWSLETTER_MAX_ARTICLES]
+    if fetched:
+        with get_db() as conn:
+            for article in fetched:
+                execute(
+                    conn,
+                    """
+                    INSERT INTO newsletter_articles (
+                        url, title, publisher, country, summary, source, published_at, refreshed_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(url)
+                    DO UPDATE SET title = excluded.title,
+                                  publisher = excluded.publisher,
+                                  country = excluded.country,
+                                  summary = excluded.summary,
+                                  source = excluded.source,
+                                  published_at = excluded.published_at,
+                                  refreshed_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        article["url"],
+                        article["title"],
+                        article.get("publisher"),
+                        article.get("country"),
+                        article.get("summary"),
+                        article["source"],
+                        article.get("published_at"),
+                    ),
+                )
+            conn.commit()
+
+    return {
+        "ok": bool(fetched) or not errors,
+        "fetched": len(fetched),
+        "errors": errors,
+        "articles": fetched,
+    }
+
+
 def init_db() -> None:
     sqlite_schema = [
         """
@@ -406,6 +616,13 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS top_scorer_predictions (
             user_id INTEGER PRIMARY KEY,
             player_name TEXT NOT NULL,
+            player_name_2 TEXT,
+            player_name_3 TEXT,
+            striker_name_1 TEXT,
+            striker_name_2 TEXT,
+            striker_name_3 TEXT,
+            striker_name_4 TEXT,
+            striker_name_5 TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
@@ -618,6 +835,18 @@ def init_db() -> None:
             PRIMARY KEY (match_id, provider_player_key)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS newsletter_articles (
+            url TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            publisher TEXT,
+            country TEXT,
+            summary TEXT,
+            source TEXT NOT NULL,
+            published_at TEXT,
+            refreshed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
     ]
     postgres_schema = [
         """
@@ -651,6 +880,13 @@ def init_db() -> None:
         CREATE TABLE IF NOT EXISTS top_scorer_predictions (
             user_id INTEGER PRIMARY KEY,
             player_name TEXT NOT NULL,
+            player_name_2 TEXT,
+            player_name_3 TEXT,
+            striker_name_1 TEXT,
+            striker_name_2 TEXT,
+            striker_name_3 TEXT,
+            striker_name_4 TEXT,
+            striker_name_5 TEXT,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
         )
@@ -863,6 +1099,18 @@ def init_db() -> None:
             PRIMARY KEY (match_id, provider_player_key)
         )
         """,
+        """
+        CREATE TABLE IF NOT EXISTS newsletter_articles (
+            url TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            publisher TEXT,
+            country TEXT,
+            summary TEXT,
+            source TEXT NOT NULL,
+            published_at TIMESTAMPTZ,
+            refreshed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
     ]
 
     with get_db(schema=True) as conn:
@@ -881,6 +1129,29 @@ def init_db() -> None:
                 conn.execute(
                     "ALTER TABLE quiz_predictions ADD COLUMN viewership_prediction INTEGER"
                 )
+            top_scorer_columns_to_add = (
+                "player_name_2",
+                "player_name_3",
+                "striker_name_1",
+                "striker_name_2",
+                "striker_name_3",
+                "striker_name_4",
+                "striker_name_5",
+            )
+            for column_name in top_scorer_columns_to_add:
+                top_scorer_column = conn.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'top_scorer_predictions'
+                      AND column_name = %s
+                    """,
+                    (column_name,),
+                ).fetchone()
+                if top_scorer_column is None:
+                    conn.execute(
+                        f"ALTER TABLE top_scorer_predictions ADD COLUMN {column_name} TEXT"
+                    )
         else:
             conn.executescript(";\n".join(sqlite_schema))
             quiz_columns = conn.execute("PRAGMA table_info(quiz_predictions)").fetchall()
@@ -888,6 +1159,24 @@ def init_db() -> None:
                 conn.execute(
                     "ALTER TABLE quiz_predictions ADD COLUMN viewership_prediction INTEGER"
                 )
+            top_scorer_columns = conn.execute(
+                "PRAGMA table_info(top_scorer_predictions)"
+            ).fetchall()
+            top_scorer_column_names = {row["name"] for row in top_scorer_columns}
+            top_scorer_columns_to_add = (
+                "player_name_2",
+                "player_name_3",
+                "striker_name_1",
+                "striker_name_2",
+                "striker_name_3",
+                "striker_name_4",
+                "striker_name_5",
+            )
+            for column_name in top_scorer_columns_to_add:
+                if column_name not in top_scorer_column_names:
+                    conn.execute(
+                        f"ALTER TABLE top_scorer_predictions ADD COLUMN {column_name} TEXT"
+                    )
     logger.info("Database schema ready using %s", SCHEMA_DATABASE_URL_ENV or database_label())
 
 
@@ -952,11 +1241,138 @@ def top_scorer_result_name(data: dict[str, Any]) -> str:
     return clean_text(top_scorer)
 
 
-def top_scorer_prediction_points(data: dict[str, Any], player_name: str | None) -> int:
+def eliminated_team_ids(data: dict[str, Any]) -> set[str]:
+    meta = data.get("meta", {})
+    values = (
+        meta.get("eliminated_team_ids")
+        or meta.get("eliminated_teams")
+        or meta.get("knocked_out_team_ids")
+        or []
+    )
+    if not isinstance(values, list):
+        return set()
+    eliminated = set()
+    for value in values:
+        if isinstance(value, dict):
+            team_id = clean_text(value.get("id") or value.get("team_id"))
+        else:
+            team_id = clean_text(value)
+        if team_id:
+            eliminated.add(team_id)
+    return eliminated
+
+
+def normalized_player_name(value: Any) -> str:
+    return compact_name(value)
+
+
+STRIKER_COLUMN_NAMES = tuple(f"striker_name_{index}" for index in range(1, STRIKER_PICK_COUNT + 1))
+
+
+def row_has_key(row: Any, key: str) -> bool:
+    try:
+        row[key]
+    except (KeyError, IndexError):
+        return False
+    return True
+
+
+def top_scorer_pick_name(row: Any | None) -> str:
+    if not row:
+        return ""
+    return clean_text(row["player_name"] if row_has_key(row, "player_name") else None)
+
+
+def striker_pick_names(row: Any | None) -> list[str]:
+    if not row:
+        return []
+    names = [
+        name
+        for name in [
+            clean_text(row[column] if row_has_key(row, column) else None)
+            for column in STRIKER_COLUMN_NAMES
+        ]
+        if name
+    ]
+    if names:
+        return names
+    return [
+        name
+        for name in (
+            clean_text(row["player_name"] if row_has_key(row, "player_name") else None),
+            clean_text(row["player_name_2"] if row_has_key(row, "player_name_2") else None),
+            clean_text(row["player_name_3"] if row_has_key(row, "player_name_3") else None),
+        )
+        if name
+    ]
+
+
+def striker_pick_rows(row: Any | None) -> list[dict[str, Any]]:
+    return [
+        {"rank": rank, "name": name, "points_per_goal": STRIKER_GOAL_POINTS}
+        for rank, name in enumerate(striker_pick_names(row), start=1)
+    ]
+
+
+def striker_pick_score_rows(
+    row: Any | None,
+    goal_counts: Counter[str] | None = None,
+) -> list[dict[str, Any]]:
+    counts = goal_counts if goal_counts is not None else goal_counts_by_player()
+    scored_rows = []
+    for pick in striker_pick_rows(row):
+        goals = counts[normalized_player_name(pick["name"])]
+        scored_rows.append(
+            {
+                **pick,
+                "goals": goals,
+                "points": goals * STRIKER_GOAL_POINTS,
+            }
+        )
+    return scored_rows
+
+
+def goal_counts_by_player() -> Counter[str]:
+    with get_db() as conn:
+        rows = execute(
+            conn,
+            """
+            SELECT player_name, event_type, detail, comments
+            FROM match_events
+            WHERE LOWER(event_type) = 'goal'
+            """,
+        ).fetchall()
+    counts: Counter[str] = Counter()
+    for row in rows:
+        detail = normalize_answer(row["detail"])
+        comments = normalize_answer(row["comments"])
+        if "own goal" in detail or "own goal" in comments:
+            continue
+        player_name = normalized_player_name(row["player_name"])
+        if player_name:
+            counts[player_name] += 1
+    return counts
+
+
+def top_scorer_prediction_points(
+    data: dict[str, Any],
+    player_name: str | None,
+) -> int:
     result_name = top_scorer_result_name(data)
     if result_name and normalize_answer(result_name) == normalize_answer(player_name):
         return TOP_SCORER_POINTS
     return 0
+
+
+def striker_prediction_points(
+    picks: list[str],
+    goal_counts: Counter[str] | None = None,
+) -> int:
+    counts = goal_counts if goal_counts is not None else goal_counts_by_player()
+    return sum(
+        counts[normalized_player_name(player_name)] * STRIKER_GOAL_POINTS
+        for player_name in picks
+    )
 
 
 def normalize_api_name(value: Any) -> str:
@@ -2113,6 +2529,13 @@ def quiz_answer_points(quiz: dict[str, Any], prediction: Any | None) -> int:
     normalized_correct = {normalize_answer(answer) for answer in correct_answers}
     if user_answer not in normalized_correct:
         return 0
+    choice_points = quiz.get("choice_points") or {}
+    for choice, points in choice_points.items():
+        if normalize_answer(choice) == user_answer:
+            return int(points)
+    dynamic_choice_points = quiz.get("dynamic_choice_points")
+    if dynamic_choice_points is not None:
+        return int(dynamic_choice_points)
     return QUIZ_YES_NO_POINTS if quiz.get("type") == "yes_no" else QUIZ_OPEN_POINTS
 
 
@@ -2789,6 +3212,8 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
     matches = {match["id"]: match for match in data["matches"]}
     teams = {team["id"]: team for team in data["teams"]}
     champion_id = data.get("meta", {}).get("world_cup_winner_id")
+    top_scorer_result = top_scorer_result_name(data)
+    eliminated_teams = eliminated_team_ids(data)
     group_stage_ids = {match["id"] for match in data["matches"] if match["round"] == "Group Stage"}
     required_group_id = next(
         (group["id"] for group in data["groups"] if NETHERLANDS_TEAM_ID in group["teams"]),
@@ -2810,9 +3235,15 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
             for row in execute(conn, "SELECT user_id, team_id FROM winner_predictions").fetchall()
         }
         top_scorers = {
-            row["user_id"]: row["player_name"]
+            row["user_id"]: row
             for row in execute(
-                conn, "SELECT user_id, player_name FROM top_scorer_predictions"
+                conn,
+                """
+                SELECT user_id, player_name, player_name_2, player_name_3,
+                       striker_name_1, striker_name_2, striker_name_3,
+                       striker_name_4, striker_name_5
+                FROM top_scorer_predictions
+                """,
             ).fetchall()
         }
 
@@ -2835,6 +3266,7 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
         viewership_winners,
     )
 
+    goal_counts = goal_counts_by_player()
     leaderboard = []
     for user in users:
         points = 0
@@ -2910,11 +3342,27 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
         points += quiz_points
 
         winner_pick = winners.get(user["id"])
-        if champion_id and winner_pick == champion_id:
-            points += WINNER_POINTS
-        top_scorer_pick = top_scorers.get(user["id"])
+        winner_points = WINNER_POINTS if champion_id and winner_pick == champion_id else 0
+        points += winner_points
+        winner_impossible = bool(
+            winner_pick
+            and (
+                (champion_id and winner_pick != champion_id)
+                or winner_pick in eliminated_teams
+            )
+        )
+        top_scorer_pick_row = top_scorers.get(user["id"])
+        top_scorer_pick = top_scorer_pick_name(top_scorer_pick_row)
+        striker_picks = striker_pick_score_rows(top_scorer_pick_row, goal_counts)
         top_scorer_points = top_scorer_prediction_points(data, top_scorer_pick)
-        points += top_scorer_points
+        top_scorer_impossible = bool(
+            top_scorer_pick
+            and top_scorer_result
+            and normalize_answer(top_scorer_pick) != normalize_answer(top_scorer_result)
+        )
+        striker_points = sum(pick["points"] for pick in striker_picks)
+        scorer_points = top_scorer_points + striker_points
+        points += scorer_points
         all_group_predictions_complete = group_stage_predictions >= len(group_stage_ids)
         leeuwtje_points = 0
         for prediction in user_predictions:
@@ -2960,14 +3408,26 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
                 "required_group_predictions": required_group_predictions,
                 "required_group_total": len(required_group_ids),
                 "all_predictions_complete": all_group_predictions_complete,
-                "entry_complete": all_group_predictions_complete and winner_pick is not None,
+                "entry_complete": (
+                    all_group_predictions_complete
+                    and winner_pick is not None
+                    and bool(top_scorer_pick)
+                    and len(striker_picks) >= STRIKER_PICK_COUNT
+                ),
                 "missing_group_stage_predictions": max(
                     0, len(group_stage_ids) - group_stage_predictions
                 ),
                 "winner_pick": winner_pick,
                 "winner_pick_name": teams.get(winner_pick, {}).get("name") if winner_pick else None,
-                "top_scorer_pick": top_scorer_pick,
+                "winner_points": winner_points,
+                "winner_impossible": winner_impossible,
+                "top_scorer_pick": top_scorer_pick or None,
                 "top_scorer_points": top_scorer_points,
+                "top_scorer_impossible": top_scorer_impossible,
+                "striker_picks": striker_picks,
+                "striker_points": striker_points,
+                "scorer_points": scorer_points,
+                "top_scorer_picks": striker_picks,
                 "badges": badges,
                 "badge_count": len(badges),
                 "badge_progress": badge_progress_list(
@@ -3362,7 +3822,8 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
     quiz_prediction_rows = []
     leeuwtje_rows = []
     winner_pick = None
-    top_scorer_pick = None
+    top_scorer_pick = ""
+    striker_picks: list[str] = []
     if user:
         with get_db() as conn:
             prediction_rows = execute(
@@ -3377,7 +3838,13 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             ).fetchone()
             top_scorer_row = execute(
                 conn,
-                "SELECT player_name FROM top_scorer_predictions WHERE user_id = ?",
+                """
+                SELECT player_name, player_name_2, player_name_3,
+                       striker_name_1, striker_name_2, striker_name_3,
+                       striker_name_4, striker_name_5
+                FROM top_scorer_predictions
+                WHERE user_id = ?
+                """,
                 (user["id"],),
             ).fetchone()
             quiz_prediction_rows = execute(
@@ -3395,7 +3862,8 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
                 (user["id"],),
             ).fetchall()
         winner_pick = winner_row["team_id"] if winner_row else None
-        top_scorer_pick = top_scorer_row["player_name"] if top_scorer_row else None
+        top_scorer_pick = top_scorer_pick_name(top_scorer_row)
+        striker_picks = striker_pick_names(top_scorer_row)
 
     predictions = {
         row["match_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
@@ -3452,12 +3920,15 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         "quiz_predictions": quiz_predictions,
         "leeuwtjes_match_ids": leeuwtje_match_ids,
         "winner_pick": winner_pick,
-        "top_scorer_pick": top_scorer_pick,
+        "top_scorer_pick": top_scorer_pick or None,
+        "striker_picks": striker_picks,
+        "top_scorer_picks": striker_picks,
         "leaderboard": leaderboard,
         "badge_catalog": badge_catalog(),
         "notifications": build_notifications(data, predictions, quiz_predictions, now),
         "matchday": build_matchday_summary(data, user["id"] if user else None, now),
         "daily_recap": build_daily_recap(data, now, leaderboard),
+        "newsletters": newsletter_articles(),
         "progress": {
             "group_stage_predictions": group_stage_predictions,
             "group_stage_total": len(group_stage_ids),
@@ -3468,6 +3939,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             "required_group_total": len(required_group_ids),
             "winner_selected": winner_pick is not None,
             "top_scorer_selected": bool(top_scorer_pick),
+            "strikers_selected": len(striker_picks) >= STRIKER_PICK_COUNT,
             "knockout_open_count": len(knockout_open),
             "leeuwtjes_used": len(leeuwtje_match_ids),
             "leeuwtjes_total": LEEUWTJES_LIMIT,
@@ -3482,6 +3954,10 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             "group_position": GROUP_POSITION_POINTS,
             "world_cup_winner": WINNER_POINTS,
             "world_cup_top_scorer": TOP_SCORER_POINTS,
+            "world_cup_strikers": {
+                "count": STRIKER_PICK_COUNT,
+                "points_per_goal": STRIKER_GOAL_POINTS,
+            },
             "quiz_yes_no": QUIZ_YES_NO_POINTS,
             "quiz_open": QUIZ_OPEN_POINTS,
             "quiz_viewership": QUIZ_VIEWERSHIP_POINTS,
@@ -3695,6 +4171,26 @@ def logout():
 def pool():
     data = load_world_cup_data()
     return jsonify(user_pool_state(current_user(), data))
+
+
+@app.get("/api/newsletters")
+def newsletters_api():
+    return jsonify(
+        {
+            "articles": newsletter_articles(),
+            "max_articles": NEWSLETTER_MAX_ARTICLES,
+        }
+    )
+
+
+@app.post("/api/admin/newsletters/refresh")
+def newsletters_admin_refresh():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    result = run_newsletter_refresh()
+    status_code = 200 if result.get("ok") else 503
+    return jsonify(result), status_code
 
 
 @app.get("/api/matches/<match_id>/result")
@@ -3942,8 +4438,17 @@ def save_predictions():
     quiz_items = payload.get("quiz_predictions")
     leeuwtje_items = payload.get("leeuwtjes_match_ids")
     winner_team_id = payload.get("winner_team_id")
-    top_scorer_submitted = "top_scorer_name" in payload
-    top_scorer_name = clean_text(payload.get("top_scorer_name")) if top_scorer_submitted else None
+    top_scorer_submitted = (
+        "top_scorer_name" in payload or "top_scorer_names" in payload
+    )
+    raw_top_scorer = payload.get("top_scorer_name")
+    raw_legacy_top_scorers = payload.get("top_scorer_names")
+    if raw_top_scorer is None and isinstance(raw_legacy_top_scorers, list):
+        raw_top_scorer = raw_legacy_top_scorers[0] if raw_legacy_top_scorers else ""
+    strikers_submitted = "striker_names" in payload or "top_scorer_names" in payload
+    raw_strikers = payload.get("striker_names")
+    if raw_strikers is None and isinstance(raw_legacy_top_scorers, list):
+        raw_strikers = raw_legacy_top_scorers[:STRIKER_PICK_COUNT]
     now = utc_now()
 
     if not isinstance(prediction_items, list):
@@ -3952,6 +4457,10 @@ def save_predictions():
         return jsonify({"error": "Quiz predictions must be a list."}), 400
     if leeuwtje_items is not None and not isinstance(leeuwtje_items, list):
         return jsonify({"error": "Leeuwtjes must be a list."}), 400
+    if raw_legacy_top_scorers is not None and not isinstance(raw_legacy_top_scorers, list):
+        return jsonify({"error": "Top scorer picks must be a list."}), 400
+    if raw_strikers is not None and not isinstance(raw_strikers, list):
+        return jsonify({"error": "Striker picks must be a list."}), 400
 
     with get_db() as conn:
         existing_predictions = {
@@ -3969,7 +4478,13 @@ def save_predictions():
         ).fetchone()
         existing_top_scorer = execute(
             conn,
-            "SELECT player_name FROM top_scorer_predictions WHERE user_id = ?",
+            """
+            SELECT player_name, player_name_2, player_name_3,
+                   striker_name_1, striker_name_2, striker_name_3,
+                   striker_name_4, striker_name_5
+            FROM top_scorer_predictions
+            WHERE user_id = ?
+            """,
             (user["id"],),
         ).fetchone()
         existing_quizzes = {
@@ -4083,14 +4598,30 @@ def save_predictions():
     )
     if winner_change_locked:
         return jsonify({"error": "The tournament winner pick is closed."}), 400
-    existing_top_scorer_name = existing_top_scorer["player_name"] if existing_top_scorer else ""
-    if top_scorer_name is not None and len(top_scorer_name) > 120:
-        return jsonify({"error": "Top scorer must be at most 120 characters."}), 400
-    top_scorer_changed = top_scorer_submitted and top_scorer_name != clean_text(
-        existing_top_scorer_name
-    )
-    if top_scorer_changed and is_winner_locked(data, now):
-        return jsonify({"error": "The top scorer pick is closed."}), 400
+    top_scorer_name: str | None = None
+    if top_scorer_submitted:
+        top_scorer_name = clean_text(raw_top_scorer)
+        if len(top_scorer_name) > 120:
+            return jsonify({"error": "Top scorer name must be at most 120 characters."}), 400
+
+    striker_names: list[str] | None = None
+    if strikers_submitted:
+        if raw_strikers and len(raw_strikers) > STRIKER_PICK_COUNT:
+            return jsonify({"error": f"Choose at most {STRIKER_PICK_COUNT} strikers."}), 400
+        striker_names = [clean_text(name) for name in (raw_strikers or [])]
+        striker_names = [name for name in striker_names if name]
+        if any(len(name) > 120 for name in striker_names):
+            return jsonify({"error": "Striker names must be at most 120 characters."}), 400
+        normalized_strikers = [normalized_player_name(name) for name in striker_names]
+        if len(set(normalized_strikers)) != len(normalized_strikers):
+            return jsonify({"error": "Choose five different strikers."}), 400
+
+    existing_top_scorer_name = top_scorer_pick_name(existing_top_scorer)
+    existing_striker_names = striker_pick_names(existing_top_scorer)
+    top_scorer_changed = top_scorer_submitted and top_scorer_name != existing_top_scorer_name
+    strikers_changed = strikers_submitted and striker_names != existing_striker_names
+    if (top_scorer_changed or strikers_changed) and is_winner_locked(data, now):
+        return jsonify({"error": "The top scorer and striker picks are closed."}), 400
 
     audit_payload = {
         "predictions": [
@@ -4111,6 +4642,7 @@ def save_predictions():
         ),
         "winner_team_id": winner_team_id or None,
         "top_scorer_name": top_scorer_name if top_scorer_submitted else None,
+        "striker_names": striker_names if strikers_submitted else None,
     }
 
     with get_db() as conn:
@@ -4185,18 +4717,44 @@ def save_predictions():
                 """,
                 (user["id"], winner_team_id),
             )
-        if top_scorer_submitted:
-            if top_scorer_name:
+        if top_scorer_submitted or strikers_submitted:
+            stored_top_scorer_name = (
+                top_scorer_name if top_scorer_submitted else existing_top_scorer_name
+            )
+            stored_striker_names = (
+                striker_names if strikers_submitted else existing_striker_names
+            )
+            if stored_top_scorer_name:
+                padded_strikers = [*(stored_striker_names or []), None, None, None, None, None]
                 execute(
                     conn,
                     """
-                    INSERT INTO top_scorer_predictions (user_id, player_name, updated_at)
-                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    INSERT INTO top_scorer_predictions (
+                        user_id, player_name, player_name_2, player_name_3,
+                        striker_name_1, striker_name_2, striker_name_3,
+                        striker_name_4, striker_name_5, updated_at
+                    )
+                    VALUES (?, ?, NULL, NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id)
                     DO UPDATE SET player_name = excluded.player_name,
+                                  player_name_2 = NULL,
+                                  player_name_3 = NULL,
+                                  striker_name_1 = excluded.striker_name_1,
+                                  striker_name_2 = excluded.striker_name_2,
+                                  striker_name_3 = excluded.striker_name_3,
+                                  striker_name_4 = excluded.striker_name_4,
+                                  striker_name_5 = excluded.striker_name_5,
                                   updated_at = CURRENT_TIMESTAMP
                     """,
-                    (user["id"], top_scorer_name),
+                    (
+                        user["id"],
+                        stored_top_scorer_name,
+                        padded_strikers[0],
+                        padded_strikers[1],
+                        padded_strikers[2],
+                        padded_strikers[3],
+                        padded_strikers[4],
+                    ),
                 )
             else:
                 execute(
@@ -4206,14 +4764,32 @@ def save_predictions():
                 )
 
     logger.info(
-        "Saved %s match predictions, %s quiz answers, winner=%s and top_scorer=%s for user %s",
+        (
+            "Saved %s match predictions, %s quiz answers, winner=%s, "
+            "top_scorer=%s and strikers=%s for user %s"
+        ),
         len(cleaned),
         len(cleaned_quizzes),
         bool(winner_team_id),
         bool(top_scorer_name),
+        bool(striker_names),
         user["id"],
     )
     return jsonify(user_pool_state(user, data))
+
+
+@app.get("/api/cron/newsletters-refresh")
+def newsletters_cron_refresh():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    try:
+        result = run_newsletter_refresh()
+    except Exception as error:
+        logger.exception("Newsletter cron refresh failed")
+        result = {"ok": False, "error": str(error), "articles": []}
+    status_code = 200 if result.get("ok") else 503
+    return jsonify(result), status_code
 
 
 @app.get("/")

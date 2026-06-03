@@ -399,22 +399,189 @@ function teamSources(team) {
 
 function topScorerOptions(data) {
   const options = [];
-  for (const team of data?.teams ?? []) {
-    for (const player of teamPlayers(team)) {
+  const teams = [...(data?.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  for (const team of teams) {
+    const players = teamPlayers(team)
+      .map((player) => {
+        const name = personName(player);
+        if (!name || name === "To be confirmed") return null;
+        const role = personRole(player);
+        const isAttacker = /forward|striker|wing|attack|aanval/i.test(role);
+        return {
+          name,
+          label: name,
+          teamId: team.id,
+          teamName: team.name,
+          preferred: isAttacker ? 0 : 1,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => a.preferred - b.preferred || a.name.localeCompare(b.name));
+    for (const player of players) {
       const name = personName(player);
-      if (!name || name === "To be confirmed") continue;
-      const role = personRole(player);
-      const isAttacker = /forward|striker|wing|attack|aanval/i.test(role);
       options.push({
         name,
-        label: `${name} (${team.name})`,
-        preferred: isAttacker ? 0 : 1,
+        label: player.label,
+        teamId: player.teamId,
+        teamName: player.teamName,
+        preferred: player.preferred,
       });
     }
   }
-  return options
-    .sort((a, b) => a.preferred - b.preferred || a.name.localeCompare(b.name))
-    .slice(0, 220);
+  return options;
+}
+
+const QUIZ_TEAM_ALIASES = {
+  arg: ["argentinie", "argentinië", "argentina"],
+  bra: ["brazilie", "brazilië", "brazil"],
+  eng: ["engeland", "england"],
+  ned: ["nederland", "nederlandse", "netherlands"],
+  por: ["portugal"],
+};
+
+function quizTeamIds(match, teams) {
+  const question = (match?.quiz?.question ?? "").toLocaleLowerCase();
+  const matchTeamIds = [match?.home_team_id, match?.away_team_id].filter(Boolean);
+  const explicitTeamIds = matchTeamIds.filter((teamId) => {
+    const team = teams.get(teamId);
+    const aliases = [
+      team?.name,
+      team?.code,
+      ...(QUIZ_TEAM_ALIASES[teamId] ?? []),
+    ].filter(Boolean);
+    return aliases.some((alias) => question.includes(alias.toLocaleLowerCase()));
+  });
+  return explicitTeamIds.length ? explicitTeamIds : matchTeamIds;
+}
+
+function matchPlayerOptions(match, teams, teamIds = null) {
+  const optionTeamIds = teamIds ?? [match?.home_team_id, match?.away_team_id].filter(Boolean);
+  const options = [];
+  const seen = new Set();
+  for (const teamId of optionTeamIds) {
+    const team = teams.get(teamId);
+    for (const player of teamPlayers(team)) {
+      const name = personName(player);
+      if (!name || name === "To be confirmed") continue;
+      const key = `${name.toLocaleLowerCase()}-${teamId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({
+        name,
+        label: `${name} (${team?.name ?? teamId})`,
+      });
+    }
+  }
+  return options.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function quizChoicePoint(quiz, choice) {
+  const choicePoints = quiz?.choice_points ?? {};
+  const directPoints = choicePoints[choice];
+  if (directPoints !== undefined) return directPoints;
+  const normalizedChoice = String(choice ?? "").trim().toLocaleLowerCase();
+  const matchedEntry = Object.entries(choicePoints).find(
+    ([key]) => String(key).trim().toLocaleLowerCase() === normalizedChoice,
+  );
+  return matchedEntry?.[1];
+}
+
+function quizChoiceLabel(label, points) {
+  if (points === undefined || points === null || points === "") return label;
+  return `${label} (${points} pts)`;
+}
+
+function quizChoices(match, teams) {
+  const quiz = match?.quiz;
+  if (!quiz) return [];
+  if (quiz.choices?.length) {
+    return quiz.choices.map((choice) => ({
+      value: choice,
+      label: quizChoiceLabel(choice, quizChoicePoint(quiz, choice)),
+    }));
+  }
+  if (quiz.type === "number") return [];
+  if (/speler|scoort|man van de wedstrijd|schot op doel/i.test(quiz.question ?? "")) {
+    const points = quiz.dynamic_choice_points ?? quiz.choice_points?.default;
+    return matchPlayerOptions(match, teams, quizTeamIds(match, teams)).map((option) => ({
+      value: option.name,
+      label: quizChoiceLabel(option.label, points),
+    }));
+  }
+  return [];
+}
+
+function topScorerPickFromPool(pool) {
+  return pool?.top_scorer_pick ?? "";
+}
+
+function strikerPicksFromPool(pool) {
+  const picks = pool?.striker_picks?.length
+    ? pool.striker_picks
+    : pool?.top_scorer_picks ?? [];
+  return [picks[0] ?? "", picks[1] ?? "", picks[2] ?? "", picks[3] ?? "", picks[4] ?? ""];
+}
+
+function PlayerOptionGroups({ options, picks = [], currentIndex = -1, idPrefix = "player" }) {
+  const groups = [];
+  for (const option of options) {
+    const lastGroup = groups[groups.length - 1];
+    if (!lastGroup || lastGroup.teamName !== option.teamName) {
+      groups.push({ teamName: option.teamName, options: [] });
+    }
+    groups[groups.length - 1].options.push(option);
+  }
+  return groups.map((group) => (
+    <optgroup key={`${idPrefix}-${group.teamName}`} label={group.teamName}>
+      {group.options.map((option) => {
+        const selectedElsewhere = picks.some((pick, pickIndex) => (
+          pickIndex !== currentIndex && pick && pick === option.name
+        ));
+        return (
+          <option
+            key={`${idPrefix}-${currentIndex}-${option.teamId}-${option.name}`}
+            value={option.name}
+            disabled={selectedElsewhere}
+          >
+            {option.label}
+          </option>
+        );
+      })}
+    </optgroup>
+  ));
+}
+
+function PlayerPickSelects({
+  label,
+  picks,
+  options,
+  locked,
+  onChange,
+  idPrefix = "player-pick",
+}) {
+  return (
+    <div className="top-scorer-selects">
+      {picks.map((pick, index) => (
+        <label className="winner-select winner-select-inline" key={index}>
+          {`${label} ${index + 1}`}
+          <select
+            value={pick ?? ""}
+            onChange={(event) => onChange(index, event.target.value)}
+            disabled={locked}
+            aria-label={`${label} ${index + 1}`}
+          >
+            <option value="">Kies speler</option>
+            <PlayerOptionGroups
+              options={options}
+              picks={picks}
+              currentIndex={index}
+              idPrefix={idPrefix}
+            />
+          </select>
+        </label>
+      ))}
+    </div>
+  );
 }
 
 function LockPill({ lock }) {
@@ -594,6 +761,7 @@ function MatchPredictionEditor({
 
 function MatchQuizEditor({
   match,
+  teams,
   prediction,
   locked,
   onAnswer,
@@ -602,6 +770,7 @@ function MatchQuizEditor({
   if (!quiz) return null;
   const answer = prediction?.answer ?? "";
   const complete = quizAnswerComplete(quiz, prediction);
+  const choices = quizChoices(match, teams);
 
   return (
     <section className={complete ? "fixture-quiz is-complete" : "fixture-quiz"} aria-label="Quizvraag">
@@ -612,7 +781,7 @@ function MatchQuizEditor({
       </div>
       <div className="fixture-quiz-inputs">
         <label>
-          {quiz.choices?.length ? (
+          {choices.length ? (
             <select
               aria-label="Antwoord"
               value={answer}
@@ -620,10 +789,21 @@ function MatchQuizEditor({
               onChange={(event) => onAnswer(match.id, event.target.value)}
             >
               <option value="">Kies antwoord</option>
-              {quiz.choices.map((choice) => (
-                <option key={choice} value={choice}>{choice}</option>
+              {choices.map((choice) => (
+                <option key={choice.value} value={choice.value}>{choice.label}</option>
               ))}
             </select>
+          ) : quiz.type === "number" ? (
+            <input
+              aria-label="Antwoord"
+              value={answer}
+              disabled={locked}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={12}
+              placeholder="Vul een getal in"
+              onChange={(event) => onAnswer(match.id, event.target.value)}
+            />
           ) : (
             <input
               aria-label="Antwoord"
@@ -724,6 +904,7 @@ function MatchPredictionRow({
       />
       <MatchQuizEditor
         match={match}
+        teams={teams}
         prediction={quizPrediction}
         locked={locked}
         onAnswer={onQuizAnswer}
@@ -1369,7 +1550,47 @@ function ProfileNameEditor({ player, canEdit, onUpdateName }) {
   );
 }
 
-function HomePage({ onSchedule, recap }) {
+function ScoringRulesPanel({ rules }) {
+  const groupRule = rules?.match_scores?.["Group Stage"] ?? {};
+  const knockoutRule = rules?.match_scores?.["Round of 16"] ?? {};
+  const strikerRule = rules?.world_cup_strikers ?? { count: 5, points_per_goal: 10 };
+  return (
+    <article className="panel scoring-rules-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Puntentelling</h3>
+          <p>Hoe voorspellingen, quizvragen en toernooipicks meetellen.</p>
+        </div>
+      </div>
+      <div className="panel-body scoring-rules-grid">
+        <div>
+          <strong>Wedstrijden</strong>
+          <span>Poulefase: {groupRule.exact ?? 45} punten exact, {groupRule.outcome ?? 30} voor juiste toto.</span>
+          <span>Knock-out loopt op per ronde, vanaf {knockoutRule.exact ?? 135} exact.</span>
+        </div>
+        <div>
+          <strong>Quiz</strong>
+          <span>Keuze-opties tonen hun eigen punten.</span>
+          <span>Player dropdowns: {rules?.quiz_open ?? 12} punten. Kijkcijfersbonus: {rules?.quiz_viewership ?? 15}.</span>
+        </div>
+        <div>
+          <strong>Toernooi</strong>
+          <span>Wereldkampioen: {rules?.world_cup_winner ?? 250} punten.</span>
+          <span>Topscorer: {rules?.world_cup_top_scorer ?? 100} punten aan het einde.</span>
+          <span>{strikerRule.count ?? 5} spitsen: {strikerRule.points_per_goal ?? 10} punten per goal.</span>
+        </div>
+        <div>
+          <strong>Leeuwtjes</strong>
+          <span>{rules?.leeuwtjes_total ?? 5} keer inzetbaar.</span>
+          <span>Verdubbelt de wedstrijdpunten van die voorspelling.</span>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function HomePage({ onSchedule, recap, rules, newsletters = [] }) {
+  const articles = newsletters.length ? newsletters : NEWS_ARTICLES;
   return (
     <div className="home-layout">
       <section className="home-kicker" aria-label="World Cup quick links">
@@ -1385,8 +1606,10 @@ function HomePage({ onSchedule, recap }) {
 
       <DailyRecap recap={recap} />
 
+      <ScoringRulesPanel rules={rules} />
+
       <section className="news-grid" aria-label="World Cup news">
-        {NEWS_ARTICLES.map((article) => (
+        {articles.map((article) => (
           <article className="news-card" key={article.url}>
             <div className="news-source">
               <span>{article.publisher}</span>
@@ -1866,6 +2089,12 @@ function RankMovement({ movement = 0 }) {
   return <span className="rank-movement is-flat" aria-label="No rank movement">-</span>;
 }
 
+function TopScorerPickLabel({ picks }) {
+  const names = (picks ?? []).map((pick) => pick.name ?? pick).filter(Boolean);
+  if (!names.length) return <span className="muted">Not picked</span>;
+  return <span>{names.map((name, index) => `${index + 1}. ${name}`).join(" · ")}</span>;
+}
+
 function Leaderboard({ pool, onProfile = () => {} }) {
   return (
     <article className="panel">
@@ -1891,10 +2120,11 @@ function Leaderboard({ pool, onProfile = () => {} }) {
                 <th className="numeric">Exact</th>
                 <th className="numeric">Outcome</th>
                 <th className="numeric">Quiz pts</th>
+                <th className="numeric">Scorer pts</th>
                 <th className="numeric">Leeuwtjes</th>
                 <th className="numeric">Predictions</th>
                 <th>Winner</th>
-                <th>Top scorer</th>
+                <th>Top scorer / strikers</th>
               </tr>
             </thead>
             <tbody>
@@ -1921,10 +2151,15 @@ function Leaderboard({ pool, onProfile = () => {} }) {
                     <td className="numeric">{row.exact_scores}</td>
                     <td className="numeric">{row.outcomes}</td>
                     <td className="numeric">{row.quiz_points ?? 0}</td>
+                    <td className="numeric">{row.scorer_points ?? row.top_scorer_points ?? 0}</td>
                     <td className="numeric">{row.leeuwtjes_used ?? 0}/{pool.progress?.leeuwtjes_total ?? 5}</td>
                     <td className="numeric">{row.group_stage_predictions}/{row.group_stage_total}</td>
                     <td>{row.winner_pick_name ?? <span className="muted">Not picked</span>}</td>
-                    <td>{row.top_scorer_pick ?? <span className="muted">Not picked</span>}</td>
+                    <td>
+                      <span>{row.top_scorer_pick ?? <span className="muted">Not picked</span>}</span>
+                      <br />
+                      <TopScorerPickLabel picks={row.striker_picks ?? row.top_scorer_picks} />
+                    </td>
                   </tr>
                 );
               })}
@@ -2040,50 +2275,98 @@ function PlayerProfile({
   const stats = [
     { label: "PTS", value: player.points, detail: "Total points" },
     { label: "Precision", value: player.precision, detail: "Exact scores" },
+    { label: "Scorers", value: player.scorer_points ?? player.top_scorer_points ?? 0, detail: "Top scorer + strikers" },
     { label: "Shooting", value: player.shooting, detail: "Winner goals" },
     { label: "Defence", value: player.defence, detail: "Loser goals" },
-    { label: "Games", value: player.scoring_games, detail: "Scored on" },
   ];
   const canViewPredictions = true;
   const rankLabel = rank ? `Rank #${rank}` : "Nog niet gerankt";
+
+  function pickClassName(impossible) {
+    return impossible ? "profile-pick-row is-impossible" : "profile-pick-row";
+  }
+
+  function pointsLabel(value) {
+    return `${value ?? 0} pts`;
+  }
 
   return (
     <div className="profile-page">
       <button className="text-button" type="button" onClick={onBack}>
         Back to leaderboard
       </button>
-      <article className="fifa-card">
-        <div className="fifa-card-top">
-          <div>
-            <span className="fifa-rating">{player.points}</span>
-            <span className="fifa-position">PTS</span>
-            <span className="fifa-rank">{rankLabel}</span>
-          </div>
-          <ProfileAvatar player={player} size="large" />
-        </div>
-        <div className="fifa-card-name">
-          <ProfileNameEditor
-            player={player}
-            canEdit={isSelf}
-            onUpdateName={onUpdateName}
-          />
-          <p>
-            {[
-              player.winner_pick_name ? `Kampioen: ${player.winner_pick_name}` : "Geen kampioen gekozen",
-              player.top_scorer_pick ? `Topscorer: ${player.top_scorer_pick}` : "Geen topscorer gekozen",
-            ].join(" · ")}
-          </p>
-        </div>
-        <div className="fifa-stats">
-          {stats.map((stat) => (
-            <div className="fifa-stat" key={stat.label}>
-              <strong>{stat.value}</strong>
-              <span>{stat.label}</span>
-              <em>{stat.detail}</em>
+      <div className="profile-top-layout">
+        <article className="fifa-card">
+          <div className="fifa-card-top">
+            <div>
+              <span className="fifa-rating">{player.points}</span>
+              <span className="fifa-position">PTS</span>
+              <span className="fifa-rank">{rankLabel}</span>
             </div>
-          ))}
-        </div>
-      </article>
+            <ProfileAvatar player={player} size="large" />
+          </div>
+          <div className="fifa-card-name">
+            <ProfileNameEditor
+              player={player}
+              canEdit={isSelf}
+              onUpdateName={onUpdateName}
+            />
+          </div>
+          <div className="fifa-stats">
+            {stats.map((stat) => (
+              <div className="fifa-stat" key={stat.label}>
+                <strong>{stat.value}</strong>
+                <span>{stat.label}</span>
+                <em>{stat.detail}</em>
+              </div>
+            ))}
+          </div>
+        </article>
+        <article className="profile-picks-panel">
+          <div className="profile-picks-header">
+            <h3>Toernooi picks</h3>
+            <span>{pointsLabel((player.winner_points ?? 0) + (player.scorer_points ?? 0))}</span>
+          </div>
+          <div className={pickClassName(player.winner_impossible)}>
+            <div>
+              <strong>WK winnaar</strong>
+              <span>{player.winner_pick_name ?? "Niet gekozen"}</span>
+            </div>
+            <b>{pointsLabel(player.winner_points)}</b>
+          </div>
+          <div className={pickClassName(player.top_scorer_impossible)}>
+            <div>
+              <strong>Topscorer</strong>
+              <span>{player.top_scorer_pick ?? "Niet gekozen"}</span>
+            </div>
+            <b>{pointsLabel(player.top_scorer_points)}</b>
+          </div>
+          <div className="profile-pick-section-title">
+            <strong>Total strikers</strong>
+            <b>{pointsLabel(player.striker_points)}</b>
+          </div>
+          <div className="profile-striker-list">
+            {(player.striker_picks ?? []).map((pick, index) => (
+              <div className="profile-pick-row" key={`${pick.name}-${index}`}>
+                <div>
+                  <strong>{`Striker ${index + 1}`}</strong>
+                  <span>{pick.name}</span>
+                </div>
+                <b>{pointsLabel(pick.points)}</b>
+              </div>
+            ))}
+            {!(player.striker_picks ?? []).length && (
+              <div className="profile-pick-row">
+                <div>
+                  <strong>Strikers</strong>
+                  <span>Niet gekozen</span>
+                </div>
+                <b>{pointsLabel(0)}</b>
+              </div>
+            )}
+          </div>
+        </article>
+      </div>
       <LeeuwtjesHelpToggle used={player.leeuwtjes_used ?? 0} total={5} />
       <BadgeProgressSection player={player} badgeCatalog={badgeCatalog} canView />
       <PlayerPredictions player={player} canView={canViewPredictions} />
@@ -2210,8 +2493,9 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   const [editingMatchId, setEditingMatchId] = useState("");
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
   const [winnerDirty, setWinnerDirty] = useState(false);
-  const [topScorer, setTopScorer] = useState(pool.top_scorer_pick ?? "");
-  const [topScorerDirty, setTopScorerDirty] = useState(false);
+  const [topScorer, setTopScorer] = useState(() => topScorerPickFromPool(pool));
+  const [strikers, setStrikers] = useState(() => strikerPicksFromPool(pool));
+  const [tournamentPicksDirty, setTournamentPicksDirty] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -2250,8 +2534,11 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   }, [pool.winner_pick, winnerDirty]);
 
   useEffect(() => {
-    if (!topScorerDirty) setTopScorer(pool.top_scorer_pick ?? "");
-  }, [pool.top_scorer_pick, topScorerDirty]);
+    if (!tournamentPicksDirty) {
+      setTopScorer(topScorerPickFromPool(pool));
+      setStrikers(strikerPicksFromPool(pool));
+    }
+  }, [pool.top_scorer_pick, pool.striker_picks, pool.top_scorer_picks, tournamentPicksDirty]);
 
   function hasPrediction(match) {
     return scoreComplete(draft[match.id]);
@@ -2319,7 +2606,15 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
 
   function chooseTopScorer(value) {
     setTopScorer(value);
-    setTopScorerDirty(true);
+    setTournamentPicksDirty(true);
+    setError("");
+  }
+
+  function chooseStriker(index, value) {
+    setStrikers((current) => current.map((pick, pickIndex) => (
+      pickIndex === index ? value : pick
+    )));
+    setTournamentPicksDirty(true);
     setError("");
   }
 
@@ -2333,12 +2628,16 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
       leeuwtjes_match_ids: [...leeuwtjeMatchIds],
       winner_team_id: winner || null,
       top_scorer_name: topScorer || null,
+      striker_names: strikers,
     };
     if (Object.hasOwn(options, "winnerTeamId")) {
       body.winner_team_id = options.winnerTeamId || null;
     }
     if (Object.hasOwn(options, "topScorerName")) {
       body.top_scorer_name = options.topScorerName || null;
+    }
+    if (Object.hasOwn(options, "strikerNames")) {
+      body.striker_names = options.strikerNames;
     }
 
     try {
@@ -2348,7 +2647,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
       });
       onPoolUpdate(updated);
       setWinnerDirty(false);
-      setTopScorerDirty(false);
+      setTournamentPicksDirty(false);
       if (closeEditor) setEditingMatchId("");
       return updated;
     } catch (err) {
@@ -2360,7 +2659,11 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   }
 
   async function continueToLeaderboard() {
-    const updated = await save(true, { winnerTeamId: winner, topScorerName: topScorer });
+    const updated = await save(true, {
+      winnerTeamId: winner,
+      topScorerName: topScorer,
+      strikerNames: strikers,
+    });
     if (updated) onContinue(updated);
   }
 
@@ -2391,7 +2694,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                 ) : "Pick your champion"}
               </h4>
               <p>
-                Add your champion and Golden Boot pick before the tournament starts.
+                Add your champion, final top scorer and five strikers before the tournament starts.
               </p>
             </div>
             <div className="tournament-pick-controls">
@@ -2406,21 +2709,19 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
               </label>
               <label className="winner-select winner-select-inline">
                 Topscorer
-                <input
-                  list="top-scorer-options"
-                  value={topScorer}
-                  onChange={(event) => chooseTopScorer(event.target.value)}
-                  placeholder="Bijv. Kylian Mbappe"
-                  disabled={lockedWinner}
-                />
+                <select value={topScorer} onChange={(event) => chooseTopScorer(event.target.value)} disabled={lockedWinner}>
+                  <option value="">Kies speler</option>
+                  <PlayerOptionGroups options={topScorerSuggestions} idPrefix="top-scorer" />
+                </select>
               </label>
-              {!!topScorerSuggestions.length && (
-                <datalist id="top-scorer-options">
-                  {topScorerSuggestions.map((option) => (
-                    <option key={`${option.name}-${option.label}`} value={option.name}>{option.label}</option>
-                  ))}
-                </datalist>
-              )}
+              <PlayerPickSelects
+                label="Spits"
+                picks={strikers}
+                options={topScorerSuggestions}
+                locked={lockedWinner}
+                onChange={chooseStriker}
+                idPrefix="striker"
+              />
             </div>
           </section>
 
@@ -2521,12 +2822,12 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
             <div>
               <h4>{requiredPredictionsComplete ? "Ready for the leaderboard" : "Finish the essentials"}</h4>
               <p>
-                {requiredPredictionsComplete && winner && topScorer && allPredictionsComplete
-                  ? "Full card, champion and top scorer set. Time to check the leaderboard."
-                  : requiredPredictionsComplete && winner && topScorer
+                {requiredPredictionsComplete && winner && topScorer && strikers.filter(Boolean).length >= 5 && allPredictionsComplete
+                  ? "Full card, champion, top scorer and strikers set. Time to check the leaderboard."
+                  : requiredPredictionsComplete && winner && topScorer && strikers.filter(Boolean).length >= 5
                     ? "Your prediction card still has some empty spots. No prediction, no points — the scoreboard is strict like that."
                     : requiredPredictionsComplete
-                      ? "You can pick your champion and top scorer above now or continue to the leaderboard."
+                      ? "You can pick your champion, top scorer and strikers above now or continue to the leaderboard."
                       : requiredPredictedCount === 0
                         ? "Fill in the Netherlands group first, then add your tournament picks."
                         : `You still need ${missingRequiredCount} score prediction${missingRequiredCount === 1 ? "" : "s"} in the Netherlands group before you can continue.`}
@@ -2560,7 +2861,8 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   const [selectedGroupId, setSelectedGroupId] = useState(data.groups[0]?.id ?? "");
   const [editingMatchId, setEditingMatchId] = useState("");
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
-  const [topScorer, setTopScorer] = useState(pool.top_scorer_pick ?? "");
+  const [topScorer, setTopScorer] = useState(() => topScorerPickFromPool(pool));
+  const [strikers, setStrikers] = useState(() => strikerPicksFromPool(pool));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -2594,7 +2896,8 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
     setQuizDraft(nextQuizDraft);
     setLeeuwtjeMatchIds(new Set(pool.leeuwtjes_match_ids ?? []));
     setWinner(pool.winner_pick ?? "");
-    setTopScorer(pool.top_scorer_pick ?? "");
+    setTopScorer(topScorerPickFromPool(pool));
+    setStrikers(strikerPicksFromPool(pool));
     setInitialized(true);
     setDirty(false);
     setPendingScoreMatchId("");
@@ -2616,6 +2919,13 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
 
   function chooseTopScorer(value) {
     setTopScorer(value);
+    setDirty(true);
+  }
+
+  function chooseStriker(index, value) {
+    setStrikers((current) => current.map((pick, pickIndex) => (
+      pickIndex === index ? value : pick
+    )));
     setDirty(true);
   }
 
@@ -2668,6 +2978,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
           leeuwtjes_match_ids: [...leeuwtjeMatchIds],
           winner_team_id: winner || null,
           top_scorer_name: topScorer || null,
+          striker_names: strikers,
         }),
       });
       onPoolUpdate(updated);
@@ -2698,6 +3009,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
     leeuwtjeMatchIds,
     winner,
     topScorer,
+    strikers,
     initialized,
     dirty,
     pendingScoreMatchId,
@@ -2714,7 +3026,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
         <div className="panel-header">
           <div>
             <h3>Adjust predictions</h3>
-            <p>Change scores, champion and top scorer until each lock moment.</p>
+            <p>Change scores and tournament picks until each lock moment.</p>
           </div>
           <div className="panel-header-actions">
             {onBack && (
@@ -2737,7 +3049,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                   <span className="winner-team-title"><TeamFlag id={winnerTeam.id} /> {winnerTeam.name}</span>
                 ) : "Pick your champion"}
               </h4>
-              <p>Champion and top scorer are editable until one hour before the tournament opener.</p>
+              <p>Champion, top scorer and striker picks are editable until one hour before the tournament opener.</p>
             </div>
             <div className="tournament-pick-controls">
               <label className="winner-select winner-select-inline">
@@ -2751,21 +3063,19 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
               </label>
               <label className="winner-select winner-select-inline">
                 Topscorer
-                <input
-                  list="adjust-top-scorer-options"
-                  value={topScorer}
-                  onChange={(event) => chooseTopScorer(event.target.value)}
-                  placeholder="Bijv. Kylian Mbappe"
-                  disabled={lockedWinner}
-                />
+                <select value={topScorer} onChange={(event) => chooseTopScorer(event.target.value)} disabled={lockedWinner}>
+                  <option value="">Kies speler</option>
+                  <PlayerOptionGroups options={topScorerSuggestions} idPrefix="adjust-top-scorer" />
+                </select>
               </label>
-              {!!topScorerSuggestions.length && (
-                <datalist id="adjust-top-scorer-options">
-                  {topScorerSuggestions.map((option) => (
-                    <option key={`${option.name}-${option.label}`} value={option.name}>{option.label}</option>
-                  ))}
-                </datalist>
-              )}
+              <PlayerPickSelects
+                label="Spits"
+                picks={strikers}
+                options={topScorerSuggestions}
+                locked={lockedWinner}
+                onChange={chooseStriker}
+                idPrefix="adjust-striker"
+              />
             </div>
             <LockPill lock={{ locked: lockedWinner }} />
           </section>
@@ -2912,8 +3222,16 @@ function fallbackProfile(pool) {
     shooting: 0,
     defence: 0,
     scoring_games: 0,
+    top_scorer_points: 0,
+    striker_points: 0,
+    scorer_points: 0,
+    winner_points: 0,
+    winner_impossible: false,
+    top_scorer_impossible: false,
     winner_pick_name: null,
     top_scorer_pick: null,
+    top_scorer_picks: [],
+    striker_picks: [],
     profile_picture: {
       initials: user.name
         .replace("-", " ")
@@ -3174,7 +3492,7 @@ function App() {
             <p className="eyebrow">FIFA World Cup 2026</p>
             <h2>Talpa WK Pool</h2>
             <p>
-              Predict group-stage scores, pick the World Cup winner and top scorer, and follow the leaderboard.
+              Predict group-stage scores, pick the World Cup winner, top scorer and five strikers, and follow the leaderboard.
             </p>
           </div>
           <div className="hero-countdown" aria-label="Countdown to kickoff">
@@ -3229,7 +3547,12 @@ function App() {
 
         {view === "home" && (
           <section className="view is-active">
-            <HomePage onSchedule={() => navigateToView("schedule")} recap={pool.daily_recap} />
+            <HomePage
+              onSchedule={() => navigateToView("schedule")}
+              recap={pool.daily_recap}
+              rules={pool.rules}
+              newsletters={pool.newsletters ?? []}
+            />
           </section>
         )}
 

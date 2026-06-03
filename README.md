@@ -99,4 +99,22 @@ Config:
 - `API_FOOTBALL_POSTMATCH_BUFFER_MINUTES`, default `135`
 - `API_FOOTBALL_FINAL_RESYNC_HOURS`, default `12`
 
+## Newsletter Refresh
+
+Home-page news is stored in the database and refreshed from RSS feeds by a daily Vercel cron. The app falls back to static articles when no refreshed articles are available yet.
+
+Useful endpoints:
+
+```bash
+curl http://localhost:8000/api/newsletters
+curl -X POST -H "Authorization: Bearer $WK_HUB_SYNC_TOKEN" \
+  http://localhost:8000/api/admin/newsletters/refresh
+curl -H "Authorization: Bearer $WK_HUB_SYNC_TOKEN" \
+  http://localhost:8000/api/cron/newsletters-refresh
+```
+
+Config:
+
+- `NEWSLETTER_MAX_ARTICLES`, default `6`
+
 Vercel production does not have a durable local filesystem, so production must use Neon/Postgres through `DATABASE_URL`. Schema setup runs at API cold start through `CREATE TABLE IF NOT EXISTS`, but data population should be done through the protected sync endpoints or the included Vercel cron jobs. Do not rely on SQLite in production.
