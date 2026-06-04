@@ -117,15 +117,9 @@ API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "")
 API_FOOTBALL_LEAGUE_ID = int(os.environ.get("API_FOOTBALL_LEAGUE_ID", "1"))
 API_FOOTBALL_SEASON = int(os.environ.get("API_FOOTBALL_SEASON", "2026"))
 API_FOOTBALL_DAILY_LIMIT = int(os.environ.get("API_FOOTBALL_DAILY_LIMIT", "90"))
-API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE = int(
-    os.environ.get("API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE", "6")
-)
-API_FOOTBALL_SQUAD_REFRESH_HOURS = int(
-    os.environ.get("API_FOOTBALL_SQUAD_REFRESH_HOURS", "24")
-)
-API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get(
-    "CRON_SECRET", ""
-)
+API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE = int(os.environ.get("API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE", "6"))
+API_FOOTBALL_SQUAD_REFRESH_HOURS = int(os.environ.get("API_FOOTBALL_SQUAD_REFRESH_HOURS", "24"))
+API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get("CRON_SECRET", "")
 API_FOOTBALL_POSTMATCH_BUFFER = timedelta(
     minutes=int(os.environ.get("API_FOOTBALL_POSTMATCH_BUFFER_MINUTES", "135"))
 )
@@ -306,14 +300,26 @@ def is_prediction_locked(match: dict[str, Any], now: datetime | None = None) -> 
     return (now or utc_now()) >= match_lock_time(match)
 
 
-def winner_lock_time(data: dict[str, Any]) -> datetime:
+def tournament_picks_lock_time(data: dict[str, Any]) -> datetime:
     group_matches = [match for match in data["matches"] if match["round"] == "Group Stage"]
     first_match = min(group_matches, key=match_kickoff)
     return match_lock_time(first_match)
 
 
+def are_tournament_picks_locked(data: dict[str, Any], now: datetime | None = None) -> bool:
+    return (now or utc_now()) >= tournament_picks_lock_time(data)
+
+
+def are_tournament_picks_revealed(data: dict[str, Any], now: datetime | None = None) -> bool:
+    return are_tournament_picks_locked(data, now)
+
+
+def winner_lock_time(data: dict[str, Any]) -> datetime:
+    return tournament_picks_lock_time(data)
+
+
 def is_winner_locked(data: dict[str, Any], now: datetime | None = None) -> bool:
-    return (now or utc_now()) >= winner_lock_time(data)
+    return are_tournament_picks_locked(data, now)
 
 
 def iso_utc(value: datetime) -> str:
@@ -446,10 +452,7 @@ def fetch_newsletter_feed(feed: dict[str, str]) -> list[dict[str, Any]]:
         if not title or not url:
             continue
         source_node = item.find("source")
-        publisher = (
-            clean_text(source_node.text if source_node is not None else "")
-            or feed["name"]
-        )
+        publisher = clean_text(source_node.text if source_node is not None else "") or feed["name"]
         articles.append(
             {
                 "title": title,
@@ -1480,8 +1483,7 @@ def striker_prediction_points(
 ) -> int:
     counts = goal_counts if goal_counts is not None else goal_counts_by_player()
     return sum(
-        counts[normalized_player_name(player_name)] * STRIKER_GOAL_POINTS
-        for player_name in picks
+        counts[normalized_player_name(player_name)] * STRIKER_GOAL_POINTS for player_name in picks
     )
 
 
@@ -1787,8 +1789,7 @@ def apply_synced_team_profiles(data: dict[str, Any]) -> None:
             }
             sources = list_value(profile.get("sources"))
             if not any(
-                isinstance(source, dict)
-                and source.get("label") == "API-Football squad sync"
+                isinstance(source, dict) and source.get("label") == "API-Football squad sync"
                 for source in sources
             ):
                 sources.append({"label": "API-Football squad sync"})
@@ -2197,8 +2198,8 @@ def store_api_football_fixture_snapshot(
             cards = statistics.get("cards") or {}
             api_player_id = int_or_none(player.get("id"))
             player_name = player.get("name") or "Unknown"
-            provider_player_key = str(api_player_id) if api_player_id is not None else compact_name(
-                player_name
+            provider_player_key = (
+                str(api_player_id) if api_player_id is not None else compact_name(player_name)
             )
             minutes = int_or_none(games.get("minutes")) or 0
             execute(
@@ -2454,8 +2455,8 @@ def store_api_football_team_profile_snapshot(
         for player in squad_block.get("players") or []:
             api_player_id = int_or_none(player.get("id"))
             player_name = clean_text(player.get("name")) or "Unknown"
-            provider_player_key = str(api_player_id) if api_player_id is not None else compact_name(
-                player_name
+            provider_player_key = (
+                str(api_player_id) if api_player_id is not None else compact_name(player_name)
             )
             execute(
                 conn,
@@ -2487,8 +2488,8 @@ def store_api_football_team_profile_snapshot(
         for coach in coach_payload.get("response") or []:
             api_coach_id = int_or_none(coach.get("id"))
             name = coach_name(coach) or "Unknown"
-            provider_coach_key = str(api_coach_id) if api_coach_id is not None else compact_name(
-                name
+            provider_coach_key = (
+                str(api_coach_id) if api_coach_id is not None else compact_name(name)
             )
             execute(
                 conn,
@@ -2742,9 +2743,7 @@ def standings_from_scores(
     return [row["team_id"] for row in ordered]
 
 
-def group_position_score(
-    user_predictions: dict[str, Any], data: dict[str, Any]
-) -> tuple[int, int]:
+def group_position_score(user_predictions: dict[str, Any], data: dict[str, Any]) -> tuple[int, int]:
     points = 0
     correct_positions = 0
     group_matches_by_id = {
@@ -2752,9 +2751,7 @@ def group_position_score(
     }
     for group in data["groups"]:
         matches = [
-            match
-            for match in group_matches_by_id.values()
-            if match.get("group") == group["id"]
+            match for match in group_matches_by_id.values() if match.get("group") == group["id"]
         ]
         if not matches:
             continue
@@ -3088,11 +3085,7 @@ def champion_day_counts(
     viewership_winners: set[tuple[int, str]],
 ) -> Counter[int]:
     completed_dates = sorted(
-        {
-            local_match_date(match)
-            for match in data["matches"]
-            if match_result(match) is not None
-        }
+        {local_match_date(match) for match in data["matches"] if match_result(match) is not None}
     )
     counts: Counter[int] = Counter()
     for completed_date in completed_dates:
@@ -3238,6 +3231,7 @@ def user_prediction_groups(
     profile_user_id: int,
     data: dict[str, Any],
     include_unplayed: bool = False,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     teams = {team["id"]: team for team in data["teams"]}
 
@@ -3281,7 +3275,7 @@ def user_prediction_groups(
             key=match_kickoff,
         )
         for match in group_matches:
-            if not include_unplayed and match_result(match) is None:
+            if not include_unplayed and not is_prediction_locked(match, now):
                 continue
             prediction = by_match.get(match["id"])
             if prediction is None:
@@ -3315,12 +3309,17 @@ def user_prediction_groups(
     return groups
 
 
-def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
+def build_leaderboard(
+    data: dict[str, Any],
+    viewer_user_id: int | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
     matches = {match["id"]: match for match in data["matches"]}
     teams = {team["id"]: team for team in data["teams"]}
     champion_id = data.get("meta", {}).get("world_cup_winner_id")
     top_scorer_result = top_scorer_result_name(data)
     eliminated_teams = eliminated_team_ids(data)
+    tournament_picks_revealed = are_tournament_picks_revealed(data, now)
     group_stage_ids = {match["id"] for match in data["matches"] if match["round"] == "Group Stage"}
     required_group_id = next(
         (group["id"] for group in data["groups"] if NETHERLANDS_TEAM_ID in group["teams"]),
@@ -3455,10 +3454,7 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
         points += winner_points
         winner_impossible = bool(
             winner_pick
-            and (
-                (champion_id and winner_pick != champion_id)
-                or winner_pick in eliminated_teams
-            )
+            and ((champion_id and winner_pick != champion_id) or winner_pick in eliminated_teams)
         )
         top_scorer_pick_row = top_scorers.get(user["id"])
         top_scorer_pick = top_scorer_pick_name(top_scorer_pick_row)
@@ -3490,6 +3486,7 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
             champ_days,
         )
 
+        show_tournament_picks = tournament_picks_revealed or user["id"] == viewer_user_id
         leaderboard.append(
             {
                 "user_id": user["id"],
@@ -3523,17 +3520,21 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
                 "missing_group_stage_predictions": max(
                     0, len(group_stage_ids) - group_stage_predictions
                 ),
-                "winner_pick": winner_pick,
-                "winner_pick_name": teams.get(winner_pick, {}).get("name") if winner_pick else None,
-                "winner_points": winner_points,
-                "winner_impossible": winner_impossible,
-                "top_scorer_pick": top_scorer_pick or None,
-                "top_scorer_points": top_scorer_points,
-                "top_scorer_impossible": top_scorer_impossible,
-                "striker_picks": striker_picks,
-                "striker_points": striker_points,
-                "scorer_points": scorer_points,
-                "top_scorer_picks": striker_picks,
+                "winner_pick": winner_pick if show_tournament_picks else None,
+                "winner_pick_name": (
+                    teams.get(winner_pick, {}).get("name")
+                    if show_tournament_picks and winner_pick
+                    else None
+                ),
+                "winner_points": winner_points if show_tournament_picks else 0,
+                "winner_impossible": winner_impossible if show_tournament_picks else False,
+                "top_scorer_pick": (top_scorer_pick or None) if show_tournament_picks else None,
+                "top_scorer_points": top_scorer_points if show_tournament_picks else 0,
+                "top_scorer_impossible": top_scorer_impossible if show_tournament_picks else False,
+                "striker_picks": striker_picks if show_tournament_picks else [],
+                "striker_points": striker_points if show_tournament_picks else 0,
+                "scorer_points": scorer_points if show_tournament_picks else 0,
+                "top_scorer_picks": striker_picks if show_tournament_picks else [],
                 "badges": badges,
                 "badge_count": len(badges),
                 "badge_progress": badge_progress_list(
@@ -3547,11 +3548,7 @@ def build_leaderboard(data: dict[str, Any]) -> list[dict[str, Any]]:
 
     ranked = sorted(leaderboard, key=lambda row: (-row["points"], row["name"].lower()))
     completed_dates = sorted(
-        {
-            local_match_date(match)
-            for match in data["matches"]
-            if match_result(match) is not None
-        }
+        {local_match_date(match) for match in data["matches"] if match_result(match) is not None}
     )
     previous_rank_by_user: dict[int, int] = {}
     if len(completed_dates) >= 2:
@@ -3793,11 +3790,7 @@ def top_movers_with_ties(
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     sorted_movers = sorted(
-        [
-            row
-            for row in leaderboard
-            if abs(int(row.get("rank_movement") or 0)) > 0
-        ],
+        [row for row in leaderboard if abs(int(row.get("rank_movement") or 0)) > 0],
         key=lambda row: (
             -abs(int(row.get("rank_movement") or 0)),
             -int(row.get("rank_movement") or 0),
@@ -3830,6 +3823,7 @@ def build_daily_recap(
     data: dict[str, Any],
     now: datetime | None = None,
     leaderboard: list[dict[str, Any]] | None = None,
+    viewer_user_id: int | None = None,
 ) -> dict[str, Any]:
     current = now or utc_now()
     today = current.astimezone(AMSTERDAM_TZ).date()
@@ -3897,7 +3891,9 @@ def build_daily_recap(
     if daily_points:
         top_user_id, top_points = daily_points.most_common(1)[0]
     top_players = top_daily_scores_with_ties(daily_points, user_names, user_pictures)
-    top_movers = top_movers_with_ties(leaderboard or build_leaderboard(data))
+    top_movers = top_movers_with_ties(
+        leaderboard or build_leaderboard(data, viewer_user_id=viewer_user_id, now=current)
+    )
 
     moments = []
     for match in sorted(target_matches, key=match_kickoff):
@@ -4023,7 +4019,9 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         }
         for match in data["matches"]
     }
-    leaderboard = build_leaderboard(data)
+    tournament_picks_reveal_at = tournament_picks_lock_time(data)
+    tournament_picks_revealed = are_tournament_picks_revealed(data, now)
+    leaderboard = build_leaderboard(data, viewer_user_id=user["id"] if user else None, now=now)
 
     return {
         "me": user,
@@ -4038,7 +4036,9 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         "badge_catalog": badge_catalog(),
         "notifications": build_notifications(data, predictions, quiz_predictions, now),
         "matchday": build_matchday_summary(data, user["id"] if user else None, now),
-        "daily_recap": build_daily_recap(data, now, leaderboard),
+        "daily_recap": build_daily_recap(
+            data, now, leaderboard, viewer_user_id=user["id"] if user else None
+        ),
         "newsletters": newsletter_articles(),
         "progress": {
             "group_stage_predictions": group_stage_predictions,
@@ -4057,8 +4057,14 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         },
         "locks": {
             "matches": match_locks,
-            "winner_locked": is_winner_locked(data, now),
-            "winner_lock_at": iso_utc(winner_lock_time(data)),
+            "winner_locked": are_tournament_picks_locked(data, now),
+            "winner_lock_at": iso_utc(tournament_picks_reveal_at),
+            "tournament_picks_locked": are_tournament_picks_locked(data, now),
+            "tournament_picks_lock_at": iso_utc(tournament_picks_reveal_at),
+        },
+        "visibility": {
+            "tournament_picks_revealed": tournament_picks_revealed,
+            "tournament_picks_reveal_at": iso_utc(tournament_picks_reveal_at),
         },
         "rules": {
             "match_scores": MATCH_SCORE_RULES,
@@ -4637,13 +4643,15 @@ def profile_predictions(profile_user_id: int):
         return jsonify({"error": "Player profile not found."}), 404
 
     data = load_world_cup_data()
+    now = utc_now()
     include_unplayed = profile_user_id == user["id"]
     return jsonify(
         {
             "user_id": profile_user_id,
             "name": profile["name"],
-            "limited_to_completed_matches": not include_unplayed,
-            "groups": user_prediction_groups(profile_user_id, data, include_unplayed),
+            "limited_to_completed_matches": False,
+            "limited_to_locked_matches": not include_unplayed,
+            "groups": user_prediction_groups(profile_user_id, data, include_unplayed, now),
         }
     )
 
@@ -4670,9 +4678,7 @@ def save_predictions():
     quiz_items = payload.get("quiz_predictions")
     leeuwtje_items = payload.get("leeuwtjes_match_ids")
     winner_team_id = payload.get("winner_team_id")
-    top_scorer_submitted = (
-        "top_scorer_name" in payload or "top_scorer_names" in payload
-    )
+    top_scorer_submitted = "top_scorer_name" in payload or "top_scorer_names" in payload
     raw_top_scorer = payload.get("top_scorer_name")
     raw_legacy_top_scorers = payload.get("top_scorer_names")
     if raw_top_scorer is None and isinstance(raw_legacy_top_scorers, list):
@@ -4825,7 +4831,7 @@ def save_predictions():
         return jsonify({"error": "Winner pick must be one of the participating teams."}), 400
     winner_change_locked = (
         winner_team_id
-        and is_winner_locked(data, now)
+        and are_tournament_picks_locked(data, now)
         and (not existing_winner or existing_winner["team_id"] != winner_team_id)
     )
     if winner_change_locked:
@@ -4852,7 +4858,7 @@ def save_predictions():
     existing_striker_names = striker_pick_names(existing_top_scorer)
     top_scorer_changed = top_scorer_submitted and top_scorer_name != existing_top_scorer_name
     strikers_changed = strikers_submitted and striker_names != existing_striker_names
-    if (top_scorer_changed or strikers_changed) and is_winner_locked(data, now):
+    if (top_scorer_changed or strikers_changed) and are_tournament_picks_locked(data, now):
         return jsonify({"error": "The top scorer and striker picks are closed."}), 400
 
     audit_payload = {
@@ -4953,9 +4959,7 @@ def save_predictions():
             stored_top_scorer_name = (
                 top_scorer_name if top_scorer_submitted else existing_top_scorer_name
             )
-            stored_striker_names = (
-                striker_names if strikers_submitted else existing_striker_names
-            )
+            stored_striker_names = striker_names if strikers_submitted else existing_striker_names
             if stored_top_scorer_name:
                 padded_strikers = [*(stored_striker_names or []), None, None, None, None, None]
                 execute(
