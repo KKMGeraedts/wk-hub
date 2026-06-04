@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -104,12 +104,11 @@ function localDateKey(match) {
 
 function groupPredictionsComplete(poolState) {
   const progress = poolState?.progress;
-  const requiredPredictions = progress?.required_group_predictions ?? progress?.group_stage_predictions;
-  const requiredTotal = progress?.required_group_total ?? progress?.group_stage_total;
-  return Boolean(
-    requiredTotal &&
-      requiredPredictions >= requiredTotal,
-  );
+  const requiredPredictions =
+    progress?.required_group_predictions ?? progress?.group_stage_predictions;
+  const requiredTotal =
+    progress?.required_group_total ?? progress?.group_stage_total;
+  return Boolean(requiredTotal && requiredPredictions >= requiredTotal);
 }
 
 function defaultAuthenticatedView(poolState) {
@@ -132,36 +131,47 @@ const VIEW_ROUTES = {
   adjust: "/predictions/adjust",
 };
 
-const ROUTE_VIEWS = Object.fromEntries(Object.entries(VIEW_ROUTES).map(([view, route]) => [route, view]));
-const ONBOARDING_VIEWS = new Set(["welcome", "leaderboardPreview", "join", "pool"]);
+const ROUTE_VIEWS = Object.fromEntries(
+  Object.entries(VIEW_ROUTES).map(([view, route]) => [route, view]),
+);
+const ONBOARDING_VIEWS = new Set([
+  "welcome",
+  "leaderboardPreview",
+  "join",
+  "pool",
+]);
 
 const NEWS_ARTICLES = [
   {
     title: "WK 2026 levert landen recordbedrag op",
     publisher: "NU.nl",
     country: "Netherlands",
-    summary: "FIFA raises the prize pool for the 2026 World Cup, with a larger base payout for every qualified country.",
+    summary:
+      "FIFA raises the prize pool for the 2026 World Cup, with a larger base payout for every qualified country.",
     url: "https://www.nu.nl/voetbal/6379805/wk-2026-levert-landen-recordbedrag-op-wereldkampioen-krijgt-42-miljoen-euro.html",
   },
   {
     title: "FIFA WK voetbal 2026 en 2030 live bij de NOS",
     publisher: "NOS",
     country: "Netherlands",
-    summary: "NOS outlines its broadcast role for the 2026 and 2030 men’s World Cups.",
+    summary:
+      "NOS outlines its broadcast role for the 2026 and 2030 men’s World Cups.",
     url: "https://over.nos.nl/nieuws/fifa-wk-voetbal-2026-en-2030-live-bij-de-nos/",
   },
   {
     title: "Het volledige speelschema van de Rode Duivels",
     publisher: "VoetbalPrimeur.be",
     country: "Belgium",
-    summary: "Belgian coverage of the Red Devils’ group-stage schedule, opponents and kick-off windows.",
+    summary:
+      "Belgian coverage of the Red Devils’ group-stage schedule, opponents and kick-off windows.",
     url: "https://www.voetbalprimeur.be/nieuws/1718992/wk-voetbal-2026-ontdek-hier-het-volledige-speelschema-van-de-rode-duivels.html",
   },
   {
     title: "WK 2026 wordt luxeproduct",
     publisher: "VoetbalPrimeur.be",
     country: "Belgium",
-    summary: "A Belgian fan-facing look at World Cup ticket prices and allocation pressure.",
+    summary:
+      "A Belgian fan-facing look at World Cup ticket prices and allocation pressure.",
     url: "https://www.voetbalprimeur.be/nieuws/1721351/wk-2026-wordt-luxeproduct-dit-kosten-tickets-voor-wedstrijden-van-de-rode-duivels.html",
   },
 ];
@@ -205,7 +215,8 @@ function routeForView(view, profileId = "", teamId = "") {
 
 function onboardingViewAllowed(poolState, routedView) {
   if (!routedView) return false;
-  if (groupPredictionsComplete(poolState)) return routedView && !ONBOARDING_VIEWS.has(routedView);
+  if (groupPredictionsComplete(poolState))
+    return routedView && !ONBOARDING_VIEWS.has(routedView);
   return routedView && ONBOARDING_VIEWS.has(routedView);
 }
 
@@ -232,7 +243,11 @@ function TeamFlag({ id, className = "team-flag" }) {
   const code = TEAM_FLAG_CODES[id];
   if (!code || imageFailed) {
     const fallback = String(id ?? "").toUpperCase();
-    return fallback ? <span className={`${className} flag-fallback`} aria-hidden="true">{fallback}</span> : null;
+    return fallback ? (
+      <span className={`${className} flag-fallback`} aria-hidden="true">
+        {fallback}
+      </span>
+    ) : null;
   }
   return (
     <img
@@ -255,7 +270,13 @@ function matchLock(pool, matchId) {
 }
 
 function winnerLocked(pool) {
-  return Boolean(pool?.locks?.winner_locked);
+  return Boolean(
+    pool?.locks?.tournament_picks_locked ?? pool?.locks?.winner_locked,
+  );
+}
+
+function tournamentPicksRevealed(pool) {
+  return Boolean(pool?.visibility?.tournament_picks_revealed);
 }
 
 function poolPredictions(pool) {
@@ -321,7 +342,8 @@ async function apiJson(path, options = {}) {
       throw new Error(message);
     }
   }
-  if (!response.ok) throw new Error(data?.error || `API returned ${response.status}`);
+  if (!response.ok)
+    throw new Error(data?.error || `API returned ${response.status}`);
   return data ?? {};
 }
 
@@ -329,7 +351,9 @@ function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => resolve(reader.result));
-    reader.addEventListener("error", () => reject(new Error("De afbeelding kon niet worden gelezen.")));
+    reader.addEventListener("error", () =>
+      reject(new Error("De afbeelding kon niet worden gelezen.")),
+    );
     reader.readAsDataURL(file);
   });
 }
@@ -338,7 +362,9 @@ function loadImage(src) {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.addEventListener("load", () => resolve(image));
-    image.addEventListener("error", () => reject(new Error("De afbeelding kon niet worden geladen.")));
+    image.addEventListener("error", () =>
+      reject(new Error("De afbeelding kon niet worden geladen.")),
+    );
     image.src = src;
   });
 }
@@ -352,7 +378,8 @@ async function resizeProfileImage(file) {
   const image = await loadImage(sourceUrl);
   const scale = Math.min(
     1,
-    PROFILE_IMAGE_MAX_DIMENSION / Math.max(image.naturalWidth, image.naturalHeight),
+    PROFILE_IMAGE_MAX_DIMENSION /
+      Math.max(image.naturalWidth, image.naturalHeight),
   );
   const width = Math.max(1, Math.round(image.naturalWidth * scale));
   const height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -363,7 +390,9 @@ async function resizeProfileImage(file) {
   context.drawImage(image, 0, 0, width, height);
 
   const dataUrl = canvas.toDataURL("image/jpeg", 0.86);
-  const estimatedBytes = Math.ceil((dataUrl.length - dataUrl.indexOf(",") - 1) * 0.75);
+  const estimatedBytes = Math.ceil(
+    (dataUrl.length - dataUrl.indexOf(",") - 1) * 0.75,
+  );
   if (estimatedBytes > PROFILE_IMAGE_MAX_UPLOAD_BYTES) {
     throw new Error("Kies een kleinere afbeelding.");
   }
@@ -372,11 +401,24 @@ async function resizeProfileImage(file) {
 
 function FieldMark() {
   return (
-    <svg className="brand-mark" viewBox="0 0 240 240" fill="none" aria-hidden="true">
+    <svg
+      className="brand-mark"
+      viewBox="0 0 240 240"
+      fill="none"
+      aria-hidden="true"
+    >
       <rect x="10" y="10" width="220" height="220" rx="26" fill="#F36C21" />
       <path d="M10 74H230V105H10V74Z" fill="#FFFFFF" fillOpacity="0.9" />
       <path d="M10 135H230V166H10V135Z" fill="#21468B" fillOpacity="0.92" />
-      <rect x="29" y="29" width="182" height="182" rx="12" stroke="#FFFFFF" strokeWidth="8" />
+      <rect
+        x="29"
+        y="29"
+        width="182"
+        height="182"
+        rx="12"
+        stroke="#FFFFFF"
+        strokeWidth="8"
+      />
       <path d="M120 30V210" stroke="#FFFFFF" strokeWidth="7" />
       <circle cx="120" cy="120" r="32" stroke="#FFFFFF" strokeWidth="7" />
       <circle cx="120" cy="120" r="7" fill="#FFFFFF" />
@@ -384,7 +426,12 @@ function FieldMark() {
       <path d="M211 82H182V158H211" stroke="#FFFFFF" strokeWidth="7" />
       <path d="M29 101H43V139H29" stroke="#FFFFFF" strokeWidth="6" />
       <path d="M211 101H197V139H211" stroke="#FFFFFF" strokeWidth="6" />
-      <path d="M52 204C82 184 119 184 150 204C170 216 192 216 211 206" stroke="#00A7B5" strokeWidth="10" strokeLinecap="round" />
+      <path
+        d="M52 204C82 184 119 184 150 204C170 216 192 216 211 206"
+        stroke="#00A7B5"
+        strokeWidth="10"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -394,7 +441,11 @@ function TeamLabel({ id, teams }) {
   return (
     <span className="team-inline">
       <TeamFlag id={id} />
-      <span className={id === NETHERLANDS_ID ? "team-name highlight-text" : "team-name"}>
+      <span
+        className={
+          id === NETHERLANDS_ID ? "team-name highlight-text" : "team-name"
+        }
+      >
         {team?.name ?? id ?? "TBD"}
       </span>{" "}
       <span className="muted">{team?.code ?? "TBD"}</span>
@@ -408,7 +459,9 @@ function TeamBadge({ id, teams, align = "left" }) {
     "team-badge",
     id === NETHERLANDS_ID ? "is-highlight" : "",
     align === "right" ? "align-right" : "",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <span className={className}>
       <TeamFlag id={id} className="team-badge-flag" />
@@ -442,22 +495,42 @@ function personRole(person, fallback = "") {
 
 function personMeta(person) {
   if (typeof person === "string") return "";
-  return [person?.club, person?.country, person?.age ? `${person.age} yrs` : ""].filter(Boolean).join(" · ");
+  return [person?.club, person?.country, person?.age ? `${person.age} yrs` : ""]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function teamCoach(team) {
   const profile = teamProfile(team);
-  return profile.head_coach ?? profile.coach ?? team?.head_coach ?? team?.coach ?? null;
+  return (
+    profile.head_coach ??
+    profile.coach ??
+    team?.head_coach ??
+    team?.coach ??
+    null
+  );
 }
 
 function teamStaff(team) {
   const profile = teamProfile(team);
-  return normalizePeople(profile.staff ?? profile.coaching_staff ?? team?.staff ?? team?.coaching_staff);
+  return normalizePeople(
+    profile.staff ??
+      profile.coaching_staff ??
+      team?.staff ??
+      team?.coaching_staff,
+  );
 }
 
 function teamPlayers(team) {
   const profile = teamProfile(team);
-  return normalizePeople(profile.players ?? profile.squad ?? profile.roster ?? team?.players ?? team?.squad ?? team?.roster);
+  return normalizePeople(
+    profile.players ??
+      profile.squad ??
+      profile.roster ??
+      team?.players ??
+      team?.squad ??
+      team?.roster,
+  );
 }
 
 function teamSources(team) {
@@ -467,7 +540,9 @@ function teamSources(team) {
 
 function topScorerOptions(data) {
   const options = [];
-  const teams = [...(data?.teams ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const teams = [...(data?.teams ?? [])].sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
   for (const team of teams) {
     const players = teamPlayers(team)
       .map((player) => {
@@ -484,7 +559,9 @@ function topScorerOptions(data) {
         };
       })
       .filter(Boolean)
-      .sort((a, b) => a.preferred - b.preferred || a.name.localeCompare(b.name));
+      .sort(
+        (a, b) => a.preferred - b.preferred || a.name.localeCompare(b.name),
+      );
     for (const player of players) {
       const name = personName(player);
       options.push({
@@ -509,7 +586,9 @@ const QUIZ_TEAM_ALIASES = {
 
 function quizTeamIds(match, teams) {
   const question = (match?.quiz?.question ?? "").toLocaleLowerCase();
-  const matchTeamIds = [match?.home_team_id, match?.away_team_id].filter(Boolean);
+  const matchTeamIds = [match?.home_team_id, match?.away_team_id].filter(
+    Boolean,
+  );
   const explicitTeamIds = matchTeamIds.filter((teamId) => {
     const team = teams.get(teamId);
     const aliases = [
@@ -517,13 +596,16 @@ function quizTeamIds(match, teams) {
       team?.code,
       ...(QUIZ_TEAM_ALIASES[teamId] ?? []),
     ].filter(Boolean);
-    return aliases.some((alias) => question.includes(alias.toLocaleLowerCase()));
+    return aliases.some((alias) =>
+      question.includes(alias.toLocaleLowerCase()),
+    );
   });
   return explicitTeamIds.length ? explicitTeamIds : matchTeamIds;
 }
 
 function matchPlayerOptions(match, teams, teamIds = null) {
-  const optionTeamIds = teamIds ?? [match?.home_team_id, match?.away_team_id].filter(Boolean);
+  const optionTeamIds =
+    teamIds ?? [match?.home_team_id, match?.away_team_id].filter(Boolean);
   const options = [];
   const seen = new Set();
   for (const teamId of optionTeamIds) {
@@ -547,7 +629,9 @@ function quizChoicePoint(quiz, choice) {
   const choicePoints = quiz?.choice_points ?? {};
   const directPoints = choicePoints[choice];
   if (directPoints !== undefined) return directPoints;
-  const normalizedChoice = String(choice ?? "").trim().toLocaleLowerCase();
+  const normalizedChoice = String(choice ?? "")
+    .trim()
+    .toLocaleLowerCase();
   const matchedEntry = Object.entries(choicePoints).find(
     ([key]) => String(key).trim().toLocaleLowerCase() === normalizedChoice,
   );
@@ -569,12 +653,18 @@ function quizChoices(match, teams) {
     }));
   }
   if (quiz.type === "number") return [];
-  if (/speler|scoort|man van de wedstrijd|schot op doel/i.test(quiz.question ?? "")) {
+  if (
+    /speler|scoort|man van de wedstrijd|schot op doel/i.test(
+      quiz.question ?? "",
+    )
+  ) {
     const points = quiz.dynamic_choice_points ?? quiz.choice_points?.default;
-    return matchPlayerOptions(match, teams, quizTeamIds(match, teams)).map((option) => ({
-      value: option.name,
-      label: quizChoiceLabel(option.label, points),
-    }));
+    return matchPlayerOptions(match, teams, quizTeamIds(match, teams)).map(
+      (option) => ({
+        value: option.name,
+        label: quizChoiceLabel(option.label, points),
+      }),
+    );
   }
   return [];
 }
@@ -585,36 +675,162 @@ function topScorerPickFromPool(pool) {
 
 function strikerPicksFromPool(pool) {
   const picks = poolStrikerPicks(pool);
-  return [picks[0] ?? "", picks[1] ?? "", picks[2] ?? "", picks[3] ?? "", picks[4] ?? ""];
+  return [
+    picks[0] ?? "",
+    picks[1] ?? "",
+    picks[2] ?? "",
+    picks[3] ?? "",
+    picks[4] ?? "",
+  ];
 }
 
-function PlayerOptionGroups({ options, picks = [], currentIndex = -1, idPrefix = "player" }) {
-  const groups = [];
-  for (const option of options) {
-    const lastGroup = groups[groups.length - 1];
-    if (!lastGroup || lastGroup.teamName !== option.teamName) {
-      groups.push({ teamName: option.teamName, options: [] });
-    }
-    groups[groups.length - 1].options.push(option);
+function playerOptionDisplay(option, fallback = "") {
+  if (!option) return fallback;
+  return option.teamName
+    ? `${option.label} — ${option.teamName}`
+    : option.label;
+}
+
+function PlayerSearchSelect({
+  label,
+  value,
+  options,
+  locked,
+  onChange,
+  selectedValues = [],
+  currentIndex = -1,
+  idPrefix = "player-search",
+}) {
+  const selectedOption = options.find((option) => option.name === value);
+  const selectedDisplay = playerOptionDisplay(selectedOption, value ?? "");
+  const [query, setQuery] = useState(selectedDisplay);
+  const [open, setOpen] = useState(false);
+  const valueRef = useRef(value);
+
+  useEffect(() => {
+    setQuery(selectedDisplay);
+  }, [selectedDisplay]);
+
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+
+  const filteredOptions = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    const matches = needle
+      ? options.filter(
+          (option) =>
+            option.name.toLocaleLowerCase().includes(needle) ||
+            option.teamName.toLocaleLowerCase().includes(needle),
+        )
+      : options;
+    return matches.slice(0, 40);
+  }, [options, query]);
+
+  function selectedElsewhere(option) {
+    return selectedValues.some(
+      (pick, pickIndex) =>
+        pickIndex !== currentIndex && pick && pick === option.name,
+    );
   }
-  return groups.map((group) => (
-    <optgroup key={`${idPrefix}-${group.teamName}`} label={group.teamName}>
-      {group.options.map((option) => {
-        const selectedElsewhere = picks.some((pick, pickIndex) => (
-          pickIndex !== currentIndex && pick && pick === option.name
-        ));
-        return (
-          <option
-            key={`${idPrefix}-${currentIndex}-${option.teamId}-${option.name}`}
-            value={option.name}
-            disabled={selectedElsewhere}
+
+  function chooseOption(option) {
+    if (selectedElsewhere(option)) return;
+    onChange(option.name);
+    setQuery(playerOptionDisplay(option));
+    setOpen(false);
+  }
+
+  function clearSelection() {
+    onChange("");
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <label className="player-search-select winner-select winner-select-inline">
+      <span>{label}</span>
+      <div
+        className={locked ? "player-search-box is-locked" : "player-search-box"}
+      >
+        <input
+          id={`${idPrefix}-${currentIndex}`}
+          type="text"
+          value={query}
+          disabled={locked}
+          placeholder="Typ speler of team"
+          autoComplete="off"
+          onFocus={() => setOpen(true)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          onBlur={() => {
+            window.setTimeout(() => {
+              const current = valueRef.current;
+              setOpen(false);
+              setQuery(
+                playerOptionDisplay(
+                  options.find((option) => option.name === current),
+                  current ?? "",
+                ),
+              );
+            }, 120);
+          }}
+        />
+        {value && !locked && (
+          <button
+            className="player-search-clear"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onTouchStart={(event) => event.preventDefault()}
+            onClick={clearSelection}
+            aria-label={`Wis ${label}`}
           >
-            {option.label}
-          </option>
-        );
-      })}
-    </optgroup>
-  ));
+            ×
+          </button>
+        )}
+        {open && !locked && (
+          <div
+            className="player-search-menu"
+            role="listbox"
+            aria-label={`${label} opties`}
+          >
+            {filteredOptions.length ? (
+              filteredOptions.map((option) => {
+                const disabled = selectedElsewhere(option);
+                return (
+                  <button
+                    key={`${idPrefix}-${currentIndex}-${option.teamId}-${option.name}`}
+                    className={
+                      disabled
+                        ? "player-search-option is-disabled"
+                        : "player-search-option"
+                    }
+                    type="button"
+                    disabled={disabled}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onTouchStart={(event) => event.preventDefault()}
+                    onClick={() => chooseOption(option)}
+                    role="option"
+                    aria-selected={option.name === value}
+                  >
+                    <strong>{option.label}</strong>
+                    <span>
+                      {option.teamName}
+                      {disabled ? " · al gekozen" : ""}
+                    </span>
+                  </button>
+                );
+              })
+            ) : (
+              <div className="player-search-empty">Geen spelers gevonden</div>
+            )}
+          </div>
+        )}
+      </div>
+    </label>
+  );
 }
 
 function PlayerPickSelects({
@@ -628,23 +844,17 @@ function PlayerPickSelects({
   return (
     <div className="top-scorer-selects">
       {picks.map((pick, index) => (
-        <label className="winner-select winner-select-inline" key={index}>
-          {`${label} ${index + 1}`}
-          <select
-            value={pick ?? ""}
-            onChange={(event) => onChange(index, event.target.value)}
-            disabled={locked}
-            aria-label={`${label} ${index + 1}`}
-          >
-            <option value="">Kies speler</option>
-            <PlayerOptionGroups
-              options={options}
-              picks={picks}
-              currentIndex={index}
-              idPrefix={idPrefix}
-            />
-          </select>
-        </label>
+        <PlayerSearchSelect
+          key={index}
+          label={`${label} ${index + 1}`}
+          value={pick ?? ""}
+          options={options}
+          locked={locked}
+          selectedValues={picks}
+          currentIndex={index}
+          onChange={(nextValue) => onChange(index, nextValue)}
+          idPrefix={idPrefix}
+        />
       ))}
     </div>
   );
@@ -665,7 +875,14 @@ function PredictionStatusPill({ complete, active, locked }) {
 function scoreComplete(scores) {
   const homeScore = scores?.home_score;
   const awayScore = scores?.away_score;
-  return homeScore !== undefined && homeScore !== null && homeScore !== "" && awayScore !== undefined && awayScore !== null && awayScore !== "";
+  return (
+    homeScore !== undefined &&
+    homeScore !== null &&
+    homeScore !== "" &&
+    awayScore !== undefined &&
+    awayScore !== null &&
+    awayScore !== ""
+  );
 }
 
 function draftPredictions(draft) {
@@ -690,21 +907,26 @@ function quizDraftHasValue(prediction) {
 
 function draftQuizPredictions(draft, existing = {}) {
   return Object.entries(draft)
-    .filter(([match_id, prediction]) => quizDraftHasValue(prediction) || existing[match_id])
+    .filter(
+      ([match_id, prediction]) =>
+        quizDraftHasValue(prediction) || existing[match_id],
+    )
     .map(([match_id, prediction]) => ({
-    match_id,
-    answer: String(prediction?.answer ?? "").trim(),
-    viewership_prediction:
-      prediction?.viewership_prediction === "" ||
-      prediction?.viewership_prediction === undefined ||
-      prediction?.viewership_prediction === null
-        ? null
-        : Number(prediction.viewership_prediction),
-  }));
+      match_id,
+      answer: String(prediction?.answer ?? "").trim(),
+      viewership_prediction:
+        prediction?.viewership_prediction === "" ||
+        prediction?.viewership_prediction === undefined ||
+        prediction?.viewership_prediction === null
+          ? null
+          : Number(prediction.viewership_prediction),
+    }));
 }
 
 function leeuwtjesUsed(pool) {
-  return pool?.progress?.leeuwtjes_used ?? pool?.leeuwtjes_match_ids?.length ?? 0;
+  return (
+    pool?.progress?.leeuwtjes_used ?? pool?.leeuwtjes_match_ids?.length ?? 0
+  );
 }
 
 function leeuwtjesTotal(pool) {
@@ -717,7 +939,9 @@ function formatNumber(value) {
 }
 
 function scoreInputValue(value) {
-  return String(value ?? "").replace(/\D/g, "").slice(0, 2);
+  return String(value ?? "")
+    .replace(/\D/g, "")
+    .slice(0, 2);
 }
 
 function MatchPredictionEditor({
@@ -744,7 +968,9 @@ function MatchPredictionEditor({
     compact ? "is-compact" : "",
     compact ? "is-score-only" : "",
     showSubmit ? "" : "has-no-submit",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   if (compact) {
     return (
@@ -758,7 +984,9 @@ function MatchPredictionEditor({
           value={scores?.home_score ?? ""}
           disabled={locked}
           onFocus={(event) => event.target.select()}
-          onChange={(event) => onScore(match.id, "home_score", scoreInputValue(event.target.value))}
+          onChange={(event) =>
+            onScore(match.id, "home_score", scoreInputValue(event.target.value))
+          }
           onKeyDown={submitOnEnter}
         />
         <span className="fixture-score-separator">-</span>
@@ -771,11 +999,18 @@ function MatchPredictionEditor({
           value={scores?.away_score ?? ""}
           disabled={locked}
           onFocus={(event) => event.target.select()}
-          onChange={(event) => onScore(match.id, "away_score", scoreInputValue(event.target.value))}
+          onChange={(event) =>
+            onScore(match.id, "away_score", scoreInputValue(event.target.value))
+          }
           onKeyDown={submitOnEnter}
         />
         {showSubmit && (
-          <button className="fixture-ok-button" type="button" onClick={onSubmit} disabled={!canSubmit}>
+          <button
+            className="fixture-ok-button"
+            type="button"
+            onClick={onSubmit}
+            disabled={!canSubmit}
+          >
             {saving ? "Saving..." : "OK"}
           </button>
         )}
@@ -796,7 +1031,9 @@ function MatchPredictionEditor({
           value={scores?.home_score ?? ""}
           disabled={locked}
           onFocus={(event) => event.target.select()}
-          onChange={(event) => onScore(match.id, "home_score", scoreInputValue(event.target.value))}
+          onChange={(event) =>
+            onScore(match.id, "home_score", scoreInputValue(event.target.value))
+          }
           onKeyDown={submitOnEnter}
         />
       </label>
@@ -812,12 +1049,19 @@ function MatchPredictionEditor({
           value={scores?.away_score ?? ""}
           disabled={locked}
           onFocus={(event) => event.target.select()}
-          onChange={(event) => onScore(match.id, "away_score", scoreInputValue(event.target.value))}
+          onChange={(event) =>
+            onScore(match.id, "away_score", scoreInputValue(event.target.value))
+          }
           onKeyDown={submitOnEnter}
         />
       </label>
       {showSubmit && (
-        <button className="fixture-ok-button" type="button" onClick={onSubmit} disabled={!canSubmit}>
+        <button
+          className="fixture-ok-button"
+          type="button"
+          onClick={onSubmit}
+          disabled={!canSubmit}
+        >
           {saving ? "Saving..." : "OK"}
         </button>
       )}
@@ -825,13 +1069,7 @@ function MatchPredictionEditor({
   );
 }
 
-function MatchQuizEditor({
-  match,
-  teams,
-  prediction,
-  locked,
-  onAnswer,
-}) {
+function MatchQuizEditor({ match, teams, prediction, locked, onAnswer }) {
   const quiz = match.quiz;
   if (!quiz) return null;
   const answer = prediction?.answer ?? "";
@@ -839,7 +1077,10 @@ function MatchQuizEditor({
   const choices = quizChoices(match, teams);
 
   return (
-    <section className={complete ? "fixture-quiz is-complete" : "fixture-quiz"} aria-label="Quizvraag">
+    <section
+      className={complete ? "fixture-quiz is-complete" : "fixture-quiz"}
+      aria-label="Quizvraag"
+    >
       <div className="fixture-quiz-heading">
         <div>
           <strong>{quiz.question}</strong>
@@ -856,7 +1097,9 @@ function MatchQuizEditor({
             >
               <option value="">Kies antwoord</option>
               {choices.map((choice) => (
-                <option key={choice.value} value={choice.value}>{choice.label}</option>
+                <option key={choice.value} value={choice.value}>
+                  {choice.label}
+                </option>
               ))}
             </select>
           ) : quiz.type === "number" ? (
@@ -894,7 +1137,11 @@ function LeeuwtjeButton({ active, disabled, onToggle, remaining }) {
       onClick={onToggle}
       disabled={disabled}
       aria-pressed={active}
-      title={active ? "Leeuwtje ingezet voor deze wedstrijd" : "Verdubbel punten voor deze wedstrijd"}
+      title={
+        active
+          ? "Leeuwtje ingezet voor deze wedstrijd"
+          : "Verdubbel punten voor deze wedstrijd"
+      }
     >
       <span aria-hidden="true">L</span>
       <strong>{active ? "Leeuwtje aan" : "Leeuwtje"}</strong>
@@ -935,14 +1182,22 @@ function MatchPredictionRow({
         editing && !quickEntry ? "is-active" : "",
         complete ? "is-complete" : "",
         locked ? "is-locked" : "",
-      ].filter(Boolean).join(" ")}
+      ]
+        .filter(Boolean)
+        .join(" ")}
     >
       <div className="fixture-row-header">
         <div className="fixture-open-button as-static">
           <span className="fixture-number">{index + 1}</span>
           <span>
-            <strong><TeamLabel id={match.home_team_id} teams={teams} /> <TeamLabel id={match.away_team_id} teams={teams} /></strong>
-            <em>{formatDate(match, true)} · {formatTime(match)} · {venue?.city ?? "Venue to confirm"}</em>
+            <strong>
+              <TeamLabel id={match.home_team_id} teams={teams} />{" "}
+              <TeamLabel id={match.away_team_id} teams={teams} />
+            </strong>
+            <em>
+              {formatDate(match, true)} · {formatTime(match)} ·{" "}
+              {venue?.city ?? "Venue to confirm"}
+            </em>
           </span>
         </div>
         <div className="fixture-row-status">
@@ -952,7 +1207,11 @@ function MatchPredictionRow({
             remaining={leeuwtjesRemaining}
             onToggle={onToggleLeeuwtje}
           />
-          <PredictionStatusPill complete={complete} active={false} locked={locked} />
+          <PredictionStatusPill
+            complete={complete}
+            active={false}
+            locked={locked}
+          />
           <LockPill lock={{ locked }} />
         </div>
       </div>
@@ -982,9 +1241,10 @@ function MatchPredictionRow({
 
 function MatchCard({ match, teams, venues }) {
   const venue = venues.get(match.venue_id);
-  const venueLabel = match.venue_id === "to_confirm"
-    ? "Venue to confirm"
-    : `${venue?.name ?? match.venue_id}, ${venue?.city ?? ""}`;
+  const venueLabel =
+    match.venue_id === "to_confirm"
+      ? "Venue to confirm"
+      : `${venue?.name ?? match.venue_id}, ${venue?.city ?? ""}`;
   const group = match.group ? `Group ${match.group}` : match.round;
   const broadcaster = broadcastInfo(match);
   const live = isMatchLive(match);
@@ -993,16 +1253,24 @@ function MatchCard({ match, teams, venues }) {
       <div className="match-time">{formatTime(match)}</div>
       <div>
         <div className="match-teams">
-          <TeamLabel id={match.home_team_id} teams={teams} /> <span className="muted">vs</span>{" "}
+          <TeamLabel id={match.home_team_id} teams={teams} />{" "}
+          <span className="muted">vs</span>{" "}
           <TeamLabel id={match.away_team_id} teams={teams} />
         </div>
         <div className="match-meta">
           {formatDate(match, true)} · {venueLabel}
         </div>
-        {match.quiz && <div className="match-quiz-line">Quiz: {match.quiz.question}</div>}
+        {match.quiz && (
+          <div className="match-quiz-line">Quiz: {match.quiz.question}</div>
+        )}
       </div>
       <div className="match-actions">
-        {live && <span className="live-indicator"><span aria-hidden="true" />Live</span>}
+        {live && (
+          <span className="live-indicator">
+            <span aria-hidden="true" />
+            Live
+          </span>
+        )}
         <span className="pill">{group}</span>
         <span className="broadcast-pill">{broadcaster.name}</span>
         <a
@@ -1019,7 +1287,8 @@ function MatchCard({ match, teams, venues }) {
 }
 
 function Schedule({ matches, teams, venues }) {
-  if (!matches.length) return <div className="empty">No matches available.</div>;
+  if (!matches.length)
+    return <div className="empty">No matches available.</div>;
   const grouped = matches.reduce((days, match) => {
     const key = localDateKey(match);
     if (!days.has(key)) days.set(key, []);
@@ -1032,7 +1301,12 @@ function Schedule({ matches, teams, venues }) {
       <h3 className="date-heading">{formatDate(dayMatches[0])}</h3>
       <div className="match-list">
         {dayMatches.map((match) => (
-          <MatchCard key={match.id} match={match} teams={teams} venues={venues} />
+          <MatchCard
+            key={match.id}
+            match={match}
+            teams={teams}
+            venues={venues}
+          />
         ))}
       </div>
     </React.Fragment>
@@ -1057,18 +1331,29 @@ function TeamDirectoryPage({ data, teams, onTeam }) {
         </div>
         <div className="panel-body team-directory">
           {groupedTeams.map((group) => (
-            <section className="team-group-block" key={group.id} aria-label={`Group ${group.id}`}>
+            <section
+              className="team-group-block"
+              key={group.id}
+              aria-label={`Group ${group.id}`}
+            >
               <div className="team-group-heading">
                 <h4>Group {group.id}</h4>
                 <span className="pill">{group.teams.length} teams</span>
               </div>
               <div className="team-directory-grid">
                 {group.teams.map((team) => (
-                  <button className="team-directory-card" key={team.id} type="button" onClick={() => onTeam(team.id)}>
+                  <button
+                    className="team-directory-card"
+                    key={team.id}
+                    type="button"
+                    onClick={() => onTeam(team.id)}
+                  >
                     <TeamFlag id={team.id} className="team-card-flag" />
                     <span className="team-card-copy">
                       <strong>{team.name}</strong>
-                      <span>{team.code} · {team.confederation}</span>
+                      <span>
+                        {team.code} · {team.confederation}
+                      </span>
                     </span>
                     <span className="team-card-meta">
                       {team.is_host && <em>Host</em>}
@@ -1100,7 +1385,9 @@ function TeamPeopleSection({
           <h3>{title}</h3>
           <p>{subtitle}</p>
         </div>
-        <span className={people.length ? "pill green" : "pill"}>{people.length ? countLabel ?? people.length : "TBC"}</span>
+        <span className={people.length ? "pill green" : "pill"}>
+          {people.length ? (countLabel ?? people.length) : "TBC"}
+        </span>
       </div>
       <div className="panel-body">
         {!people.length && <div className="empty compact">{empty}</div>}
@@ -1109,13 +1396,23 @@ function TeamPeopleSection({
             {people.map((person, index) => {
               const role = personRole(person, fallbackRole);
               const meta = personMeta(person);
-              const number = typeof person === "string" ? "" : person?.number ?? person?.shirt_number ?? "";
+              const number =
+                typeof person === "string"
+                  ? ""
+                  : (person?.number ?? person?.shirt_number ?? "");
               return (
-                <li className="team-person-row" key={`${personName(person)}-${index}`}>
-                  <span className="team-person-number">{number || index + 1}</span>
+                <li
+                  className="team-person-row"
+                  key={`${personName(person)}-${index}`}
+                >
+                  <span className="team-person-number">
+                    {number || index + 1}
+                  </span>
                   <span>
                     <strong>{personName(person)}</strong>
-                    {(role || meta) && <em>{[role, meta].filter(Boolean).join(" · ")}</em>}
+                    {(role || meta) && (
+                      <em>{[role, meta].filter(Boolean).join(" · ")}</em>
+                    )}
                   </span>
                 </li>
               );
@@ -1129,7 +1426,10 @@ function TeamPeopleSection({
 
 function TeamFixtureSection({ team, matches, teams, venues }) {
   const teamMatches = matches
-    .filter((match) => match.home_team_id === team.id || match.away_team_id === team.id)
+    .filter(
+      (match) =>
+        match.home_team_id === team.id || match.away_team_id === team.id,
+    )
     .sort((a, b) => escapeDate(a) - escapeDate(b));
 
   return (
@@ -1142,18 +1442,32 @@ function TeamFixtureSection({ team, matches, teams, venues }) {
         <span className="pill">{teamMatches.length} matches</span>
       </div>
       <div className="panel-body team-fixture-list">
-        {!teamMatches.length && <div className="empty compact">No matches available for this team.</div>}
+        {!teamMatches.length && (
+          <div className="empty compact">
+            No matches available for this team.
+          </div>
+        )}
         {teamMatches.map((match) => {
-          const opponentId = match.home_team_id === team.id ? match.away_team_id : match.home_team_id;
+          const opponentId =
+            match.home_team_id === team.id
+              ? match.away_team_id
+              : match.home_team_id;
           const venue = venues.get(match.venue_id);
           return (
             <article className="team-fixture-row" key={match.id}>
               <span className="match-time">{formatTime(match)}</span>
               <span>
-                <strong><TeamLabel id={opponentId} teams={teams} /></strong>
-                <em>{formatDate(match, true)} · {venue?.city ?? "Venue to confirm"}</em>
+                <strong>
+                  <TeamLabel id={opponentId} teams={teams} />
+                </strong>
+                <em>
+                  {formatDate(match, true)} ·{" "}
+                  {venue?.city ?? "Venue to confirm"}
+                </em>
               </span>
-              <span className="pill">{match.group ? `Group ${match.group}` : match.round}</span>
+              <span className="pill">
+                {match.group ? `Group ${match.group}` : match.round}
+              </span>
             </article>
           );
         })}
@@ -1170,16 +1484,22 @@ function TeamDetailPage({ team, data, teams, venues, onBack }) {
           <div className="panel-header">
             <div>
               <h3>Team not found</h3>
-              <p>This country is not available in the current World Cup data.</p>
+              <p>
+                This country is not available in the current World Cup data.
+              </p>
             </div>
-            <button className="text-button" type="button" onClick={onBack}>Teams</button>
+            <button className="text-button" type="button" onClick={onBack}>
+              Teams
+            </button>
           </div>
         </article>
       </div>
     );
   }
 
-  const group = data.groups.find((candidate) => candidate.teams.includes(team.id));
+  const group = data.groups.find((candidate) =>
+    candidate.teams.includes(team.id),
+  );
   const coach = teamCoach(team);
   const staff = teamStaff(team);
   const players = teamPlayers(team);
@@ -1187,7 +1507,11 @@ function TeamDetailPage({ team, data, teams, venues, onBack }) {
 
   return (
     <div className="team-page">
-      <button className="text-button team-back-button" type="button" onClick={onBack}>
+      <button
+        className="text-button team-back-button"
+        type="button"
+        onClick={onBack}
+      >
         Back to Teams
       </button>
 
@@ -1242,10 +1566,18 @@ function TeamDetailPage({ team, data, teams, venues, onBack }) {
           <div className="panel-body team-source-list">
             {sources.map((source, index) => {
               const href = typeof source === "string" ? source : source.url;
-              const label = typeof source === "string" ? source : source.label ?? source.title ?? source.url ?? "Source";
+              const label =
+                typeof source === "string"
+                  ? source
+                  : (source.label ?? source.title ?? source.url ?? "Source");
               if (!href) return <span key={`${label}-${index}`}>{label}</span>;
               return (
-                <a key={`${href}-${index}`} href={href} target="_blank" rel="noreferrer">
+                <a
+                  key={`${href}-${index}`}
+                  href={href}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   {label}
                 </a>
               );
@@ -1254,7 +1586,12 @@ function TeamDetailPage({ team, data, teams, venues, onBack }) {
         </article>
       )}
 
-      <TeamFixtureSection team={team} matches={data.matches} teams={teams} venues={venues} />
+      <TeamFixtureSection
+        team={team}
+        matches={data.matches}
+        teams={teams}
+        venues={venues}
+      />
     </div>
   );
 }
@@ -1275,7 +1612,11 @@ function StandingsTable({ group, matches, teams }) {
   matches
     .filter((match) => match.group === group.id && match.status === "completed")
     .forEach((match) => {
-      if (typeof match.home_score !== "number" || typeof match.away_score !== "number") return;
+      if (
+        typeof match.home_score !== "number" ||
+        typeof match.away_score !== "number"
+      )
+        return;
       const home = byTeam.get(match.home_team_id);
       const away = byTeam.get(match.away_team_id);
       if (!home || !away) return;
@@ -1327,14 +1668,23 @@ function StandingsTable({ group, matches, teams }) {
           {rows.map((row) => {
             const gd = row.goalsFor - row.goalsAgainst;
             return (
-              <tr key={row.teamId} className={row.teamId === NETHERLANDS_ID ? "highlight" : undefined}>
-                <td><TeamLabel id={row.teamId} teams={teams} /></td>
+              <tr
+                key={row.teamId}
+                className={
+                  row.teamId === NETHERLANDS_ID ? "highlight" : undefined
+                }
+              >
+                <td>
+                  <TeamLabel id={row.teamId} teams={teams} />
+                </td>
                 <td className="numeric">{row.played}</td>
                 <td className="numeric">{row.won}</td>
                 <td className="numeric">{row.drawn}</td>
                 <td className="numeric">{row.lost}</td>
                 <td className="numeric">{gd}</td>
-                <td className="numeric"><strong>{row.points}</strong></td>
+                <td className="numeric">
+                  <strong>{row.points}</strong>
+                </td>
               </tr>
             );
           })}
@@ -1357,7 +1707,9 @@ function PredictedStandingsTable({ group, matches, teams, predictions }) {
   }));
   const byTeam = new Map(rows.map((row) => [row.teamId, row]));
   const groupMatches = matches.filter((match) => match.group === group.id);
-  const completedPredictions = groupMatches.filter((match) => scoreComplete(predictions[match.id]));
+  const completedPredictions = groupMatches.filter((match) =>
+    scoreComplete(predictions[match.id]),
+  );
 
   for (const match of completedPredictions) {
     const scores = predictions[match.id];
@@ -1424,8 +1776,15 @@ function PredictedStandingsTable({ group, matches, teams, predictions }) {
             {rows.map((row) => {
               const goalDifference = row.goalsFor - row.goalsAgainst;
               return (
-                <tr key={row.teamId} className={row.teamId === NETHERLANDS_ID ? "highlight" : undefined}>
-                  <td><TeamLabel id={row.teamId} teams={teams} /></td>
+                <tr
+                  key={row.teamId}
+                  className={
+                    row.teamId === NETHERLANDS_ID ? "highlight" : undefined
+                  }
+                >
+                  <td>
+                    <TeamLabel id={row.teamId} teams={teams} />
+                  </td>
                   <td className="numeric">{row.played}</td>
                   <td className="numeric">{row.won}</td>
                   <td className="numeric">{row.drawn}</td>
@@ -1433,7 +1792,9 @@ function PredictedStandingsTable({ group, matches, teams, predictions }) {
                   <td className="numeric">{row.goalsFor}</td>
                   <td className="numeric">{row.goalsAgainst}</td>
                   <td className="numeric">{goalDifference}</td>
-                  <td className="numeric"><strong>{row.points}</strong></td>
+                  <td className="numeric">
+                    <strong>{row.points}</strong>
+                  </td>
                 </tr>
               );
             })}
@@ -1445,7 +1806,9 @@ function PredictedStandingsTable({ group, matches, teams, predictions }) {
 }
 
 function GroupPanel({ group, data, teams }) {
-  const teamNames = group.teams.map((id) => teams.get(id)?.name ?? id).join(", ");
+  const teamNames = group.teams
+    .map((id) => teams.get(id)?.name ?? id)
+    .join(", ");
   const groupMatches = data.matches.filter((match) => match.group === group.id);
   return (
     <article className="panel">
@@ -1454,7 +1817,9 @@ function GroupPanel({ group, data, teams }) {
           <h3>Group {group.id}</h3>
           <p>{teamNames}</p>
         </div>
-        <span className={group.id === "F" ? "pill orange" : "pill"}>{groupMatches.length} matches</span>
+        <span className={group.id === "F" ? "pill orange" : "pill"}>
+          {groupMatches.length} matches
+        </span>
       </div>
       <div className="panel-body">
         <StandingsTable group={group} matches={data.matches} teams={teams} />
@@ -1484,7 +1849,9 @@ function LoginPanel({ onLogin }) {
           method: "POST",
           body: JSON.stringify({ email: resetEmail }),
         });
-        setSuccess(result.message ?? "Password reset. Use default-password to log in.");
+        setSuccess(
+          result.message ?? "Password reset. Use default-password to log in.",
+        );
         return;
       }
 
@@ -1606,7 +1973,11 @@ function ProfileAvatar({ player, size = "medium" }) {
       role="img"
       aria-label={label}
     >
-      {avatar.image_url ? <img src={avatar.image_url} alt="" aria-hidden="true" /> : avatar.initials ?? "?"}
+      {avatar.image_url ? (
+        <img src={avatar.image_url} alt="" aria-hidden="true" />
+      ) : (
+        (avatar.initials ?? "?")
+      )}
     </span>
   );
 }
@@ -1651,10 +2022,20 @@ function ProfileImageEditor({ player, canEdit, onUpdateImage }) {
       <div className="profile-image-actions">
         <label className="text-button profile-image-upload">
           {saving ? "Uploaden..." : "Icoon uploaden"}
-          <input type="file" accept="image/*" onChange={changeImage} disabled={saving} />
+          <input
+            type="file"
+            accept="image/*"
+            onChange={changeImage}
+            disabled={saving}
+          />
         </label>
         {player?.profile_picture?.image_url && (
-          <button className="text-button" type="button" onClick={removeImage} disabled={saving}>
+          <button
+            className="text-button"
+            type="button"
+            onClick={removeImage}
+            disabled={saving}
+          >
             Verwijderen
           </button>
         )}
@@ -1732,7 +2113,11 @@ function ProfileNameEditor({ player, canEdit, onUpdateName }) {
   return (
     <div className="profile-name-row">
       <h3>{player.name}</h3>
-      <button className="text-button" type="button" onClick={() => setEditing(true)}>
+      <button
+        className="text-button"
+        type="button"
+        onClick={() => setEditing(true)}
+      >
         Naam aanpassen
       </button>
     </div>
@@ -1776,7 +2161,10 @@ function ChangePasswordPanel({ canEdit, onChangePassword }) {
       <div className="panel-header">
         <div>
           <h3>Change password</h3>
-          <p>Use default-password as current password if your account was migrated.</p>
+          <p>
+            Use default-password as current password if your account was
+            migrated.
+          </p>
         </div>
       </div>
       <form className="panel-body change-password-form" onSubmit={submit}>
@@ -1822,7 +2210,10 @@ function ChangePasswordPanel({ canEdit, onChangePassword }) {
 function ScoringRulesPanel({ rules }) {
   const groupRule = rules?.match_scores?.["Group Stage"] ?? {};
   const knockoutRule = rules?.match_scores?.["Round of 16"] ?? {};
-  const strikerRule = rules?.world_cup_strikers ?? { count: 5, points_per_goal: 10 };
+  const strikerRule = rules?.world_cup_strikers ?? {
+    count: 5,
+    points_per_goal: 10,
+  };
   return (
     <article className="panel scoring-rules-panel">
       <div className="panel-header">
@@ -1834,19 +2225,34 @@ function ScoringRulesPanel({ rules }) {
       <div className="panel-body scoring-rules-grid">
         <div>
           <strong>Wedstrijden</strong>
-          <span>Poulefase: {groupRule.exact ?? 45} punten exact, {groupRule.outcome ?? 30} voor juiste toto.</span>
-          <span>Knock-out loopt op per ronde, vanaf {knockoutRule.exact ?? 135} exact.</span>
+          <span>
+            Poulefase: {groupRule.exact ?? 45} punten exact,{" "}
+            {groupRule.outcome ?? 30} voor juiste toto.
+          </span>
+          <span>
+            Knock-out loopt op per ronde, vanaf {knockoutRule.exact ?? 135}{" "}
+            exact.
+          </span>
         </div>
         <div>
           <strong>Quiz</strong>
           <span>Keuze-opties tonen hun eigen punten.</span>
-          <span>Player dropdowns: {rules?.quiz_open ?? 12} punten. Kijkcijfersbonus: {rules?.quiz_viewership ?? 15}.</span>
+          <span>
+            Player dropdowns: {rules?.quiz_open ?? 12} punten. Kijkcijfersbonus:{" "}
+            {rules?.quiz_viewership ?? 15}.
+          </span>
         </div>
         <div>
           <strong>Toernooi</strong>
           <span>Wereldkampioen: {rules?.world_cup_winner ?? 250} punten.</span>
-          <span>Topscorer: {rules?.world_cup_top_scorer ?? 100} punten aan het einde.</span>
-          <span>{strikerRule.count ?? 5} spitsen: {strikerRule.points_per_goal ?? 10} punten per goal.</span>
+          <span>
+            Topscorer: {rules?.world_cup_top_scorer ?? 100} punten aan het
+            einde.
+          </span>
+          <span>
+            {strikerRule.count ?? 5} spitsen:{" "}
+            {strikerRule.points_per_goal ?? 10} punten per goal.
+          </span>
         </div>
         <div>
           <strong>Leeuwtjes</strong>
@@ -1866,7 +2272,10 @@ function HomePage({ onSchedule, recap, rules, newsletters = [] }) {
         <div>
           <p className="eyebrow">World Cup hub</p>
           <h3>News from Dutch and Belgian press</h3>
-          <p>Follow the tournament context, then jump straight into the match schedule.</p>
+          <p>
+            Follow the tournament context, then jump straight into the match
+            schedule.
+          </p>
         </div>
         <button className="primary-button" type="button" onClick={onSchedule}>
           View games
@@ -1902,7 +2311,10 @@ function OutcomeBar({ home, draw, away }) {
   const drawWidth = total ? `${Math.round((draw / total) * 100)}%` : "0%";
   const awayWidth = total ? `${Math.round((away / total) * 100)}%` : "0%";
   return (
-    <div className="outcome-bar" aria-label={`${home} home, ${draw} draw, ${away} away predictions`}>
+    <div
+      className="outcome-bar"
+      aria-label={`${home} home, ${draw} draw, ${away} away predictions`}
+    >
       <span className="home" style={{ width: homeWidth }} />
       <span className="draw" style={{ width: drawWidth }} />
       <span className="away" style={{ width: awayWidth }} />
@@ -1922,9 +2334,17 @@ function OutcomeBreakdown({ match, teams }) {
   const homeTeam = teams.get(match.home_team_id);
   const awayTeam = teams.get(match.away_team_id);
   const items = [
-    { key: "home", label: homeTeam?.code ?? homeTeam?.name ?? "Home", value: home },
+    {
+      key: "home",
+      label: homeTeam?.code ?? homeTeam?.name ?? "Home",
+      value: home,
+    },
     { key: "draw", label: "Tie", value: draw },
-    { key: "away", label: awayTeam?.code ?? awayTeam?.name ?? "Away", value: away },
+    {
+      key: "away",
+      label: awayTeam?.code ?? awayTeam?.name ?? "Away",
+      value: away,
+    },
   ];
   return (
     <div className="outcome-breakdown">
@@ -1951,18 +2371,24 @@ function DailyRecap({ recap }) {
           <h3>Daily recap</h3>
           <p>Top 5 + ties voor dagscore en beweging.</p>
         </div>
-        <span className={recap?.available ? "pill green" : "pill"}>{recap?.available ? "Live" : "Nog leeg"}</span>
+        <span className={recap?.available ? "pill green" : "pill"}>
+          {recap?.available ? "Live" : "Nog leeg"}
+        </span>
       </div>
       <div className="panel-body recap-body">
         <div className="daily-recap-grid">
           <section className="daily-recap-board">
             <h4>Dagscore</h4>
-            {!topPlayers.length && <div className="empty compact">Nog geen dagpunten.</div>}
+            {!topPlayers.length && (
+              <div className="empty compact">Nog geen dagpunten.</div>
+            )}
             {!!topPlayers.length && (
               <ol className="daily-top-list">
                 {topPlayers.map((player, index) => (
                   <li className="is-score" key={player.user_id}>
-                    <span className="daily-rank">{player.rank ?? index + 1}</span>
+                    <span className="daily-rank">
+                      {player.rank ?? index + 1}
+                    </span>
                     <ProfileAvatar player={player} size="small" />
                     <strong>{player.name}</strong>
                     <b>{player.points} pts</b>
@@ -1973,7 +2399,9 @@ function DailyRecap({ recap }) {
           </section>
           <section className="daily-recap-board">
             <h4>Biggest movers</h4>
-            {!topMovers.length && <div className="empty compact">Nog geen beweging.</div>}
+            {!topMovers.length && (
+              <div className="empty compact">Nog geen beweging.</div>
+            )}
             {!!topMovers.length && (
               <ol className="daily-top-list">
                 {topMovers.map((player, index) => (
@@ -2021,7 +2449,9 @@ function BadgeCloud({ badges = [] }) {
 }
 
 function badgeProgressFromCatalog(catalog = [], unlockedBadges = []) {
-  const unlockedByKey = new Map(unlockedBadges.map((badge) => [badge.key, badge]));
+  const unlockedByKey = new Map(
+    unlockedBadges.map((badge) => [badge.key, badge]),
+  );
   return catalog.map((badge) => {
     const unlocked = unlockedByKey.get(badge.key);
     return {
@@ -2040,7 +2470,9 @@ function BadgeProgressSection({ player, badgeCatalog = [], canView }) {
   const badges = player?.badge_progress?.length
     ? player.badge_progress
     : badgeProgressFromCatalog(badgeCatalog, player?.badges ?? []);
-  const unlockedCount = canView ? badges.filter((badge) => badge.unlocked).length : 0;
+  const unlockedCount = canView
+    ? badges.filter((badge) => badge.unlocked).length
+    : 0;
 
   return (
     <article className="panel profile-badges">
@@ -2049,13 +2481,19 @@ function BadgeProgressSection({ player, badgeCatalog = [], canView }) {
           <h3>Badges</h3>
           <p>Unlocked badges and progress toward the next ones.</p>
         </div>
-        <span className={canView ? "pill green" : "pill"}>{unlockedCount}/{badges.length}</span>
+        <span className={canView ? "pill green" : "pill"}>
+          {unlockedCount}/{badges.length}
+        </span>
       </div>
       <div className="panel-body">
         {!canView && (
-          <div className="empty compact">Badges are visible when you follow each other.</div>
+          <div className="empty compact">
+            Badges are visible when you follow each other.
+          </div>
         )}
-        {canView && !badges.length && <div className="empty compact">Geen badges beschikbaar.</div>}
+        {canView && !badges.length && (
+          <div className="empty compact">Geen badges beschikbaar.</div>
+        )}
         {canView && !!badges.length && (
           <div className="badge-progress-grid">
             {badges.map((badge) => (
@@ -2064,7 +2502,9 @@ function BadgeProgressSection({ player, badgeCatalog = [], canView }) {
                 key={badge.key}
               >
                 <div className="badge-progress-heading">
-                  <span className="badge-progress-mark" aria-hidden="true">{badge.mark ?? "B"}</span>
+                  <span className="badge-progress-mark" aria-hidden="true">
+                    {badge.mark ?? "B"}
+                  </span>
                   <div>
                     <h4>{badge.label}</h4>
                     <p>{badge.detail}</p>
@@ -2074,8 +2514,14 @@ function BadgeProgressSection({ player, badgeCatalog = [], canView }) {
                   <span style={{ width: `${badge.progress ?? 0}%` }} />
                 </div>
                 <div className="badge-progress-meta">
-                  <span>{badge.current ?? 0}/{badge.target ?? 1} {badge.unit}</span>
-                  <strong>{badge.unlocked ? `Unlocked${badge.count > 1 ? ` x${badge.count}` : ""}` : "Locked"}</strong>
+                  <span>
+                    {badge.current ?? 0}/{badge.target ?? 1} {badge.unit}
+                  </span>
+                  <strong>
+                    {badge.unlocked
+                      ? `Unlocked${badge.count > 1 ? ` x${badge.count}` : ""}`
+                      : "Locked"}
+                  </strong>
                 </div>
               </article>
             ))}
@@ -2103,11 +2549,16 @@ function BadgeCatalogPage({ badges = [] }) {
           <span className="pill green">{badges.length} badges</span>
         </div>
         <div className="panel-body badge-catalog">
-          {!badges.length && <div className="empty compact">Geen badges beschikbaar.</div>}
+          {!badges.length && (
+            <div className="empty compact">Geen badges beschikbaar.</div>
+          )}
           {Object.entries(groupedBadges).map(([family, familyBadges]) => (
             <section className="badge-family" key={family}>
               <div className="badge-family-heading">
-                <span className={`badge-family-mark is-${family}`} aria-hidden="true">
+                <span
+                  className={`badge-family-mark is-${family}`}
+                  aria-hidden="true"
+                >
                   {familyBadges[0]?.mark ?? "B"}
                 </span>
                 <div>
@@ -2117,7 +2568,10 @@ function BadgeCatalogPage({ badges = [] }) {
               </div>
               <div className="badge-catalog-grid">
                 {familyBadges.map((badge) => (
-                  <article className={`badge-catalog-card is-${badge.family}`} key={badge.key}>
+                  <article
+                    className={`badge-catalog-card is-${badge.family}`}
+                    key={badge.key}
+                  >
                     <BadgePill badge={badge} />
                     <p>{badge.detail}</p>
                   </article>
@@ -2139,7 +2593,10 @@ function MatchdayPredictionModal({
   onPoolUpdate,
 }) {
   const [scores, setScores] = useState({ home_score: "", away_score: "" });
-  const [quizDraft, setQuizDraft] = useState({ answer: "", viewership_prediction: "" });
+  const [quizDraft, setQuizDraft] = useState({
+    answer: "",
+    viewership_prediction: "",
+  });
   const [leeuwtjeActive, setLeeuwtjeActive] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -2161,7 +2618,10 @@ function MatchdayPredictionModal({
   const leeuwtjeTotal = leeuwtjesTotal(pool);
   const currentLeeuwtjes = new Set(poolLeeuwtjeMatchIds(pool));
   const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - currentLeeuwtjes.size);
-  const canToggleLeeuwtje = leeuwtjeActive || currentLeeuwtjes.has(match.id) || currentLeeuwtjes.size < leeuwtjeTotal;
+  const canToggleLeeuwtje =
+    leeuwtjeActive ||
+    currentLeeuwtjes.has(match.id) ||
+    currentLeeuwtjes.size < leeuwtjeTotal;
   const locked = Boolean(match.locked);
 
   function setScore(_matchId, key, value) {
@@ -2223,13 +2683,26 @@ function MatchdayPredictionModal({
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
-      <article className="prediction-modal" role="dialog" aria-modal="true" aria-label="Match prediction" onMouseDown={(event) => event.stopPropagation()}>
+      <article
+        className="prediction-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Match prediction"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
         <div className="prediction-modal-header">
           <div>
-            <h3><TeamLabel id={match.home_team_id} teams={teams} /> vs <TeamLabel id={match.away_team_id} teams={teams} /></h3>
-            <p>{formatDate(match, true)} · {formatTime(match)}</p>
+            <h3>
+              <TeamLabel id={match.home_team_id} teams={teams} /> vs{" "}
+              <TeamLabel id={match.away_team_id} teams={teams} />
+            </h3>
+            <p>
+              {formatDate(match, true)} · {formatTime(match)}
+            </p>
           </div>
-          <button className="text-button" type="button" onClick={onClose}>Close</button>
+          <button className="text-button" type="button" onClick={onClose}>
+            Close
+          </button>
         </div>
         <div className="prediction-modal-body">
           <MatchPredictionEditor
@@ -2256,7 +2729,12 @@ function MatchdayPredictionModal({
               remaining={leeuwtjesRemaining}
               onToggle={() => setLeeuwtjeActive((current) => !current)}
             />
-            <button className="primary-button" type="button" onClick={savePrediction} disabled={!scoreComplete(scores) || saving || locked}>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={savePrediction}
+              disabled={!scoreComplete(scores) || saving || locked}
+            >
               {saving ? "Saving..." : "Save prediction"}
             </button>
           </div>
@@ -2273,7 +2751,8 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
 
   function statusMessage(match) {
     if (match.has_my_prediction) return "Je voorspelling is ingevuld.";
-    if (match.locked) return "Je voorspelling mist, maar deze wedstrijd is gesloten.";
+    if (match.locked)
+      return "Je voorspelling mist, maar deze wedstrijd is gesloten.";
     return "Je voorspelling mist nog. Klik op deze wedstrijd om hem in te vullen.";
   }
 
@@ -2287,13 +2766,19 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
       <article className="panel">
         <div className="panel-header">
           <div>
-            <h3>{summary?.is_today ? "Wedstrijddag" : "Volgende wedstrijddag"}</h3>
-            <p>Wedstrijden, voorspellingen, quizreacties en ingezette Leeuwtjes.</p>
+            <h3>
+              {summary?.is_today ? "Wedstrijddag" : "Volgende wedstrijddag"}
+            </h3>
+            <p>
+              Wedstrijden, voorspellingen, quizreacties en ingezette Leeuwtjes.
+            </p>
           </div>
           <span className="pill">{summary?.matches?.length ?? 0} matches</span>
         </div>
         <div className="panel-body matchday-body">
-          {!summary?.matches?.length && <div className="empty compact">Geen wedstrijden gevonden.</div>}
+          {!summary?.matches?.length && (
+            <div className="empty compact">Geen wedstrijden gevonden.</div>
+          )}
           {summary?.matches?.map((rawMatch) => {
             const match = { ...rawMatch, id: rawMatch.id ?? rawMatch.match_id };
             const venue = venues.get(match.venue_id);
@@ -2308,7 +2793,11 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
                 aria-disabled={!canOpen}
               >
                 <span
-                  className={match.has_my_prediction ? "matchday-status is-done" : "matchday-status is-missing"}
+                  className={
+                    match.has_my_prediction
+                      ? "matchday-status is-done"
+                      : "matchday-status is-missing"
+                  }
                   aria-label={matchStatusMessage}
                   data-tooltip={matchStatusMessage}
                   title={matchStatusMessage}
@@ -2318,10 +2807,14 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
                 <span className="match-time">{formatTime(match)}</span>
                 <span className="matchday-main">
                   <strong className="match-teams">
-                    <TeamLabel id={match.home_team_id} teams={teams} /> <span className="muted">vs</span>{" "}
+                    <TeamLabel id={match.home_team_id} teams={teams} />{" "}
+                    <span className="muted">vs</span>{" "}
                     <TeamLabel id={match.away_team_id} teams={teams} />
                   </strong>
-                  <span className="match-meta">{formatDate(match, true)} · {venue?.city ?? "Venue to confirm"}</span>
+                  <span className="match-meta">
+                    {formatDate(match, true)} ·{" "}
+                    {venue?.city ?? "Venue to confirm"}
+                  </span>
                 </span>
                 <span className="matchday-side">
                   <OutcomeBreakdown match={match} teams={teams} />
@@ -2350,21 +2843,47 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
 
 function RankMovement({ movement = 0 }) {
   if (movement > 0) {
-    return <span className="rank-movement is-up" aria-label={`Moved up ${movement} ranks`}>▲ {movement}</span>;
+    return (
+      <span
+        className="rank-movement is-up"
+        aria-label={`Moved up ${movement} ranks`}
+      >
+        ▲ {movement}
+      </span>
+    );
   }
   if (movement < 0) {
-    return <span className="rank-movement is-down" aria-label={`Moved down ${Math.abs(movement)} ranks`}>▼ {Math.abs(movement)}</span>;
+    return (
+      <span
+        className="rank-movement is-down"
+        aria-label={`Moved down ${Math.abs(movement)} ranks`}
+      >
+        ▼ {Math.abs(movement)}
+      </span>
+    );
   }
-  return <span className="rank-movement is-flat" aria-label="No rank movement">-</span>;
+  return (
+    <span className="rank-movement is-flat" aria-label="No rank movement">
+      -
+    </span>
+  );
 }
 
 function TopScorerPickLabel({ picks }) {
   const names = (picks ?? []).map((pick) => pick.name ?? pick).filter(Boolean);
   if (!names.length) return <span className="muted">Not picked</span>;
-  return <span>{names.map((name, index) => `${index + 1}. ${name}`).join(" · ")}</span>;
+  return (
+    <span>
+      {names.map((name, index) => `${index + 1}. ${name}`).join(" · ")}
+    </span>
+  );
 }
 
-function Leaderboard({ pool, onProfile = () => {} }) {
+function Leaderboard({
+  pool,
+  onProfile = () => {},
+  profileLinksEnabled = true,
+}) {
   return (
     <article className="panel">
       <div className="panel-header">
@@ -2376,7 +2895,10 @@ function Leaderboard({ pool, onProfile = () => {} }) {
       </div>
       <div className="panel-body">
         <div className="leaderboard-legend" aria-label="Leaderboard legend">
-          <span className="legend-swatch missing-predictions" aria-hidden="true" />
+          <span
+            className="legend-swatch missing-predictions"
+            aria-hidden="true"
+          />
           <span>missing predictions</span>
         </div>
         <div className="table-wrap">
@@ -2392,8 +2914,6 @@ function Leaderboard({ pool, onProfile = () => {} }) {
                 <th className="numeric">Scorer pts</th>
                 <th className="numeric">Leeuwtjes</th>
                 <th className="numeric">Predictions</th>
-                <th>Winner</th>
-                <th>Top scorer / strikers</th>
               </tr>
             </thead>
             <tbody>
@@ -2403,31 +2923,51 @@ function Leaderboard({ pool, onProfile = () => {} }) {
                   "leaderboard-row",
                   pool.me?.id === row.user_id ? "highlight" : "",
                   missingPredictions ? "has-missing-predictions" : "",
-                ].filter(Boolean).join(" ");
+                ]
+                  .filter(Boolean)
+                  .join(" ");
                 return (
                   <tr key={row.user_id} className={rowClass}>
                     <td>{index + 1}</td>
                     <td>
-                      <button className="profile-icon-link" type="button" onClick={() => onProfile(row.user_id)} aria-label={`Open ${row.name} profile`}>
-                        <ProfileAvatar player={row} size="small" />
-                      </button>
-                      <span className="leaderboard-name">
-                        <strong>{row.name}</strong>
-                        <RankMovement movement={row.rank_movement ?? 0} />
-                      </span>
+                      {profileLinksEnabled ? (
+                        <button
+                          className="leaderboard-player-link"
+                          type="button"
+                          onClick={() => onProfile(row.user_id)}
+                          aria-label={`Open ${row.name} profile`}
+                        >
+                          <ProfileAvatar player={row} size="small" />
+                          <span className="leaderboard-name">
+                            <strong>{row.name}</strong>
+                            <RankMovement movement={row.rank_movement ?? 0} />
+                          </span>
+                        </button>
+                      ) : (
+                        <span className="leaderboard-player-link is-static">
+                          <ProfileAvatar player={row} size="small" />
+                          <span className="leaderboard-name">
+                            <strong>{row.name}</strong>
+                            <RankMovement movement={row.rank_movement ?? 0} />
+                          </span>
+                        </span>
+                      )}
                     </td>
-                    <td className="numeric"><strong>{row.points}</strong></td>
+                    <td className="numeric">
+                      <strong>{row.points}</strong>
+                    </td>
                     <td className="numeric">{row.exact_scores}</td>
                     <td className="numeric">{row.outcomes}</td>
                     <td className="numeric">{row.quiz_points ?? 0}</td>
-                    <td className="numeric">{row.scorer_points ?? row.top_scorer_points ?? 0}</td>
-                    <td className="numeric">{row.leeuwtjes_used ?? 0}/{pool.progress?.leeuwtjes_total ?? 5}</td>
-                    <td className="numeric">{row.group_stage_predictions}/{row.group_stage_total}</td>
-                    <td>{row.winner_pick_name ?? <span className="muted">Not picked</span>}</td>
-                    <td>
-                      <span>{row.top_scorer_pick ?? <span className="muted">Not picked</span>}</span>
-                      <br />
-                      <TopScorerPickLabel picks={row.striker_picks ?? row.top_scorer_picks} />
+                    <td className="numeric">
+                      {row.scorer_points ?? row.top_scorer_points ?? 0}
+                    </td>
+                    <td className="numeric">
+                      {row.leeuwtjes_used ?? 0}/
+                      {pool.progress?.leeuwtjes_total ?? 5}
+                    </td>
+                    <td className="numeric">
+                      {row.group_stage_predictions}/{row.group_stage_total}
                     </td>
                   </tr>
                 );
@@ -2435,7 +2975,12 @@ function Leaderboard({ pool, onProfile = () => {} }) {
             </tbody>
           </table>
         </div>
-        {!pool.leaderboard.length && <div className="empty">No leaderboard entries yet. Complete the Netherlands group to appear here.</div>}
+        {!pool.leaderboard.length && (
+          <div className="empty">
+            No leaderboard entries yet. Complete the Netherlands group to appear
+            here.
+          </div>
+        )}
       </div>
     </article>
   );
@@ -2463,10 +3008,17 @@ function PlayerPredictions({ player, canView }) {
 
     async function loadPredictions() {
       try {
-        const result = await apiJson(`/api/profiles/${player.user_id}/predictions`);
+        const result = await apiJson(
+          `/api/profiles/${player.user_id}/predictions`,
+        );
         if (!cancelled) {
           setPredictionGroups(result.groups ?? []);
-          setLimited(Boolean(result.limited_to_completed_matches));
+          setLimited(
+            Boolean(
+              result.limited_to_locked_matches ??
+              result.limited_to_completed_matches,
+            ),
+          );
         }
       } catch (err) {
         if (!cancelled) setError(err.message);
@@ -2486,38 +3038,65 @@ function PlayerPredictions({ player, canView }) {
       <div className="panel-header">
         <div>
           <h3>Predictions</h3>
-          <p>{limited ? "Other players show only matches that have finished." : "Grouped by World Cup group."}</p>
+          <p>
+            {limited
+              ? "Andere spelers tonen alleen wedstrijden die al gesloten zijn."
+              : "Grouped by World Cup group."}
+          </p>
         </div>
       </div>
       <div className="panel-body profile-prediction-body">
         {!canView && (
           <div className="empty compact">Predictions are not available.</div>
         )}
-        {canView && !loaded && <div className="empty compact">Loading predictions...</div>}
+        {canView && !loaded && (
+          <div className="empty compact">Loading predictions...</div>
+        )}
         {canView && error && <div className="form-error">{error}</div>}
         {canView && loaded && !error && !predictionGroups.length && (
-          <div className="empty compact">{limited ? "No finished-match predictions visible yet." : "No predictions filled in yet."}</div>
+          <div className="empty compact">
+            {limited
+              ? "Nog geen gesloten wedstrijdvoorspellingen zichtbaar."
+              : "No predictions filled in yet."}
+          </div>
         )}
-        {canView && predictionGroups.map((group) => (
-          <section className="profile-prediction-group" key={group.group}>
-            <h4>Group {group.group}</h4>
-            <div className="profile-prediction-list">
-              {group.predictions.map((prediction) => (
-                <article className="profile-prediction-row" key={prediction.match_id}>
-                  <div>
-                    <strong>{prediction.home_team_name} vs {prediction.away_team_name}</strong>
-                    <span>{formatDate(prediction, true)} · {formatTime(prediction)}</span>
-                    {prediction.quiz_answer && (
-                      <span>Quiz: {prediction.quiz_answer}{prediction.viewership_prediction ? ` · ${formatNumber(prediction.viewership_prediction)} kijkers` : ""}</span>
-                    )}
-                    {prediction.leeuwtje && <span>Leeuwtje ingezet</span>}
-                  </div>
-                  <b>{prediction.home_score} - {prediction.away_score}</b>
-                </article>
-              ))}
-            </div>
-          </section>
-        ))}
+        {canView &&
+          predictionGroups.map((group) => (
+            <section className="profile-prediction-group" key={group.group}>
+              <h4>Group {group.group}</h4>
+              <div className="profile-prediction-list">
+                {group.predictions.map((prediction) => (
+                  <article
+                    className="profile-prediction-row"
+                    key={prediction.match_id}
+                  >
+                    <div>
+                      <strong>
+                        {prediction.home_team_name} vs{" "}
+                        {prediction.away_team_name}
+                      </strong>
+                      <span>
+                        {formatDate(prediction, true)} ·{" "}
+                        {formatTime(prediction)}
+                      </span>
+                      {prediction.quiz_answer && (
+                        <span>
+                          Quiz: {prediction.quiz_answer}
+                          {prediction.viewership_prediction
+                            ? ` · ${formatNumber(prediction.viewership_prediction)} kijkers`
+                            : ""}
+                        </span>
+                      )}
+                      {prediction.leeuwtje && <span>Leeuwtje ingezet</span>}
+                    </div>
+                    <b>
+                      {prediction.home_score} - {prediction.away_score}
+                    </b>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ))}
       </div>
     </article>
   );
@@ -2528,7 +3107,7 @@ function PlayerProfile({
   rank,
   isSelf,
   badgeCatalog,
-  onBack,
+  tournamentPicksVisible,
   onUpdateName,
   onUpdateImage,
   onChangePassword,
@@ -2546,11 +3125,16 @@ function PlayerProfile({
   const stats = [
     { label: "PTS", value: player.points, detail: "Total points" },
     { label: "Precision", value: player.precision, detail: "Exact scores" },
-    { label: "Scorers", value: player.scorer_points ?? player.top_scorer_points ?? 0, detail: "Top scorer + strikers" },
+    {
+      label: "Scorers",
+      value: player.scorer_points ?? player.top_scorer_points ?? 0,
+      detail: "Top scorer + strikers",
+    },
     { label: "Shooting", value: player.shooting, detail: "Winner goals" },
     { label: "Defence", value: player.defence, detail: "Loser goals" },
   ];
   const canViewPredictions = true;
+  const canViewTournamentPicks = isSelf || tournamentPicksVisible;
   const rankLabel = rank ? `Rank #${rank}` : "Nog niet gerankt";
 
   function pickClassName(impossible) {
@@ -2563,9 +3147,6 @@ function PlayerProfile({
 
   return (
     <div className="profile-page">
-      <button className="text-button" type="button" onClick={onBack}>
-        Back to leaderboard
-      </button>
       <div className="profile-top-layout">
         <article className="fifa-card">
           <div className="fifa-card-top">
@@ -2600,51 +3181,81 @@ function PlayerProfile({
         <article className="profile-picks-panel">
           <div className="profile-picks-header">
             <h3>Toernooi picks</h3>
-            <span>{pointsLabel((player.winner_points ?? 0) + (player.scorer_points ?? 0))}</span>
+            <span>
+              {canViewTournamentPicks
+                ? pointsLabel(
+                    (player.winner_points ?? 0) + (player.scorer_points ?? 0),
+                  )
+                : "Geheim"}
+            </span>
           </div>
-          <div className={pickClassName(player.winner_impossible)}>
-            <div>
-              <strong>WK winnaar</strong>
-              <span>{player.winner_pick_name ?? "Niet gekozen"}</span>
-            </div>
-            <b>{pointsLabel(player.winner_points)}</b>
-          </div>
-          <div className={pickClassName(player.top_scorer_impossible)}>
-            <div>
-              <strong>Topscorer</strong>
-              <span>{player.top_scorer_pick ?? "Niet gekozen"}</span>
-            </div>
-            <b>{pointsLabel(player.top_scorer_points)}</b>
-          </div>
-          <div className="profile-pick-section-title">
-            <strong>Total strikers</strong>
-            <b>{pointsLabel(player.striker_points)}</b>
-          </div>
-          <div className="profile-striker-list">
-            {(player.striker_picks ?? []).map((pick, index) => (
-              <div className="profile-pick-row" key={`${pick.name}-${index}`}>
-                <div>
-                  <strong>{`Striker ${index + 1}`}</strong>
-                  <span>{pick.name}</span>
-                </div>
-                <b>{pointsLabel(pick.points)}</b>
+          {!canViewTournamentPicks ? (
+            <div className="profile-pick-row is-private">
+              <div>
+                <strong>Geheim tot de deadline</strong>
+                <span>
+                  Deze toernooi picks worden zichtbaar 1 uur voor de eerste
+                  wedstrijd.
+                </span>
               </div>
-            ))}
-            {!(player.striker_picks ?? []).length && (
-              <div className="profile-pick-row">
+            </div>
+          ) : (
+            <>
+              <div className={pickClassName(player.winner_impossible)}>
                 <div>
-                  <strong>Strikers</strong>
-                  <span>Niet gekozen</span>
+                  <strong>WK winnaar</strong>
+                  <span>{player.winner_pick_name ?? "Niet gekozen"}</span>
                 </div>
-                <b>{pointsLabel(0)}</b>
+                <b>{pointsLabel(player.winner_points)}</b>
               </div>
-            )}
-          </div>
+              <div className={pickClassName(player.top_scorer_impossible)}>
+                <div>
+                  <strong>Topscorer</strong>
+                  <span>{player.top_scorer_pick ?? "Niet gekozen"}</span>
+                </div>
+                <b>{pointsLabel(player.top_scorer_points)}</b>
+              </div>
+              <div className="profile-pick-section-title">
+                <strong>Spitsen totaal</strong>
+                <b>{pointsLabel(player.striker_points)}</b>
+              </div>
+              <div className="profile-striker-list">
+                {(player.striker_picks ?? []).map((pick, index) => (
+                  <div
+                    className="profile-pick-row"
+                    key={`${pick.name}-${index}`}
+                  >
+                    <div>
+                      <strong>{`Spits ${index + 1}`}</strong>
+                      <span>{pick.name}</span>
+                    </div>
+                    <b>{pointsLabel(pick.points)}</b>
+                  </div>
+                ))}
+                {!(player.striker_picks ?? []).length && (
+                  <div className="profile-pick-row">
+                    <div>
+                      <strong>Spitsen</strong>
+                      <span>Niet gekozen</span>
+                    </div>
+                    <b>{pointsLabel(0)}</b>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </article>
       </div>
-      <ChangePasswordPanel canEdit={isSelf} onChangePassword={onChangePassword} />
+      <ChangePasswordPanel
+        canEdit={isSelf}
+        onChangePassword={onChangePassword}
+      />
       <LeeuwtjesHelpToggle used={player.leeuwtjes_used ?? 0} total={5} />
-      <BadgeProgressSection player={player} badgeCatalog={badgeCatalog} canView />
+      <BadgeProgressSection
+        player={player}
+        badgeCatalog={badgeCatalog}
+        canView
+      />
       <PlayerPredictions player={player} canView={canViewPredictions} />
     </div>
   );
@@ -2668,14 +3279,21 @@ function OnboardingActions({ backLabel = "Back", nextLabel, onBack, onNext }) {
 function LeeuwtjesInfo({ used = null, total = 5 }) {
   return (
     <div className="leeuwtjes-info">
-      <div className="leeuwtjes-mark" aria-hidden="true">2x</div>
+      <div className="leeuwtjes-mark" aria-hidden="true">
+        2x
+      </div>
       <div>
         <strong>Leeuwtjes</strong>
         <p>
-          Je hebt {total} Leeuwtjes. Zet er eentje op een wedstrijd voor de lock en je scorepunten
-          voor die wedstrijd tellen dubbel. Quizpunten en groepsstandpunten tellen niet dubbel.
+          Je hebt {total} Leeuwtjes. Zet er eentje op een wedstrijd voor de lock
+          en je scorepunten voor die wedstrijd tellen dubbel. Quizpunten en
+          groepsstandpunten tellen niet dubbel.
         </p>
-        {used !== null && <span>{used}/{total} Leeuwtjes gebruikt</span>}
+        {used !== null && (
+          <span>
+            {used}/{total} Leeuwtjes gebruikt
+          </span>
+        )}
       </div>
     </div>
   );
@@ -2685,7 +3303,11 @@ function LeeuwtjesHelpToggle({ used = 0, total = 5 }) {
   const [open, setOpen] = useState(false);
   return (
     <section className="profile-help">
-      <button className="text-button" type="button" onClick={() => setOpen((current) => !current)}>
+      <button
+        className="text-button"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
         {open ? "Leeuwtjes uitleg verbergen" : "Leeuwtjes uitleg"}
       </button>
       {open && <LeeuwtjesInfo used={used} total={total} />}
@@ -2706,7 +3328,10 @@ function WelcomeStep({ pool, onNext }) {
         </div>
         <div className="panel-body">
           <p className="onboarding-message">
-            This is the Talpa WK Pool for the 2026 World Cup. Check the leaderboard to see who is in, then add your Netherlands group predictions. After that first round is done, the app opens straight to the leaderboard.
+            This is the Talpa WK Pool for the 2026 World Cup. Check the
+            leaderboard to see who is in, then add your Netherlands group
+            predictions. After that first round is done, the app opens straight
+            to the leaderboard.
           </p>
           <LeeuwtjesInfo />
           <OnboardingActions nextLabel="View leaderboard" onNext={onNext} />
@@ -2716,10 +3341,10 @@ function WelcomeStep({ pool, onNext }) {
   );
 }
 
-function LeaderboardPreviewStep({ pool, onBack, onNext, onProfile }) {
+function LeaderboardPreviewStep({ pool, onBack, onNext }) {
   return (
     <div className="onboarding-layout">
-      <Leaderboard pool={pool} onProfile={onProfile} />
+      <Leaderboard pool={pool} profileLinksEnabled={false} />
       <OnboardingActions nextLabel="Continue" onBack={onBack} onNext={onNext} />
     </div>
   );
@@ -2732,24 +3357,44 @@ function JoinStep({ onBack, onNext }) {
         <div className="panel-header">
           <div>
             <h3>Wanna join?</h3>
-            <p>Fill in the Netherlands group to claim your spot on the leaderboard.</p>
+            <p>
+              Fill in the Netherlands group to claim your spot on the
+              leaderboard.
+            </p>
           </div>
           <span className="pill orange">Step 2</span>
         </div>
         <div className="panel-body">
           <p className="onboarding-message">
-            Your predictions can be adjusted later until each match locks one hour before kickoff. Start with the Netherlands group, then keep going if you want the full card.
+            Your predictions can be adjusted later until each match locks one
+            hour before kickoff. Start with the Netherlands group, then keep
+            going if you want the full card.
           </p>
-          <OnboardingActions nextLabel="Start predictions" onBack={onBack} onNext={onNext} />
+          <OnboardingActions
+            nextLabel="Start predictions"
+            onBack={onBack}
+            onNext={onNext}
+          />
         </div>
       </article>
     </div>
   );
 }
 
-function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, onBack }) {
+function PredictionPanel({
+  data,
+  teams,
+  venues,
+  pool,
+  onPoolUpdate,
+  onContinue,
+  onBack,
+}) {
   const groupMatches = useMemo(
-    () => data.matches.filter((match) => match.round === "Group Stage").sort((a, b) => escapeDate(a) - escapeDate(b)),
+    () =>
+      data.matches
+        .filter((match) => match.round === "Group Stage")
+        .sort((a, b) => escapeDate(a) - escapeDate(b)),
     [data],
   );
   const matchesByGroup = useMemo(() => {
@@ -2759,12 +3404,16 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
     }
     return groups;
   }, [data.groups, groupMatches]);
-  const requiredGroup = data.groups.find((group) => group.teams.includes(NETHERLANDS_ID)) ?? data.groups[0];
+  const requiredGroup =
+    data.groups.find((group) => group.teams.includes(NETHERLANDS_ID)) ??
+    data.groups[0];
   const requiredGroupId = requiredGroup?.id ?? "";
   const initialGroupId = requiredGroupId || data.groups[0]?.id || "";
   const [draft, setDraft] = useState({});
   const [quizDraft, setQuizDraft] = useState({});
-  const [leeuwtjeMatchIds, setLeeuwtjeMatchIds] = useState(() => new Set(poolLeeuwtjeMatchIds(pool)));
+  const [leeuwtjeMatchIds, setLeeuwtjeMatchIds] = useState(
+    () => new Set(poolLeeuwtjeMatchIds(pool)),
+  );
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId);
   const [editingMatchId, setEditingMatchId] = useState("");
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
@@ -2775,8 +3424,12 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const selectedGroup = data.groups.find((group) => group.id === selectedGroupId);
-  const selectedMatches = selectedGroupId ? matchesByGroup.get(selectedGroupId) ?? [] : [];
+  const selectedGroup = data.groups.find(
+    (group) => group.id === selectedGroupId,
+  );
+  const selectedMatches = selectedGroupId
+    ? (matchesByGroup.get(selectedGroupId) ?? [])
+    : [];
   const winnerTeam = winner ? teams.get(winner) : null;
   const lockedWinner = winnerLocked(pool);
   const topScorerSuggestions = useMemo(() => topScorerOptions(data), [data]);
@@ -2816,7 +3469,12 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
       setTopScorer(topScorerPickFromPool(pool));
       setStrikers(strikerPicksFromPool(pool));
     }
-  }, [pool.top_scorer_pick, pool.striker_picks, pool.top_scorer_picks, tournamentPicksDirty]);
+  }, [
+    pool.top_scorer_pick,
+    pool.striker_picks,
+    pool.top_scorer_picks,
+    tournamentPicksDirty,
+  ]);
 
   function hasPrediction(match) {
     return scoreComplete(draft[match.id]);
@@ -2827,13 +3485,26 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   }
 
   const predictedMatchCount = groupMatches.filter(hasPrediction).length;
-  const quizPredictedCount = groupMatches.filter((match) => quizAnswerComplete(match.quiz, quizDraft[match.id])).length;
-  const requiredMatches = requiredGroupId ? matchesByGroup.get(requiredGroupId) ?? [] : groupMatches;
+  const quizPredictedCount = groupMatches.filter((match) =>
+    quizAnswerComplete(match.quiz, quizDraft[match.id]),
+  ).length;
+  const requiredMatches = requiredGroupId
+    ? (matchesByGroup.get(requiredGroupId) ?? [])
+    : groupMatches;
   const requiredPredictedCount = requiredMatches.filter(hasPrediction).length;
-  const requiredPredictionsComplete = Boolean(requiredMatches.length && requiredPredictedCount >= requiredMatches.length);
-  const missingRequiredCount = Math.max(0, requiredMatches.length - requiredPredictedCount);
-  const selectedGroupPredictionCount = selectedGroup ? groupPredictionCount(selectedGroup.id) : 0;
-  const progressPercent = groupMatches.length ? Math.round((predictedMatchCount / groupMatches.length) * 100) : 0;
+  const requiredPredictionsComplete = Boolean(
+    requiredMatches.length && requiredPredictedCount >= requiredMatches.length,
+  );
+  const missingRequiredCount = Math.max(
+    0,
+    requiredMatches.length - requiredPredictedCount,
+  );
+  const selectedGroupPredictionCount = selectedGroup
+    ? groupPredictionCount(selectedGroup.id)
+    : 0;
+  const progressPercent = groupMatches.length
+    ? Math.round((predictedMatchCount / groupMatches.length) * 100)
+    : 0;
   const allPredictionsComplete = predictedMatchCount === groupMatches.length;
 
   function chooseGroup(groupId) {
@@ -2889,9 +3560,9 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   }
 
   function chooseStriker(index, value) {
-    setStrikers((current) => current.map((pick, pickIndex) => (
-      pickIndex === index ? value : pick
-    )));
+    setStrikers((current) =>
+      current.map((pick, pickIndex) => (pickIndex === index ? value : pick)),
+    );
     setTournamentPicksDirty(true);
     setError("");
   }
@@ -2950,8 +3621,14 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
       <article className="panel prediction-guide">
         <div className="panel-header">
           <div>
-            <h3>{selectedGroup ? `Group ${selectedGroup.id}: make predictions` : "Make predictions"}</h3>
-            <p>Work through the schedule and watch your predicted table update.</p>
+            <h3>
+              {selectedGroup
+                ? `Group ${selectedGroup.id}: make predictions`
+                : "Make predictions"}
+            </h3>
+            <p>
+              Work through the schedule and watch your predicted table update.
+            </p>
           </div>
           <div className="panel-header-actions">
             {onBack && (
@@ -2962,36 +3639,60 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
           </div>
         </div>
         <div className="panel-body">
-          <section className={winnerTeam ? "winner-spotlight-card has-winner" : "winner-spotlight-card"} aria-label="Tournament picks">
-            <div className="winner-trophy" aria-hidden="true"><img src={TROPHY_SRC} alt="" /></div>
+          <section
+            className={
+              winnerTeam
+                ? "winner-spotlight-card has-winner"
+                : "winner-spotlight-card"
+            }
+            aria-label="Tournament picks"
+          >
+            <div className="winner-trophy" aria-hidden="true">
+              <img src={TROPHY_SRC} alt="" />
+            </div>
             <div className="winner-spotlight-copy">
               <span className="game-kicker">Tournament picks</span>
               <h4>
                 {winnerTeam ? (
-                  <span className="winner-team-title"><TeamFlag id={winnerTeam.id} /> {winnerTeam.name}</span>
-                ) : "Pick your champion"}
+                  <span className="winner-team-title">
+                    <TeamFlag id={winnerTeam.id} /> {winnerTeam.name}
+                  </span>
+                ) : (
+                  "Pick your champion"
+                )}
               </h4>
               <p>
-                Add your champion, final top scorer and five strikers before the tournament starts.
+                Add your champion, final top scorer and five strikers before the
+                tournament starts.
               </p>
             </div>
             <div className="tournament-pick-controls">
               <label className="winner-select winner-select-inline">
                 Kampioen
-                <select value={winner} onChange={(event) => chooseWinner(event.target.value)} disabled={lockedWinner}>
+                <select
+                  value={winner}
+                  onChange={(event) => chooseWinner(event.target.value)}
+                  disabled={lockedWinner}
+                >
                   <option value="">Kies kampioen</option>
-                  {data.teams.slice().sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
-                    <option key={team.id} value={team.id}>{teamOptionLabel(team)}</option>
-                  ))}
+                  {data.teams
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {teamOptionLabel(team)}
+                      </option>
+                    ))}
                 </select>
               </label>
-              <label className="winner-select winner-select-inline">
-                Topscorer
-                <select value={topScorer} onChange={(event) => chooseTopScorer(event.target.value)} disabled={lockedWinner}>
-                  <option value="">Kies speler</option>
-                  <PlayerOptionGroups options={topScorerSuggestions} idPrefix="top-scorer" />
-                </select>
-              </label>
+              <PlayerSearchSelect
+                label="Topscorer"
+                value={topScorer}
+                options={topScorerSuggestions}
+                locked={lockedWinner}
+                onChange={chooseTopScorer}
+                idPrefix="top-scorer"
+              />
               <PlayerPickSelects
                 label="Spits"
                 picks={strikers}
@@ -3003,11 +3704,20 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
             </div>
           </section>
 
-          <section className="prediction-game-card" aria-label="Prediction progress">
+          <section
+            className="prediction-game-card"
+            aria-label="Prediction progress"
+          >
             <div>
               <span className="game-kicker">Total prediction progress</span>
-              <h4>{predictedMatchCount} of {groupMatches.length} group fixtures predicted</h4>
-              <p>{quizPredictedCount} quizvragen ingevuld · {leeuwtjeUsedCount}/{leeuwtjeTotal} Leeuwtjes ingezet.</p>
+              <h4>
+                {predictedMatchCount} of {groupMatches.length} group fixtures
+                predicted
+              </h4>
+              <p>
+                {quizPredictedCount} quizvragen ingevuld · {leeuwtjeUsedCount}/
+                {leeuwtjeTotal} Leeuwtjes ingezet.
+              </p>
             </div>
             <div className="game-score">
               <strong>{progressPercent}%</strong>
@@ -3018,20 +3728,33 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
             </div>
           </section>
 
-          <div className="prediction-group-switcher" aria-label="Prediction groups">
+          <div
+            className="prediction-group-switcher"
+            aria-label="Prediction groups"
+          >
             {data.groups.map((group) => {
               const total = matchesByGroup.get(group.id)?.length ?? 0;
               const predicted = groupPredictionCount(group.id);
               return (
                 <button
-                  className={group.id === selectedGroupId ? "group-switch is-active" : "group-switch"}
+                  className={
+                    group.id === selectedGroupId
+                      ? "group-switch is-active"
+                      : "group-switch"
+                  }
                   key={group.id}
                   type="button"
                   onClick={() => chooseGroup(group.id)}
                 >
-                  <span className="group-mini-flags">{group.teams.map((teamId) => <TeamFlag key={teamId} id={teamId} />)}</span>
+                  <span className="group-mini-flags">
+                    {group.teams.map((teamId) => (
+                      <TeamFlag key={teamId} id={teamId} />
+                    ))}
+                  </span>
                   <strong>Group {group.id}</strong>
-                  <em>{predicted}/{total}</em>
+                  <em>
+                    {predicted}/{total}
+                  </em>
                 </button>
               );
             })}
@@ -3050,11 +3773,17 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                 <div className="prediction-step-header">
                   <div>
                     <h4>Group {selectedGroup.id} schedule</h4>
-                    <p>Type scores directly in each match row, then save once below.</p>
+                    <p>
+                      Type scores directly in each match row, then save once
+                      below.
+                    </p>
                   </div>
                 </div>
 
-                <div className="prediction-fixture-list" aria-label={`Group ${selectedGroup.id} schedule`}>
+                <div
+                  className="prediction-fixture-list"
+                  aria-label={`Group ${selectedGroup.id} schedule`}
+                >
                   {selectedMatches.map((match, index) => {
                     const scores = draft[match.id] ?? {};
                     const lock = matchLock(pool, match.id);
@@ -3072,7 +3801,10 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                         editing={editingMatchId === match.id}
                         saving={saving}
                         leeuwtjeActive={leeuwtjeMatchIds.has(match.id)}
-                        canToggleLeeuwtje={leeuwtjeMatchIds.has(match.id) || leeuwtjeMatchIds.size < leeuwtjeTotal}
+                        canToggleLeeuwtje={
+                          leeuwtjeMatchIds.has(match.id) ||
+                          leeuwtjeMatchIds.size < leeuwtjeTotal
+                        }
                         leeuwtjesRemaining={leeuwtjesRemaining}
                         onScore={setScore}
                         onQuizAnswer={setQuizAnswer}
@@ -3087,7 +3819,12 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                 </div>
 
                 <div className="prediction-actions">
-                  <button className="primary-button" type="button" onClick={() => save(true)} disabled={saving}>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={() => save(true)}
+                    disabled={saving}
+                  >
                     {saving ? "Saving..." : "Save progress"}
                   </button>
                   {error && <span className="form-error">{error}</span>}
@@ -3096,13 +3833,30 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
             </div>
           )}
 
-          <article className={requiredPredictionsComplete ? "prediction-continue-card is-ready" : "prediction-continue-card"}>
+          <article
+            className={
+              requiredPredictionsComplete
+                ? "prediction-continue-card is-ready"
+                : "prediction-continue-card"
+            }
+          >
             <div>
-              <h4>{requiredPredictionsComplete ? "Ready for the leaderboard" : "Finish the essentials"}</h4>
+              <h4>
+                {requiredPredictionsComplete
+                  ? "Ready for the leaderboard"
+                  : "Finish the essentials"}
+              </h4>
               <p>
-                {requiredPredictionsComplete && winner && topScorer && strikers.filter(Boolean).length >= 5 && allPredictionsComplete
+                {requiredPredictionsComplete &&
+                winner &&
+                topScorer &&
+                strikers.filter(Boolean).length >= 5 &&
+                allPredictionsComplete
                   ? "Full card, champion, top scorer and strikers set. Time to check the leaderboard."
-                  : requiredPredictionsComplete && winner && topScorer && strikers.filter(Boolean).length >= 5
+                  : requiredPredictionsComplete &&
+                      winner &&
+                      topScorer &&
+                      strikers.filter(Boolean).length >= 5
                     ? "Your prediction card still has some empty spots. No prediction, no points — the scoreboard is strict like that."
                     : requiredPredictionsComplete
                       ? "You can pick your champion, top scorer and strikers above now or continue to the leaderboard."
@@ -3111,7 +3865,12 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
                         : `You still need ${missingRequiredCount} score prediction${missingRequiredCount === 1 ? "" : "s"} in the Netherlands group before you can continue.`}
               </p>
             </div>
-            <button className="primary-button" type="button" onClick={continueToLeaderboard} disabled={!requiredPredictionsComplete || saving}>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={continueToLeaderboard}
+              disabled={!requiredPredictionsComplete || saving}
+            >
               {saving ? "Saving..." : "Continue"}
             </button>
           </article>
@@ -3121,9 +3880,19 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   );
 }
 
-function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBack }) {
+function AdjustPredictionsPanel({
+  data,
+  teams,
+  venues,
+  pool,
+  onPoolUpdate,
+  onBack,
+}) {
   const groupMatches = useMemo(
-    () => data.matches.filter((match) => match.round === "Group Stage").sort((a, b) => escapeDate(a) - escapeDate(b)),
+    () =>
+      data.matches
+        .filter((match) => match.round === "Group Stage")
+        .sort((a, b) => escapeDate(a) - escapeDate(b)),
     [data],
   );
   const matchesByGroup = useMemo(() => {
@@ -3135,8 +3904,12 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   }, [data.groups, groupMatches]);
   const [draft, setDraft] = useState({});
   const [quizDraft, setQuizDraft] = useState({});
-  const [leeuwtjeMatchIds, setLeeuwtjeMatchIds] = useState(() => new Set(poolLeeuwtjeMatchIds(pool)));
-  const [selectedGroupId, setSelectedGroupId] = useState(data.groups[0]?.id ?? "");
+  const [leeuwtjeMatchIds, setLeeuwtjeMatchIds] = useState(
+    () => new Set(poolLeeuwtjeMatchIds(pool)),
+  );
+  const [selectedGroupId, setSelectedGroupId] = useState(
+    data.groups[0]?.id ?? "",
+  );
   const [editingMatchId, setEditingMatchId] = useState("");
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
   const [topScorer, setTopScorer] = useState(() => topScorerPickFromPool(pool));
@@ -3147,8 +3920,12 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   const [dirty, setDirty] = useState(false);
   const [pendingScoreMatchId, setPendingScoreMatchId] = useState("");
 
-  const selectedGroup = data.groups.find((group) => group.id === selectedGroupId);
-  const selectedMatches = selectedGroupId ? matchesByGroup.get(selectedGroupId) ?? [] : [];
+  const selectedGroup = data.groups.find(
+    (group) => group.id === selectedGroupId,
+  );
+  const selectedMatches = selectedGroupId
+    ? (matchesByGroup.get(selectedGroupId) ?? [])
+    : [];
   const lockedWinner = winnerLocked(pool);
   const winnerTeam = winner ? teams.get(winner) : null;
   const topScorerSuggestions = useMemo(() => topScorerOptions(data), [data]);
@@ -3203,9 +3980,9 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   }
 
   function chooseStriker(index, value) {
-    setStrikers((current) => current.map((pick, pickIndex) => (
-      pickIndex === index ? value : pick
-    )));
+    setStrikers((current) =>
+      current.map((pick, pickIndex) => (pickIndex === index ? value : pick)),
+    );
     setDirty(true);
   }
 
@@ -3254,7 +4031,10 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
         method: "POST",
         body: JSON.stringify({
           predictions: draftPredictions(draft),
-          quiz_predictions: draftQuizPredictions(quizDraft, poolQuizPredictions(pool)),
+          quiz_predictions: draftQuizPredictions(
+            quizDraft,
+            poolQuizPredictions(pool),
+          ),
           leeuwtjes_match_ids: [...leeuwtjeMatchIds],
           winner_team_id: winner || null,
           top_scorer_name: topScorer || null,
@@ -3314,40 +4094,71 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                 Back home
               </button>
             )}
-            <button className="primary-button" type="button" onClick={saveAndGoHome} disabled={saving}>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={saveAndGoHome}
+              disabled={saving}
+            >
               {saving ? "Saving..." : "Save changes"}
             </button>
           </div>
         </div>
         <div className="panel-body">
-          <section className={winnerTeam ? "winner-spotlight-card has-winner" : "winner-spotlight-card"} aria-label="Tournament picks">
-            <div className="winner-trophy" aria-hidden="true"><img src={TROPHY_SRC} alt="" /></div>
+          <section
+            className={
+              winnerTeam
+                ? "winner-spotlight-card has-winner"
+                : "winner-spotlight-card"
+            }
+            aria-label="Tournament picks"
+          >
+            <div className="winner-trophy" aria-hidden="true">
+              <img src={TROPHY_SRC} alt="" />
+            </div>
             <div className="winner-spotlight-copy">
               <span className="game-kicker">Tournament picks</span>
               <h4>
                 {winnerTeam ? (
-                  <span className="winner-team-title"><TeamFlag id={winnerTeam.id} /> {winnerTeam.name}</span>
-                ) : "Pick your champion"}
+                  <span className="winner-team-title">
+                    <TeamFlag id={winnerTeam.id} /> {winnerTeam.name}
+                  </span>
+                ) : (
+                  "Pick your champion"
+                )}
               </h4>
-              <p>Champion, top scorer and striker picks are editable until one hour before the tournament opener.</p>
+              <p>
+                Champion, top scorer and striker picks are editable until one
+                hour before the tournament opener.
+              </p>
             </div>
             <div className="tournament-pick-controls">
               <label className="winner-select winner-select-inline">
                 Kampioen
-                <select value={winner} onChange={(event) => chooseWinner(event.target.value)} disabled={lockedWinner}>
+                <select
+                  value={winner}
+                  onChange={(event) => chooseWinner(event.target.value)}
+                  disabled={lockedWinner}
+                >
                   <option value="">Kies kampioen</option>
-                  {data.teams.slice().sort((a, b) => a.name.localeCompare(b.name)).map((team) => (
-                    <option key={team.id} value={team.id}>{teamOptionLabel(team)}</option>
-                  ))}
+                  {data.teams
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {teamOptionLabel(team)}
+                      </option>
+                    ))}
                 </select>
               </label>
-              <label className="winner-select winner-select-inline">
-                Topscorer
-                <select value={topScorer} onChange={(event) => chooseTopScorer(event.target.value)} disabled={lockedWinner}>
-                  <option value="">Kies speler</option>
-                  <PlayerOptionGroups options={topScorerSuggestions} idPrefix="adjust-top-scorer" />
-                </select>
-              </label>
+              <PlayerSearchSelect
+                label="Topscorer"
+                value={topScorer}
+                options={topScorerSuggestions}
+                locked={lockedWinner}
+                onChange={chooseTopScorer}
+                idPrefix="adjust-top-scorer"
+              />
               <PlayerPickSelects
                 label="Spits"
                 picks={strikers}
@@ -3360,13 +4171,20 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
             <LockPill lock={{ locked: lockedWinner }} />
           </section>
 
-          <div className="prediction-group-switcher" aria-label="Prediction groups">
+          <div
+            className="prediction-group-switcher"
+            aria-label="Prediction groups"
+          >
             {data.groups.map((group) => {
               const total = matchesByGroup.get(group.id)?.length ?? 0;
               const predicted = groupPredictionCount(group.id);
               return (
                 <button
-                  className={group.id === selectedGroupId ? "group-switch is-active" : "group-switch"}
+                  className={
+                    group.id === selectedGroupId
+                      ? "group-switch is-active"
+                      : "group-switch"
+                  }
                   key={group.id}
                   type="button"
                   onClick={() => {
@@ -3374,9 +4192,15 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                     setEditingMatchId("");
                   }}
                 >
-                  <span className="group-mini-flags">{group.teams.map((teamId) => <TeamFlag key={teamId} id={teamId} />)}</span>
+                  <span className="group-mini-flags">
+                    {group.teams.map((teamId) => (
+                      <TeamFlag key={teamId} id={teamId} />
+                    ))}
+                  </span>
                   <strong>Group {group.id}</strong>
-                  <em>{predicted}/{total}</em>
+                  <em>
+                    {predicted}/{total}
+                  </em>
                 </button>
               );
             })}
@@ -3384,7 +4208,10 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
 
           {selectedGroup && (
             <div className="prediction-workspace">
-              <section className="comparison-grid" aria-label={`Group ${selectedGroup.id} table comparison`}>
+              <section
+                className="comparison-grid"
+                aria-label={`Group ${selectedGroup.id} table comparison`}
+              >
                 <article className="prediction-table-panel">
                   <div className="prediction-step-header">
                     <div>
@@ -3393,7 +4220,11 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                     </div>
                     <span className="pill">Live</span>
                   </div>
-                  <StandingsTable group={selectedGroup} matches={data.matches} teams={teams} />
+                  <StandingsTable
+                    group={selectedGroup}
+                    matches={data.matches}
+                    teams={teams}
+                  />
                 </article>
                 <PredictedStandingsTable
                   group={selectedGroup}
@@ -3407,7 +4238,10 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                 <div className="prediction-step-header">
                   <div>
                     <h4>Group {selectedGroup.id} schedule</h4>
-                    <p>Change open scores inline; changes are saved automatically.</p>
+                    <p>
+                      Change open scores inline; changes are saved
+                      automatically.
+                    </p>
                   </div>
                 </div>
                 <div className="prediction-fixture-list">
@@ -3428,7 +4262,10 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
                         editing={editingMatchId === match.id}
                         saving={saving}
                         leeuwtjeActive={leeuwtjeMatchIds.has(match.id)}
-                        canToggleLeeuwtje={leeuwtjeMatchIds.has(match.id) || leeuwtjeMatchIds.size < leeuwtjeTotal}
+                        canToggleLeeuwtje={
+                          leeuwtjeMatchIds.has(match.id) ||
+                          leeuwtjeMatchIds.size < leeuwtjeTotal
+                        }
                         leeuwtjesRemaining={leeuwtjesRemaining}
                         onScore={setScore}
                         onQuizAnswer={setQuizAnswer}
@@ -3444,7 +4281,11 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
               </section>
             </div>
           )}
-          {error && <div className="prediction-actions"><span className="form-error">{error}</span></div>}
+          {error && (
+            <div className="prediction-actions">
+              <span className="form-error">{error}</span>
+            </div>
+          )}
         </div>
       </article>
     </div>
@@ -3452,11 +4293,16 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
 }
 
 function NotificationBell({ notifications, open, onToggle, onPredictions }) {
-  const count = notifications.reduce((total, notification) => total + notification.count, 0);
+  const count = notifications.reduce(
+    (total, notification) => total + notification.count,
+    0,
+  );
   return (
     <div className="notification-wrap">
       <button
-        className={count ? "notification-button has-items" : "notification-button"}
+        className={
+          count ? "notification-button has-items" : "notification-button"
+        }
         type="button"
         onClick={onToggle}
         aria-label={`${count} open acties`}
@@ -3466,7 +4312,11 @@ function NotificationBell({ notifications, open, onToggle, onPredictions }) {
         {count > 0 && <b>{Math.min(count, 99)}</b>}
       </button>
       {open && (
-        <div className="notification-popover" role="dialog" aria-label="Open acties">
+        <div
+          className="notification-popover"
+          role="dialog"
+          aria-label="Open acties"
+        >
           <div className="notification-title">
             <strong>Nog te doen</strong>
             <span>{notifications.length}/2 meldingen</span>
@@ -3479,9 +4329,15 @@ function NotificationBell({ notifications, open, onToggle, onPredictions }) {
               </article>
             ))
           ) : (
-            <div className="empty compact">Geen open acties voor vandaag of morgen.</div>
+            <div className="empty compact">
+              Geen open acties voor vandaag of morgen.
+            </div>
           )}
-          <button className="primary-button" type="button" onClick={onPredictions}>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={onPredictions}
+          >
             Open predictions
           </button>
         </div>
@@ -3514,14 +4370,15 @@ function fallbackProfile(pool) {
     striker_picks: [],
     profile_picture: {
       image_url: user.profile_picture?.image_url,
-      initials: user.name
-        .replace("-", " ")
-        .split(" ")
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0])
-        .join("")
-        .toUpperCase() || "?",
+      initials:
+        user.name
+          .replace("-", " ")
+          .split(" ")
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part) => part[0])
+          .join("")
+          .toUpperCase() || "?",
       hue: 24,
     },
     group_stage_predictions: progress.group_stage_predictions ?? 0,
@@ -3535,9 +4392,15 @@ function App() {
   const [pool, setPool] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [loadError, setLoadError] = useState("");
-  const [view, setView] = useState(() => viewFromRoute(window.location.pathname) ?? "leaderboard");
-  const [selectedProfileId, setSelectedProfileId] = useState(() => profileIdFromRoute(window.location.pathname));
-  const [selectedTeamId, setSelectedTeamId] = useState(() => teamIdFromRoute(window.location.pathname));
+  const [view, setView] = useState(
+    () => viewFromRoute(window.location.pathname) ?? "leaderboard",
+  );
+  const [selectedProfileId, setSelectedProfileId] = useState(() =>
+    profileIdFromRoute(window.location.pathname),
+  );
+  const [selectedTeamId, setSelectedTeamId] = useState(() =>
+    teamIdFromRoute(window.location.pathname),
+  );
   const [now, setNow] = useState(() => new Date());
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
@@ -3589,9 +4452,15 @@ function App() {
       setSelectedProfileId(profileId);
       setSelectedTeamId(teamId);
       if (pool?.me) {
-        const nextView = authenticatedViewFromRoute(pool, window.location.pathname);
+        const nextView = authenticatedViewFromRoute(
+          pool,
+          window.location.pathname,
+        );
         setView(nextView);
-        if (normalizeRoute(window.location.pathname) !== routeForView(nextView, profileId, teamId)) {
+        if (
+          normalizeRoute(window.location.pathname) !==
+          routeForView(nextView, profileId, teamId)
+        ) {
           replacePath(routeForView(nextView, profileId, teamId));
         }
         return;
@@ -3621,13 +4490,19 @@ function App() {
           const worldCup = await apiJson("/api/world-cup");
           if (!cancelled) {
             setData(worldCup);
-            const nextView = authenticatedViewFromRoute(poolState, window.location.pathname);
+            const nextView = authenticatedViewFromRoute(
+              poolState,
+              window.location.pathname,
+            );
             const profileId = profileIdFromRoute(window.location.pathname);
             const teamId = teamIdFromRoute(window.location.pathname);
             setSelectedProfileId(profileId);
             setSelectedTeamId(teamId);
             setView(nextView);
-            if (normalizeRoute(window.location.pathname) !== routeForView(nextView, profileId, teamId)) {
+            if (
+              normalizeRoute(window.location.pathname) !==
+              routeForView(nextView, profileId, teamId)
+            ) {
               replacePath(routeForView(nextView, profileId, teamId));
             }
           }
@@ -3684,7 +4559,7 @@ function App() {
 
   function continueToLeaderboard(updatedPool) {
     if (updatedPool) setPool(updatedPool);
-    navigateToView("leaderboard");
+    navigateToView("leaderboard", { replace: true });
   }
 
   async function updateUserName(name) {
@@ -3719,7 +4594,9 @@ function App() {
   if (loadError) {
     return (
       <div className="loading">
-        <div className="load-error">Could not load Talpa WK Pool: {loadError}</div>
+        <div className="load-error">
+          Could not load Talpa WK Pool: {loadError}
+        </div>
       </div>
     );
   }
@@ -3735,12 +4612,13 @@ function App() {
   const kickoff = new Date("2026-06-11T19:00:00Z");
   const countdown = formatCountdown(kickoff, now);
   const entryComplete = groupPredictionsComplete(pool);
-  const selectedProfile = (
+  const selectedProfile =
     pool.leaderboard.find((row) => String(row.user_id) === selectedProfileId) ??
-    (String(pool.me?.id) === selectedProfileId ? fallbackProfile(pool) : null)
-  );
+    (String(pool.me?.id) === selectedProfileId ? fallbackProfile(pool) : null);
   const selectedProfileRank = selectedProfile
-    ? pool.leaderboard.findIndex((row) => row.user_id === selectedProfile.user_id) + 1
+    ? pool.leaderboard.findIndex(
+        (row) => row.user_id === selectedProfile.user_id,
+      ) + 1
     : 0;
   const selectedTeam = maps.teams.get(selectedTeamId) ?? null;
   const venueRows = data.venues;
@@ -3760,7 +4638,9 @@ function App() {
             notifications={pool.notifications ?? []}
             open={notificationsOpen}
             onToggle={() => setNotificationsOpen((current) => !current)}
-            onPredictions={() => navigateToView(entryComplete ? "adjust" : "pool")}
+            onPredictions={() =>
+              navigateToView(entryComplete ? "adjust" : "pool")
+            }
           />
           <button
             className="my-predictions-button"
@@ -3768,7 +4648,10 @@ function App() {
             onClick={() => navigateToView(entryComplete ? "adjust" : "pool")}
           >
             <span>Mijn voorspellingen</span>
-            <b>{pool.progress?.group_stage_predictions ?? 0}/{pool.progress?.group_stage_total ?? 0}</b>
+            <b>
+              {pool.progress?.group_stage_predictions ?? 0}/
+              {pool.progress?.group_stage_total ?? 0}
+            </b>
           </button>
           <button
             className="data-badge is-clickable"
@@ -3789,7 +4672,8 @@ function App() {
             <p className="eyebrow">FIFA World Cup 2026</p>
             <h2>Talpa WK Pool</h2>
             <p>
-              Predict group-stage scores, pick the World Cup winner, top scorer and five strikers, and follow the leaderboard.
+              Predict group-stage scores, pick the World Cup winner, top scorer
+              and five strikers, and follow the leaderboard.
             </p>
           </div>
           <div className="hero-countdown" aria-label="Countdown to kickoff">
@@ -3814,10 +4698,24 @@ function App() {
 
         {entryComplete && (
           <nav className="tabs" aria-label="Dashboard views">
-            {["home", "matchday", "leaderboard", "groups", "teams", "schedule", "venues"].map((item) => {
-              const active = view === item || (view === "team" && item === "teams");
+            {[
+              "home",
+              "matchday",
+              "leaderboard",
+              "groups",
+              "teams",
+              "schedule",
+              "venues",
+            ].map((item) => {
+              const active =
+                view === item || (view === "team" && item === "teams");
               return (
-                <button key={item} className={active ? "tab is-active" : "tab"} type="button" onClick={() => navigateToView(item)}>
+                <button
+                  key={item}
+                  className={active ? "tab is-active" : "tab"}
+                  type="button"
+                  onClick={() => navigateToView(item)}
+                >
                   {viewLabel(item)}
                 </button>
               );
@@ -3827,7 +4725,10 @@ function App() {
 
         {view === "welcome" && (
           <section className="view is-active">
-            <WelcomeStep pool={pool} onNext={() => navigateToView("leaderboardPreview")} />
+            <WelcomeStep
+              pool={pool}
+              onNext={() => navigateToView("leaderboardPreview")}
+            />
           </section>
         )}
 
@@ -3837,7 +4738,6 @@ function App() {
               pool={pool}
               onBack={() => navigateToView("welcome")}
               onNext={() => navigateToView("join")}
-              onProfile={navigateToProfile}
             />
           </section>
         )}
@@ -3882,7 +4782,9 @@ function App() {
               pool={pool}
               onPoolUpdate={updatePoolOnly}
               onContinue={continueToLeaderboard}
-              onBack={entryComplete ? () => navigateToView("leaderboard") : null}
+              onBack={
+                entryComplete ? () => navigateToView("leaderboard") : null
+              }
             />
           </section>
         )}
@@ -3913,7 +4815,7 @@ function App() {
               rank={selectedProfileRank}
               isSelf={selectedProfile?.user_id === pool.me?.id}
               badgeCatalog={pool.badge_catalog ?? []}
-              onBack={() => navigateToView("leaderboard")}
+              tournamentPicksVisible={tournamentPicksRevealed(pool)}
               onUpdateName={updateUserName}
               onUpdateImage={updateUserImage}
               onChangePassword={changePassword}
@@ -3924,14 +4826,25 @@ function App() {
         {view === "groups" && (
           <section className="view is-active">
             <div className="groups-grid">
-              {data.groups.map((group) => <GroupPanel key={group.id} group={group} data={data} teams={maps.teams} />)}
+              {data.groups.map((group) => (
+                <GroupPanel
+                  key={group.id}
+                  group={group}
+                  data={data}
+                  teams={maps.teams}
+                />
+              ))}
             </div>
           </section>
         )}
 
         {view === "teams" && (
           <section className="view is-active">
-            <TeamDirectoryPage data={data} teams={maps.teams} onTeam={navigateToTeam} />
+            <TeamDirectoryPage
+              data={data}
+              teams={maps.teams}
+              onTeam={navigateToTeam}
+            />
           </section>
         )}
 
@@ -3949,7 +4862,11 @@ function App() {
 
         {view === "schedule" && (
           <section className="view is-active">
-            <Schedule matches={sortedMatches} teams={maps.teams} venues={maps.venues} />
+            <Schedule
+              matches={sortedMatches}
+              teams={maps.teams}
+              venues={maps.venues}
+            />
           </section>
         )}
 
@@ -3957,12 +4874,16 @@ function App() {
           <section className="view is-active">
             <div className="grid">
               {venueRows.map((venue) => {
-                const matchCount = data.matches.filter((match) => match.venue_id === venue.id).length;
+                const matchCount = data.matches.filter(
+                  (match) => match.venue_id === venue.id,
+                ).length;
                 return (
                   <article key={venue.id} className="venue-row">
                     <div>
                       <h3>{venue.name}</h3>
-                      <div className="meta">{venue.city}, {venue.country} · {venue.timezone}</div>
+                      <div className="meta">
+                        {venue.city}, {venue.country} · {venue.timezone}
+                      </div>
                     </div>
                     <span className="pill">{matchCount} matches</span>
                   </article>
