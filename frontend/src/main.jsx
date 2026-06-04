@@ -687,10 +687,15 @@ function PlayerSearchSelect({
   const selectedDisplay = playerOptionDisplay(selectedOption, value ?? "");
   const [query, setQuery] = useState(selectedDisplay);
   const [open, setOpen] = useState(false);
+  const valueRef = useRef(value);
 
   useEffect(() => {
     setQuery(selectedDisplay);
   }, [selectedDisplay]);
+
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
 
   const filteredOptions = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
@@ -744,11 +749,12 @@ function PlayerSearchSelect({
           }}
           onBlur={() => {
             window.setTimeout(() => {
+              const current = valueRef.current;
               setOpen(false);
               setQuery(
                 playerOptionDisplay(
-                  options.find((option) => option.name === value),
-                  value ?? "",
+                  options.find((option) => option.name === current),
+                  current ?? "",
                 ),
               );
             }, 120);
@@ -759,6 +765,7 @@ function PlayerSearchSelect({
             className="player-search-clear"
             type="button"
             onMouseDown={(event) => event.preventDefault()}
+            onTouchStart={(event) => event.preventDefault()}
             onClick={clearSelection}
             aria-label={`Wis ${label}`}
           >
@@ -785,6 +792,7 @@ function PlayerSearchSelect({
                     type="button"
                     disabled={disabled}
                     onMouseDown={(event) => event.preventDefault()}
+                    onTouchStart={(event) => event.preventDefault()}
                     onClick={() => chooseOption(option)}
                     role="option"
                     aria-selected={option.name === value}

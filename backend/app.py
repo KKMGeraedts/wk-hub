@@ -3526,14 +3526,14 @@ def build_leaderboard(
                     if show_tournament_picks and winner_pick
                     else None
                 ),
-                "winner_points": winner_points,
+                "winner_points": winner_points if show_tournament_picks else 0,
                 "winner_impossible": winner_impossible if show_tournament_picks else False,
                 "top_scorer_pick": (top_scorer_pick or None) if show_tournament_picks else None,
-                "top_scorer_points": top_scorer_points,
+                "top_scorer_points": top_scorer_points if show_tournament_picks else 0,
                 "top_scorer_impossible": top_scorer_impossible if show_tournament_picks else False,
                 "striker_picks": striker_picks if show_tournament_picks else [],
-                "striker_points": striker_points,
-                "scorer_points": scorer_points,
+                "striker_points": striker_points if show_tournament_picks else 0,
+                "scorer_points": scorer_points if show_tournament_picks else 0,
                 "top_scorer_picks": striker_picks if show_tournament_picks else [],
                 "badges": badges,
                 "badge_count": len(badges),
@@ -3823,6 +3823,7 @@ def build_daily_recap(
     data: dict[str, Any],
     now: datetime | None = None,
     leaderboard: list[dict[str, Any]] | None = None,
+    viewer_user_id: int | None = None,
 ) -> dict[str, Any]:
     current = now or utc_now()
     today = current.astimezone(AMSTERDAM_TZ).date()
@@ -3890,7 +3891,9 @@ def build_daily_recap(
     if daily_points:
         top_user_id, top_points = daily_points.most_common(1)[0]
     top_players = top_daily_scores_with_ties(daily_points, user_names, user_pictures)
-    top_movers = top_movers_with_ties(leaderboard or build_leaderboard(data, now=utc_now()))
+    top_movers = top_movers_with_ties(
+        leaderboard or build_leaderboard(data, viewer_user_id=viewer_user_id, now=current)
+    )
 
     moments = []
     for match in sorted(target_matches, key=match_kickoff):
@@ -4033,7 +4036,9 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         "badge_catalog": badge_catalog(),
         "notifications": build_notifications(data, predictions, quiz_predictions, now),
         "matchday": build_matchday_summary(data, user["id"] if user else None, now),
-        "daily_recap": build_daily_recap(data, now, leaderboard),
+        "daily_recap": build_daily_recap(
+            data, now, leaderboard, viewer_user_id=user["id"] if user else None
+        ),
         "newsletters": newsletter_articles(),
         "progress": {
             "group_stage_predictions": group_stage_predictions,
