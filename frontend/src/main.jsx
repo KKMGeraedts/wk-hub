@@ -258,6 +258,26 @@ function winnerLocked(pool) {
   return Boolean(pool?.locks?.winner_locked);
 }
 
+function poolPredictions(pool) {
+  return pool?.predictions && typeof pool.predictions === "object" ? pool.predictions : {};
+}
+
+function poolQuizPredictions(pool) {
+  return pool?.quiz_predictions && typeof pool.quiz_predictions === "object" ? pool.quiz_predictions : {};
+}
+
+function poolLeeuwtjeMatchIds(pool) {
+  return Array.isArray(pool?.leeuwtjes_match_ids) ? pool.leeuwtjes_match_ids : [];
+}
+
+function poolStrikerPicks(pool) {
+  return Array.isArray(pool?.striker_picks)
+    ? pool.striker_picks
+    : Array.isArray(pool?.top_scorer_picks)
+      ? pool.top_scorer_picks
+      : [];
+}
+
 function viewLabel(view) {
   const labels = {
     home: "Home",
@@ -564,9 +584,7 @@ function topScorerPickFromPool(pool) {
 }
 
 function strikerPicksFromPool(pool) {
-  const picks = pool?.striker_picks?.length
-    ? pool.striker_picks
-    : pool?.top_scorer_picks ?? [];
+  const picks = poolStrikerPicks(pool);
   return [picks[0] ?? "", picks[1] ?? "", picks[2] ?? "", picks[3] ?? "", picks[4] ?? ""];
 }
 
@@ -2128,7 +2146,7 @@ function MatchdayPredictionModal({
 
   useEffect(() => {
     if (!match) return;
-    const existingQuiz = pool.quiz_predictions?.[match.id] ?? {};
+    const existingQuiz = poolQuizPredictions(pool)[match.id] ?? {};
     setScores({ home_score: "", away_score: "" });
     setQuizDraft({
       answer: existingQuiz.answer ?? "",
@@ -2136,12 +2154,12 @@ function MatchdayPredictionModal({
     });
     setLeeuwtjeActive(false);
     setError("");
-  }, [match?.id, pool.quiz_predictions]);
+  }, [match?.id, pool]);
 
   if (!match) return null;
 
   const leeuwtjeTotal = leeuwtjesTotal(pool);
-  const currentLeeuwtjes = new Set(pool.leeuwtjes_match_ids ?? []);
+  const currentLeeuwtjes = new Set(poolLeeuwtjeMatchIds(pool));
   const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - currentLeeuwtjes.size);
   const canToggleLeeuwtje = leeuwtjeActive || currentLeeuwtjes.has(match.id) || currentLeeuwtjes.size < leeuwtjeTotal;
   const locked = Boolean(match.locked);
@@ -2746,7 +2764,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   const initialGroupId = requiredGroupId || data.groups[0]?.id || "";
   const [draft, setDraft] = useState({});
   const [quizDraft, setQuizDraft] = useState({});
-  const [leeuwtjeMatchIds, setLeeuwtjeMatchIds] = useState(() => new Set(pool.leeuwtjes_match_ids ?? []));
+  const [leeuwtjeMatchIds, setLeeuwtjeMatchIds] = useState(() => new Set(poolLeeuwtjeMatchIds(pool)));
   const [selectedGroupId, setSelectedGroupId] = useState(initialGroupId);
   const [editingMatchId, setEditingMatchId] = useState("");
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
@@ -2769,13 +2787,15 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
   useEffect(() => {
     const nextDraft = {};
     const nextQuizDraft = {};
+    const predictions = poolPredictions(pool);
+    const quizPredictions = poolQuizPredictions(pool);
     for (const match of groupMatches) {
-      const prediction = pool.predictions[match.id];
+      const prediction = predictions[match.id];
       nextDraft[match.id] = {
         home_score: prediction?.home_score ?? "",
         away_score: prediction?.away_score ?? "",
       };
-      const quizPrediction = pool.quiz_predictions?.[match.id];
+      const quizPrediction = quizPredictions[match.id];
       nextQuizDraft[match.id] = {
         answer: quizPrediction?.answer ?? "",
         viewership_prediction: quizPrediction?.viewership_prediction ?? "",
@@ -2783,7 +2803,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
     }
     setDraft(nextDraft);
     setQuizDraft(nextQuizDraft);
-    setLeeuwtjeMatchIds(new Set(pool.leeuwtjes_match_ids ?? []));
+    setLeeuwtjeMatchIds(new Set(poolLeeuwtjeMatchIds(pool)));
     setSelectedGroupId((current) => current || initialGroupId);
   }, [pool, groupMatches, initialGroupId]);
 
@@ -2882,7 +2902,7 @@ function PredictionPanel({ data, teams, venues, pool, onPoolUpdate, onContinue, 
     const predictions = draftPredictions(draft);
     const body = {
       predictions,
-      quiz_predictions: draftQuizPredictions(quizDraft, pool.quiz_predictions),
+      quiz_predictions: draftQuizPredictions(quizDraft, poolQuizPredictions(pool)),
       leeuwtjes_match_ids: [...leeuwtjeMatchIds],
       winner_team_id: winner || null,
       top_scorer_name: topScorer || null,
@@ -3115,7 +3135,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   }, [data.groups, groupMatches]);
   const [draft, setDraft] = useState({});
   const [quizDraft, setQuizDraft] = useState({});
-  const [leeuwtjeMatchIds, setLeeuwtjeMatchIds] = useState(() => new Set(pool.leeuwtjes_match_ids ?? []));
+  const [leeuwtjeMatchIds, setLeeuwtjeMatchIds] = useState(() => new Set(poolLeeuwtjeMatchIds(pool)));
   const [selectedGroupId, setSelectedGroupId] = useState(data.groups[0]?.id ?? "");
   const [editingMatchId, setEditingMatchId] = useState("");
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
@@ -3138,13 +3158,15 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
   useEffect(() => {
     const nextDraft = {};
     const nextQuizDraft = {};
+    const predictions = poolPredictions(pool);
+    const quizPredictions = poolQuizPredictions(pool);
     for (const match of groupMatches) {
-      const prediction = pool.predictions[match.id];
+      const prediction = predictions[match.id];
       nextDraft[match.id] = {
         home_score: prediction?.home_score ?? "",
         away_score: prediction?.away_score ?? "",
       };
-      const quizPrediction = pool.quiz_predictions?.[match.id];
+      const quizPrediction = quizPredictions[match.id];
       nextQuizDraft[match.id] = {
         answer: quizPrediction?.answer ?? "",
         viewership_prediction: quizPrediction?.viewership_prediction ?? "",
@@ -3152,7 +3174,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
     }
     setDraft(nextDraft);
     setQuizDraft(nextQuizDraft);
-    setLeeuwtjeMatchIds(new Set(pool.leeuwtjes_match_ids ?? []));
+    setLeeuwtjeMatchIds(new Set(poolLeeuwtjeMatchIds(pool)));
     setWinner(pool.winner_pick ?? "");
     setTopScorer(topScorerPickFromPool(pool));
     setStrikers(strikerPicksFromPool(pool));
@@ -3232,7 +3254,7 @@ function AdjustPredictionsPanel({ data, teams, venues, pool, onPoolUpdate, onBac
         method: "POST",
         body: JSON.stringify({
           predictions: draftPredictions(draft),
-          quiz_predictions: draftQuizPredictions(quizDraft, pool.quiz_predictions),
+          quiz_predictions: draftQuizPredictions(quizDraft, poolQuizPredictions(pool)),
           leeuwtjes_match_ids: [...leeuwtjeMatchIds],
           winner_team_id: winner || null,
           top_scorer_name: topScorer || null,
