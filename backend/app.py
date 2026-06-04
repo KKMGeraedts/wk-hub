@@ -4020,6 +4020,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         for match in data["matches"]
     }
     tournament_picks_reveal_at = tournament_picks_lock_time(data)
+    tournament_picks_locked = are_tournament_picks_locked(data, now)
     tournament_picks_revealed = are_tournament_picks_revealed(data, now)
     leaderboard = build_leaderboard(data, viewer_user_id=user["id"] if user else None, now=now)
 
@@ -4057,9 +4058,9 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         },
         "locks": {
             "matches": match_locks,
-            "winner_locked": are_tournament_picks_locked(data, now),
+            "winner_locked": tournament_picks_locked,
             "winner_lock_at": iso_utc(tournament_picks_reveal_at),
-            "tournament_picks_locked": are_tournament_picks_locked(data, now),
+            "tournament_picks_locked": tournament_picks_locked,
             "tournament_picks_lock_at": iso_utc(tournament_picks_reveal_at),
         },
         "visibility": {
