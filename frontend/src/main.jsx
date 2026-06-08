@@ -705,7 +705,7 @@ function PlayerSearchSelect({
       ? options.filter(
           (option) =>
             option.name.toLocaleLowerCase().includes(needle) ||
-            option.teamName.toLocaleLowerCase().includes(needle),
+            (option.teamName ?? "").toLocaleLowerCase().includes(needle),
         )
       : options;
     return matches.slice(0, 40);
@@ -744,7 +744,10 @@ function PlayerSearchSelect({
           disabled={locked}
           placeholder="Typ speler of team"
           autoComplete="off"
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            if (query === selectedDisplay) setQuery("");
+          }}
           onChange={(event) => {
             setQuery(event.target.value);
             setOpen(true);
