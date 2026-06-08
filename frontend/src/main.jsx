@@ -102,18 +102,8 @@ function localDateKey(match) {
   }).format(escapeDate(match));
 }
 
-function groupPredictionsComplete(poolState) {
-  const progress = poolState?.progress;
-  const requiredPredictions =
-    progress?.required_group_predictions ?? progress?.group_stage_predictions;
-  const requiredTotal =
-    progress?.required_group_total ?? progress?.group_stage_total;
-  return Boolean(requiredTotal && requiredPredictions >= requiredTotal);
-}
-
-function defaultAuthenticatedView(poolState) {
-  if (groupPredictionsComplete(poolState)) return "home";
-  return "welcome";
+function defaultAuthenticatedView() {
+  return "home";
 }
 
 const VIEW_ROUTES = {
@@ -134,12 +124,7 @@ const VIEW_ROUTES = {
 const ROUTE_VIEWS = Object.fromEntries(
   Object.entries(VIEW_ROUTES).map(([view, route]) => [route, view]),
 );
-const ONBOARDING_VIEWS = new Set([
-  "welcome",
-  "leaderboardPreview",
-  "join",
-  "pool",
-]);
+const ONBOARDING_VIEWS = new Set(["welcome", "leaderboardPreview", "join"]);
 
 const NEWS_ARTICLES = [
   {
@@ -188,6 +173,7 @@ function viewFromRoute(pathname) {
   const path = normalizeRoute(pathname);
   if (/^\/profile\/\d+$/.test(path)) return "profile";
   if (/^\/teams\/[a-z0-9-]+$/i.test(path)) return "team";
+  if (path === VIEW_ROUTES.pool) return "adjust";
   return ROUTE_VIEWS[path] ?? null;
 }
 
@@ -213,11 +199,9 @@ function routeForView(view, profileId = "", teamId = "") {
   return VIEW_ROUTES[view] ?? VIEW_ROUTES.leaderboard;
 }
 
-function onboardingViewAllowed(poolState, routedView) {
+function onboardingViewAllowed(_poolState, routedView) {
   if (!routedView) return false;
-  if (groupPredictionsComplete(poolState))
-    return routedView && !ONBOARDING_VIEWS.has(routedView);
-  return routedView && ONBOARDING_VIEWS.has(routedView);
+  return !ONBOARDING_VIEWS.has(routedView);
 }
 
 function authenticatedViewFromRoute(poolState, pathname) {
@@ -3919,6 +3903,13 @@ function AdjustPredictionsPanel({
   const [initialized, setInitialized] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [pendingScoreMatchId, setPendingScoreMatchId] = useState("");
+  const editVersionRef = useRef(0);
+  const saveSequenceRef = useRef(0);
+
+  function markDirty() {
+    editVersionRef.current += 1;
+    setDirty(true);
+  }
 
   const selectedGroup = data.groups.find(
     (group) => group.id === selectedGroupId,
@@ -3933,6 +3924,7 @@ function AdjustPredictionsPanel({
   const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - leeuwtjeMatchIds.size);
 
   useEffect(() => {
+    if (initialized) return;
     const nextDraft = {};
     const nextQuizDraft = {};
     const predictions = poolPredictions(pool);
@@ -3958,7 +3950,7 @@ function AdjustPredictionsPanel({
     setInitialized(true);
     setDirty(false);
     setPendingScoreMatchId("");
-  }, [pool, groupMatches]);
+  }, [pool, groupMatches, initialized]);
 
   function setScore(matchId, key, value) {
     setDraft((current) => ({
@@ -3966,24 +3958,24 @@ function AdjustPredictionsPanel({
       [matchId]: { ...current[matchId], [key]: value },
     }));
     setPendingScoreMatchId(matchId);
-    setDirty(true);
+    markDirty();
   }
 
   function chooseWinner(value) {
     setWinner(value);
-    setDirty(true);
+    markDirty();
   }
 
   function chooseTopScorer(value) {
     setTopScorer(value);
-    setDirty(true);
+    markDirty();
   }
 
   function chooseStriker(index, value) {
     setStrikers((current) =>
       current.map((pick, pickIndex) => (pickIndex === index ? value : pick)),
     );
-    setDirty(true);
+    markDirty();
   }
 
   function setQuizAnswer(matchId, value) {
@@ -3991,7 +3983,7 @@ function AdjustPredictionsPanel({
       ...current,
       [matchId]: { ...current[matchId], answer: value },
     }));
-    setDirty(true);
+    markDirty();
   }
 
   function setQuizViewership(matchId, value) {
@@ -3999,7 +3991,7 @@ function AdjustPredictionsPanel({
       ...current,
       [matchId]: { ...current[matchId], viewership_prediction: value },
     }));
-    setDirty(true);
+    markDirty();
   }
 
   function toggleLeeuwtje(matchId) {
@@ -4012,7 +4004,7 @@ function AdjustPredictionsPanel({
       }
       return next;
     });
-    setDirty(true);
+    markDirty();
   }
 
   function hasPrediction(match) {
@@ -4024,6 +4016,9 @@ function AdjustPredictionsPanel({
   }
 
   async function save(closeEditor = false) {
+    const saveVersion = editVersionRef.current;
+    const saveSequence = saveSequenceRef.current + 1;
+    saveSequenceRef.current = saveSequence;
     setSaving(true);
     setError("");
     try {
@@ -4041,16 +4036,24 @@ function AdjustPredictionsPanel({
           striker_names: strikers,
         }),
       });
-      onPoolUpdate(updated);
-      if (closeEditor) setEditingMatchId("");
+      if (saveVersion !== editVersionRef.current) {
+        return null;
+      }
       setDirty(false);
       setPendingScoreMatchId("");
+      onPoolUpdate(updated);
+      if (closeEditor) setEditingMatchId("");
       return updated;
     } catch (err) {
+      if (saveVersion !== editVersionRef.current) {
+        return null;
+      }
       setError(err.message);
       return null;
     } finally {
-      setSaving(false);
+      if (saveSequence === saveSequenceRef.current) {
+        setSaving(false);
+      }
     }
   }
 
@@ -4100,7 +4103,7 @@ function AdjustPredictionsPanel({
               onClick={saveAndGoHome}
               disabled={saving}
             >
-              {saving ? "Saving..." : "Save changes"}
+              {saving ? "Saving..." : "Save & back"}
             </button>
           </div>
         </div>
@@ -4611,7 +4614,6 @@ function App() {
 
   const kickoff = new Date("2026-06-11T19:00:00Z");
   const countdown = formatCountdown(kickoff, now);
-  const entryComplete = groupPredictionsComplete(pool);
   const selectedProfile =
     pool.leaderboard.find((row) => String(row.user_id) === selectedProfileId) ??
     (String(pool.me?.id) === selectedProfileId ? fallbackProfile(pool) : null);
@@ -4638,14 +4640,12 @@ function App() {
             notifications={pool.notifications ?? []}
             open={notificationsOpen}
             onToggle={() => setNotificationsOpen((current) => !current)}
-            onPredictions={() =>
-              navigateToView(entryComplete ? "adjust" : "pool")
-            }
+            onPredictions={() => navigateToView("adjust")}
           />
           <button
             className="my-predictions-button"
             type="button"
-            onClick={() => navigateToView(entryComplete ? "adjust" : "pool")}
+            onClick={() => navigateToView("adjust")}
           >
             <span>Mijn voorspellingen</span>
             <b>
@@ -4696,32 +4696,30 @@ function App() {
           </div>
         </section>
 
-        {entryComplete && (
-          <nav className="tabs" aria-label="Dashboard views">
-            {[
-              "home",
-              "matchday",
-              "leaderboard",
-              "groups",
-              "teams",
-              "schedule",
-              "venues",
-            ].map((item) => {
-              const active =
-                view === item || (view === "team" && item === "teams");
-              return (
-                <button
-                  key={item}
-                  className={active ? "tab is-active" : "tab"}
-                  type="button"
-                  onClick={() => navigateToView(item)}
-                >
-                  {viewLabel(item)}
-                </button>
-              );
-            })}
-          </nav>
-        )}
+        <nav className="tabs" aria-label="Dashboard views">
+          {[
+            "home",
+            "matchday",
+            "leaderboard",
+            "groups",
+            "teams",
+            "schedule",
+            "venues",
+          ].map((item) => {
+            const active =
+              view === item || (view === "team" && item === "teams");
+            return (
+              <button
+                key={item}
+                className={active ? "tab is-active" : "tab"}
+                type="button"
+                onClick={() => navigateToView(item)}
+              >
+                {viewLabel(item)}
+              </button>
+            );
+          })}
+        </nav>
 
         {view === "welcome" && (
           <section className="view is-active">
@@ -4782,9 +4780,7 @@ function App() {
               pool={pool}
               onPoolUpdate={updatePoolOnly}
               onContinue={continueToLeaderboard}
-              onBack={
-                entryComplete ? () => navigateToView("leaderboard") : null
-              }
+              onBack={() => navigateToView("home")}
             />
           </section>
         )}
