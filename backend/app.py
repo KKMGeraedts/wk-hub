@@ -3660,6 +3660,7 @@ def build_matchday_summary(
 ) -> dict[str, Any]:
     current = now or utc_now()
     today = current.astimezone(AMSTERDAM_TZ).date()
+    window_end = current + timedelta(hours=24)
     matches_with_dates = [(local_match_date(match), match) for match in data["matches"]]
     match_dates = sorted({match_date for match_date, _ in matches_with_dates})
     target_date = today if today in match_dates else None
@@ -3671,10 +3672,23 @@ def build_matchday_summary(
     if target_date is None:
         return {"available": False, "matches": []}
 
+    # Also include the next calendar date if any of its matches fall within 24 hours,
+    # so late-night matches (Dutch time) are always visible.
+    target_dates = {target_date}
+    later_dates = [d for d in match_dates if d > target_date]
+    if later_dates:
+        next_date = later_dates[0]
+        if any(
+            match_kickoff(m) <= window_end
+            for d, m in matches_with_dates
+            if d == next_date
+        ):
+            target_dates.add(next_date)
+
     target_matches = [
         match
         for match_date, match in matches_with_dates
-        if match_date == target_date and match.get("home_team_id") and match.get("away_team_id")
+        if match_date in target_dates and match.get("home_team_id") and match.get("away_team_id")
     ]
     target_ids = {match["id"] for match in target_matches}
 
