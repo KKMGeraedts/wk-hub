@@ -37,3 +37,4 @@
 - Approved on 2026-06-04: no database schema change is planned.
 - Approved on 2026-06-04: privacy must be enforced backend-side, not only hidden in the frontend.
 - Approved on 2026-06-09: account creation is sufficient for full app access and leaderboard inclusion; prediction completion is progress metadata only.
+- Approved on 2026-06-09: admins need an admin-only manual scoring-label editor; label edits may affect scoring but must not mutate participant predictions.

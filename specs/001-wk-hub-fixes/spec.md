@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "WK Hub fixes from testing: champion, top scorer, and strikers must remain secret and editable until 1 hour before the first match on 11 June; after that users may see each other's champion, top scorer, and striker picks. Per-match predictions from other users become available once each match can no longer be adjusted, 1 hour before that match. Top scorer selection must not be constrained by selected champion. Top scorer and striker lists must be searchable. Personal profile text/layout needs improvement. Tutorial flow breaks when users leave it; completing tutorial should reach leaderboard; profile should not be clickable in tutorial; Back to leaderboard on profile can be removed. Leaderboard should remove awkward top scorer/striker display; player names should be clickable like profile pictures. People who just created an account do not show up in the leaderboard yet; remove the old tutorial/prediction completion gate so users can join the app, use full functionality, and be included in the leaderboard regardless of which predictions they have filled in."
+**Input**: User description: "WK Hub fixes from testing: champion, top scorer, and strikers must remain secret and editable until 1 hour before the first match on 11 June; after that users may see each other's champion, top scorer, and striker picks. Per-match predictions from other users become available once each match can no longer be adjusted, 1 hour before that match. Top scorer selection must not be constrained by selected champion. Top scorer and striker lists must be searchable. Personal profile text/layout needs improvement. Tutorial flow breaks when users leave it; completing tutorial should reach leaderboard; profile should not be clickable in tutorial; Back to leaderboard on profile can be removed. Leaderboard should remove awkward top scorer/striker display; player names should be clickable like profile pictures. People who just created an account do not show up in the leaderboard yet; remove the old tutorial/prediction completion gate so users can join the app, use full functionality, and be included in the leaderboard regardless of which predictions they have filled in. Admins need a manual scoring-label editor as a backup for incomplete API-Football data. Admins should inspect and adjust labels used for scoring predictions, quiz answers, scorer/striker goals, and related scoring facts, but must not be able to adjust participant predictions."
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -82,6 +82,25 @@ As a newly registered participant, I want to access the app and appear in the le
 
 ---
 
+### User Story 5 - Admins manage scoring labels without changing predictions (Priority: P1)
+
+As an admin, I want to inspect and manually adjust the scoring labels used by the pool, so that scoring can still be corrected when API-Football data is missing, late, or wrong.
+
+**Why this priority**: All participant scoring depends on comparing predictions to actual labels. If external label data is incomplete, the pool needs an authorized fallback without compromising participant predictions.
+
+**Independent Test**: Can be tested by logging in as an admin, opening the label editor, changing a match result label, quiz label, or scorer/striker goal label, and verifying scoring updates while participant prediction rows remain unchanged.
+
+**Acceptance Scenarios**:
+
+1. **Given** an admin is logged in, **When** they open the admin labels page, **Then** they can inspect current labels for match score/result, quiz answer/viewership, goal events, scorer names, striker goal counts, and label source metadata.
+2. **Given** an admin edits a match score/result label, **When** they save, **Then** leaderboard/profile scoring uses the updated label.
+3. **Given** an admin edits a quiz correct-answer or viewership label, **When** they save, **Then** quiz scoring uses the updated label.
+4. **Given** an admin edits scorer/goal labels, **When** they save, **Then** top scorer and striker scoring use the updated labels.
+5. **Given** an admin uses the label editor, **When** they save changes, **Then** no participant prediction records are created, changed, or deleted.
+6. **Given** a non-admin is logged in, **When** they try to access label inspection or update routes, **Then** access is denied.
+
+---
+
 ### Edge Cases
 
 - Lock-time boundary: exactly at the tournament-pick reveal time, tournament picks become non-editable and visible according to the reveal rules.
@@ -93,6 +112,12 @@ As a newly registered participant, I want to access the app and appear in the le
 - A participant exits or reloads during tutorial before completing any predictions.
 - A participant appears in leaderboard contexts with no predictions or with incomplete optional predictions.
 - Profile names, player names, or team names are unusually long.
+- API-Football provides no data for a completed match yet.
+- API-Football provides a match score but missing or incomplete goal/scorer events.
+- API-Football scorer names do not exactly match selectable player names.
+- A quiz answer label is missing or corrected after participants already entered predictions.
+- An admin saves a manual label and API-Football sync later returns different data.
+- A non-admin attempts to call admin label APIs directly.
 
 ## Requirements *(mandatory)*
 
@@ -129,6 +154,15 @@ As a newly registered participant, I want to access the app and appear in the le
 - **FR-029**: The system MUST show newly registered users with no predictions as leaderboard participants with zero earned points and appropriate incomplete/missing-prediction indicators.
 - **FR-030**: The system MUST allow participants with no or partial predictions to access normal app functionality, including leaderboard, profiles, prediction entry, and adjustment flows where otherwise permitted.
 - **FR-031**: Onboarding/tutorial copy and routing MUST NOT state or imply that specific predictions are required to join the app or appear on the leaderboard.
+- **FR-032**: The system MUST provide an admin-only page for inspecting scoring labels used to score match predictions, quiz predictions, top scorer picks, and striker picks.
+- **FR-033**: The system MUST store and expose scoring-label source metadata, distinguishing API-Football labels from manual admin labels where relevant.
+- **FR-034**: The system MUST allow admins to manually update match score/result labels.
+- **FR-035**: The system MUST allow admins to manually update quiz correct-answer and viewership labels.
+- **FR-036**: The system MUST allow admins to manually update goal/scorer labels that determine top scorer and striker points.
+- **FR-037**: The system MUST ensure admin label updates affect scoring through label/result data only and MUST NOT mutate participant prediction records.
+- **FR-038**: The system MUST deny label inspection and label update access to non-admin users.
+- **FR-039**: The system MUST preserve enough audit/source information to identify who manually changed labels and when.
+- **FR-040**: The system MUST continue to use API-Football labels when no manual override exists.
 
 ### Key Entities
 
@@ -140,6 +174,9 @@ As a newly registered participant, I want to access the app and appear in the le
 - **Profile View**: A detailed participant view that can display tournament picks and match prediction details when visibility rules allow.
 - **Tutorial Context**: The onboarding flow where leaderboard preview content is informational and must not activate profile navigation.
 - **App Participant**: An account user who has access to normal app functionality and leaderboard inclusion independent of prediction completion.
+- **Admin User**: An account user with permission to manage accounts and scoring labels.
+- **Scoring Label**: Actual-result data used to score predictions, including match score/result, quiz answer/viewership answer, goal/scorer event labels, and player-stat labels.
+- **Manual Label Override**: An admin-authored correction or fallback label that takes precedence over missing or incorrect API-Football data.
 
 ## Success Criteria *(mandatory)*
 
@@ -158,6 +195,10 @@ As a newly registered participant, I want to access the app and appear in the le
 - **SC-011**: 100% of newly created accounts appear in the leaderboard before saving any predictions.
 - **SC-012**: 100% of participants with partial or missing tournament picks remain visible in the leaderboard.
 - **SC-013**: Newly created accounts can reach normal app views without completing Netherlands, champion, top scorer, or striker predictions first.
+- **SC-014**: 100% of admin label update attempts by non-admin users are rejected.
+- **SC-015**: After an admin updates a match score/result label, affected match prediction points reflect the new label without changing participant prediction rows.
+- **SC-016**: After an admin updates quiz or scorer/goal labels, affected quiz/top-scorer/striker points reflect the new labels without changing participant prediction rows.
+- **SC-017**: The admin labels page shows source/override status for all editable scoring labels.
 
 ## Assumptions
 
@@ -168,3 +209,6 @@ As a newly registered participant, I want to access the app and appear in the le
 - Scorer and striker choices are selected from available player options; if an already-saved value is not currently in the option list, it should remain visible to its owner and manageable before lock time.
 - Existing login/session behavior remains unchanged.
 - Account creation is sufficient to make a user an app participant for leaderboard purposes; prediction completion affects scoring/progress only.
+- Existing label tables `match_results`, `match_events`, and `player_match_stats` are the scoring-label database for API-Football match scores, events, and player stats.
+- Quiz label overrides require DB-backed storage because quiz labels currently come from static quiz data.
+- Manual labels take precedence over API-Football labels for scoring until edited or cleared by an admin.

@@ -126,3 +126,116 @@ Profile page must:
 - Show tournament-pick privacy messaging before reveal when viewing another participant.
 - Show tournament picks after reveal when viewing another participant.
 - Always show own tournament picks to the owner subject to editability controls.
+
+## API Contract: Admin Labels
+
+All admin label endpoints require an authenticated admin user. Non-admin users receive `403`; anonymous users receive `401`.
+
+### Inspect labels
+
+`GET /api/admin/labels`
+
+Returns scoring labels grouped by match.
+
+```json
+{
+  "matches": [
+    {
+      "match_id": "m1",
+      "home_team_id": "ned",
+      "away_team_id": "usa",
+      "result": {
+        "home_score": 2,
+        "away_score": 1,
+        "status_short": "FT",
+        "source": "api-football",
+        "updated_at": "2026-06-12T..."
+      },
+      "quiz": {
+        "question": "Will there be a penalty?",
+        "correct_answer": "ja",
+        "viewership_answer": null,
+        "source": "static"
+      },
+      "events": [
+        {
+          "event_id": "manual:m1:1",
+          "event_type": "Goal",
+          "detail": "Normal Goal",
+          "player_name": "Player Name",
+          "team_name": "Netherlands",
+          "source": "manual"
+        }
+      ],
+      "player_stats": []
+    }
+  ]
+}
+```
+
+### Update result label
+
+`PATCH /api/admin/labels/<match_id>/result`
+
+Allowed fields:
+
+- `home_score`
+- `away_score`
+- `status_short`
+- `status_long`
+- `elapsed`
+
+Writes the match result label used by `match_prediction_points()` and group-position scoring.
+
+### Update quiz label
+
+`PATCH /api/admin/labels/<match_id>/quiz`
+
+Allowed fields:
+
+- `correct_answer`
+- `correct_answers`
+- `viewership_answer`
+- `clear_override`
+
+Writes or clears DB-backed quiz label overrides used by quiz scoring.
+
+### Update goal/event labels
+
+`PUT /api/admin/labels/<match_id>/events`
+
+Replaces the editable goal/scorer labels for a match. Events must include enough identity to count goals consistently:
+
+- `player_name`
+- `team_name` or `local_team_id`
+- `event_type`
+- `detail`
+- `elapsed`
+
+### Update player stat labels
+
+`PUT /api/admin/labels/<match_id>/player-stats`
+
+Updates inspection/scoring-relevant player stat labels for a match.
+
+### Prediction immutability guarantee
+
+Admin label endpoints must not write to:
+
+- `match_predictions`
+- `quiz_predictions`
+- `leeuwtje_predictions`
+- `winner_predictions`
+- `top_scorer_predictions`
+
+## UI Contract: Admin Label Editor
+
+The admin label page must:
+
+- Be visible only to admin users.
+- Provide match-level inspection of result labels, quiz labels, scorer/goal events, and player stats.
+- Show source state for each label: API-Football, static, manual override, or missing.
+- Allow manual edits and clearing overrides where supported.
+- Show save/error states per match or label group.
+- Include copy or layout that makes clear admins are editing labels/results, not participant predictions.
+- Avoid exposing controls that edit another participant's predictions.

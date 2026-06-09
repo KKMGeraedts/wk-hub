@@ -112,6 +112,7 @@ const VIEW_ROUTES = {
   leaderboardPreview: "/leaderboard-preview",
   join: "/join",
   leaderboard: "/leaderboard",
+  admin: "/admin",
   groups: "/tables",
   teams: "/teams",
   schedule: "/schedule",
@@ -206,6 +207,9 @@ function onboardingViewAllowed(_poolState, routedView) {
 
 function authenticatedViewFromRoute(poolState, pathname) {
   const routedView = viewFromRoute(pathname);
+  if (routedView === "admin" && !poolState?.me?.is_admin) {
+    return defaultAuthenticatedView(poolState);
+  }
   if (onboardingViewAllowed(poolState, routedView)) return routedView;
   return defaultAuthenticatedView(poolState);
 }
@@ -292,6 +296,7 @@ function viewLabel(view) {
     schedule: "Schedule",
     matchday: "Matchday",
     venues: "Venues",
+    admin: "Admin",
   };
   return labels[view] ?? view;
 }
@@ -2111,15 +2116,13 @@ function ProfileNameEditor({ player, canEdit, onUpdateName }) {
   );
 }
 
-function ChangePasswordPanel({ canEdit, onChangePassword }) {
+function ChangePasswordPanel({ onChangePassword }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-
-  if (!canEdit) return null;
 
   async function submit(event) {
     event.preventDefault();
@@ -2144,52 +2147,581 @@ function ChangePasswordPanel({ canEdit, onChangePassword }) {
   }
 
   return (
-    <article className="panel change-password-panel">
+    <form className="change-password-form" onSubmit={submit}>
+      <label>
+        Current password
+        <input
+          value={currentPassword}
+          onChange={(event) => setCurrentPassword(event.target.value)}
+          type="password"
+          autoComplete="current-password"
+        />
+      </label>
+      <label>
+        New password
+        <input
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          type="password"
+          autoComplete="new-password"
+          minLength="8"
+        />
+      </label>
+      <label>
+        Confirm new password
+        <input
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          type="password"
+          autoComplete="new-password"
+          minLength="8"
+        />
+      </label>
+      {error && <div className="form-error">{error}</div>}
+      {success && <div className="form-success">{success}</div>}
+      <button className="primary-button" type="submit" disabled={saving}>
+        {saving ? "Saving..." : "Change password"}
+      </button>
+    </form>
+  );
+}
+
+function ChangePasswordModal({ onClose, onChangePassword }) {
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <article
+        className="prediction-modal change-password-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Change password"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="prediction-modal-header">
+          <div>
+            <h3>Change password</h3>
+            <p>
+              Use default-password as current password if your account was
+              migrated.
+            </p>
+          </div>
+          <button className="text-button" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="prediction-modal-body">
+          <ChangePasswordPanel onChangePassword={onChangePassword} />
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function AdminUsersPage({ currentUser }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [busyUserId, setBusyUserId] = useState(null);
+
+  async function loadUsers() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await apiJson("/api/admin/users");
+      setUsers(result.users ?? []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  async function updateUser(userId, action, options = {}) {
+    setBusyUserId(userId);
+    setError("");
+    try {
+      const endpoint =
+        action === "archive" || action === "restore"
+          ? `/api/admin/users/${userId}/${action}`
+          : `/api/admin/users/${userId}`;
+      const result = await apiJson(endpoint, {
+        method: action === "admin" ? "PATCH" : "POST",
+        body: action === "admin" ? JSON.stringify(options) : "{}",
+      });
+      setUsers(result.users ?? []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyUserId(null);
+    }
+  }
+
+  return (
+    <article className="panel admin-users-panel">
       <div className="panel-header">
         <div>
-          <h3>Change password</h3>
-          <p>
-            Use default-password as current password if your account was
-            migrated.
-          </p>
+          <h3>Admin users</h3>
+          <p>Archive accounts, restore accounts, and manage admin access.</p>
         </div>
+        <span className="pill orange">{users.length} accounts</span>
       </div>
-      <form className="panel-body change-password-form" onSubmit={submit}>
-        <label>
-          Current password
-          <input
-            value={currentPassword}
-            onChange={(event) => setCurrentPassword(event.target.value)}
-            type="password"
-            autoComplete="current-password"
-          />
-        </label>
-        <label>
-          New password
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            type="password"
-            autoComplete="new-password"
-            minLength="8"
-          />
-        </label>
-        <label>
-          Confirm new password
-          <input
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            type="password"
-            autoComplete="new-password"
-            minLength="8"
-          />
-        </label>
+      <div className="panel-body">
+        {error && <div className="form-error">{error}</div>}
+        {loading ? (
+          <div className="empty">Loading accounts...</div>
+        ) : (
+          <div className="admin-user-list">
+            {users.map((user) => {
+              const archived = Boolean(user.archived_at);
+              const isSelf = user.id === currentUser?.id;
+              const busy = busyUserId === user.id;
+              return (
+                <div
+                  className={archived ? "admin-user-row is-archived" : "admin-user-row"}
+                  key={user.id}
+                >
+                  <div>
+                    <strong>{user.name}</strong>
+                    <span>{user.email}</span>
+                    <em>
+                      {archived
+                        ? `Archived ${user.archived_at}`
+                        : user.is_admin
+                          ? "Admin"
+                          : "Participant"}
+                    </em>
+                  </div>
+                  <div className="admin-user-actions">
+                    {!archived && (
+                      <button
+                        className="text-button"
+                        type="button"
+                        disabled={busy || (isSelf && user.is_admin)}
+                        onClick={() =>
+                          updateUser(user.id, "admin", {
+                            is_admin: !user.is_admin,
+                          })
+                        }
+                      >
+                        {user.is_admin ? "Remove admin" : "Make admin"}
+                      </button>
+                    )}
+                    {archived ? (
+                      <button
+                        className="text-button"
+                        type="button"
+                        disabled={busy}
+                        onClick={() => updateUser(user.id, "restore")}
+                      >
+                        Restore
+                      </button>
+                    ) : (
+                      <button
+                        className="text-button"
+                        type="button"
+                        disabled={busy || isSelf}
+                        onClick={() => updateUser(user.id, "archive")}
+                      >
+                        Archive
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function labelEventDraft(events = []) {
+  return JSON.stringify(
+    events.map((event) => ({
+      elapsed: event.elapsed ?? "",
+      local_team_id: event.local_team_id ?? "",
+      team_name: event.team_name ?? "",
+      player_name: event.player_name ?? "",
+      event_type: event.event_type ?? "Goal",
+      detail: event.detail ?? "",
+      comments: event.comments ?? "",
+    })),
+    null,
+    2,
+  );
+}
+
+function labelStatDraft(stats = []) {
+  return JSON.stringify(
+    stats.map((stat) => ({
+      local_team_id: stat.local_team_id ?? "",
+      team_name: stat.team_name ?? "",
+      player_name: stat.player_name ?? "",
+      minutes: stat.minutes ?? 0,
+      position: stat.position ?? "",
+      rating: stat.rating ?? "",
+      goals: stat.goals ?? 0,
+      assists: stat.assists ?? 0,
+      yellow_cards: stat.yellow_cards ?? 0,
+      red_cards: stat.red_cards ?? 0,
+      clean_sheet: Boolean(stat.clean_sheet),
+    })),
+    null,
+    2,
+  );
+}
+
+function AdminLabelsPage() {
+  const [labels, setLabels] = useState({ matches: [], audit: [], tables: {} });
+  const [selectedMatchId, setSelectedMatchId] = useState("");
+  const [drafts, setDrafts] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function loadLabels(nextMatchId = selectedMatchId) {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await apiJson("/api/admin/labels");
+      setLabels(result);
+      const firstMatchId = result.matches?.[0]?.match_id ?? "";
+      const activeMatchId = nextMatchId || firstMatchId;
+      setSelectedMatchId(activeMatchId);
+      const nextDrafts = {};
+      for (const match of result.matches ?? []) {
+        nextDrafts[match.match_id] = {
+          home_score: match.result?.home_score ?? "",
+          away_score: match.result?.away_score ?? "",
+          status_short: match.result?.status_short ?? "FT",
+          status_long: match.result?.status_long ?? "Manual result",
+          elapsed: match.result?.elapsed ?? 90,
+          correct_answers: (match.quiz?.correct_answers ?? []).join(", "),
+          viewership_answer: match.quiz?.viewership_answer ?? "",
+          events_json: labelEventDraft(match.events),
+          player_stats_json: labelStatDraft(match.player_stats),
+        };
+      }
+      setDrafts(nextDrafts);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadLabels("");
+  }, []);
+
+  const match = labels.matches?.find((item) => item.match_id === selectedMatchId);
+  const draft = drafts[selectedMatchId] ?? {};
+
+  function updateDraft(key, value) {
+    setDrafts((current) => ({
+      ...current,
+      [selectedMatchId]: {
+        ...(current[selectedMatchId] ?? {}),
+        [key]: value,
+      },
+    }));
+  }
+
+  async function saveResult() {
+    setSaving("result");
+    setError("");
+    setSuccess("");
+    try {
+      const result = await apiJson(`/api/admin/labels/${selectedMatchId}/result`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          home_score: draft.home_score,
+          away_score: draft.away_score,
+          status_short: draft.status_short,
+          status_long: draft.status_long,
+          elapsed: draft.elapsed,
+        }),
+      });
+      setLabels(result);
+      setSuccess("Result label saved.");
+      await loadLabels(selectedMatchId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function saveQuiz(clear = false) {
+    setSaving("quiz");
+    setError("");
+    setSuccess("");
+    try {
+      const answers = String(draft.correct_answers ?? "")
+        .split(",")
+        .map((answer) => answer.trim())
+        .filter(Boolean);
+      const result = await apiJson(`/api/admin/labels/${selectedMatchId}/quiz`, {
+        method: "PATCH",
+        body: JSON.stringify(
+          clear
+            ? { clear_override: true }
+            : {
+                correct_answers: answers,
+                viewership_answer: draft.viewership_answer,
+              },
+        ),
+      });
+      setLabels(result);
+      setSuccess(clear ? "Quiz override cleared." : "Quiz label saved.");
+      await loadLabels(selectedMatchId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving("");
+    }
+  }
+
+  async function saveJsonLabel(type) {
+    setSaving(type);
+    setError("");
+    setSuccess("");
+    try {
+      const key = type === "events" ? "events_json" : "player_stats_json";
+      const parsed = JSON.parse(draft[key] || "[]");
+      const endpoint =
+        type === "events"
+          ? `/api/admin/labels/${selectedMatchId}/events`
+          : `/api/admin/labels/${selectedMatchId}/player-stats`;
+      const result = await apiJson(endpoint, {
+        method: "PUT",
+        body: JSON.stringify(
+          type === "events" ? { events: parsed } : { player_stats: parsed },
+        ),
+      });
+      setLabels(result);
+      setSuccess(type === "events" ? "Goal labels saved." : "Player stat labels saved.");
+      await loadLabels(selectedMatchId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving("");
+    }
+  }
+
+  return (
+    <article className="panel admin-labels-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Scoring labels</h3>
+          <p>Inspect and adjust labels/results used for scoring.</p>
+        </div>
+        <span className="pill green">
+          {Object.values(labels.tables ?? {}).filter(Boolean).length} label tables
+        </span>
+      </div>
+      <div className="panel-body">
         {error && <div className="form-error">{error}</div>}
         {success && <div className="form-success">{success}</div>}
-        <button className="primary-button" type="submit" disabled={saving}>
-          {saving ? "Saving..." : "Change password"}
-        </button>
-      </form>
+        {loading ? (
+          <div className="empty">Loading scoring labels...</div>
+        ) : (
+          <>
+            <div className="admin-label-toolbar">
+              <label>
+                Match
+                <select
+                  value={selectedMatchId}
+                  onChange={(event) => setSelectedMatchId(event.target.value)}
+                >
+                  {labels.matches.map((item) => (
+                    <option key={item.match_id} value={item.match_id}>
+                      {item.match_id} · {item.home_team_name} - {item.away_team_name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {match && (
+                <div className="admin-label-source-grid">
+                  <span>Result: {match.result?.source ?? "missing"}</span>
+                  <span>Quiz: {match.quiz?.source ?? "missing"}</span>
+                  <span>
+                    Events:{" "}
+                    {match.events.some((event) => event.source === "manual")
+                      ? "manual"
+                      : match.events.length
+                        ? "api-football"
+                        : "missing"}
+                  </span>
+                  <span>
+                    Stats:{" "}
+                    {match.player_stats.some((stat) => stat.source === "manual")
+                      ? "manual"
+                      : match.player_stats.length
+                        ? "api-football"
+                        : "missing"}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {match && (
+              <div className="admin-label-grid">
+                <section className="admin-label-section">
+                  <h4>Result label</h4>
+                  <div className="admin-label-fields">
+                    <label>
+                      Home
+                      <input
+                        type="number"
+                        min="0"
+                        max="30"
+                        value={draft.home_score ?? ""}
+                        onChange={(event) => updateDraft("home_score", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Away
+                      <input
+                        type="number"
+                        min="0"
+                        max="30"
+                        value={draft.away_score ?? ""}
+                        onChange={(event) => updateDraft("away_score", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Status
+                      <input
+                        value={draft.status_short ?? ""}
+                        onChange={(event) => updateDraft("status_short", event.target.value)}
+                      />
+                    </label>
+                    <label>
+                      Elapsed
+                      <input
+                        type="number"
+                        value={draft.elapsed ?? ""}
+                        onChange={(event) => updateDraft("elapsed", event.target.value)}
+                      />
+                    </label>
+                  </div>
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={saving === "result"}
+                    onClick={saveResult}
+                  >
+                    {saving === "result" ? "Saving..." : "Save result"}
+                  </button>
+                </section>
+
+                <section className="admin-label-section">
+                  <h4>Quiz label</h4>
+                  {match.quiz ? (
+                    <>
+                      <p>{match.quiz.question}</p>
+                      <label>
+                        Correct answers
+                        <input
+                          value={draft.correct_answers ?? ""}
+                          onChange={(event) =>
+                            updateDraft("correct_answers", event.target.value)
+                          }
+                        />
+                      </label>
+                      <label>
+                        Viewership answer
+                        <input
+                          type="number"
+                          value={draft.viewership_answer ?? ""}
+                          onChange={(event) =>
+                            updateDraft("viewership_answer", event.target.value)
+                          }
+                        />
+                      </label>
+                      <div className="admin-label-actions">
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={saving === "quiz"}
+                          onClick={() => saveQuiz(false)}
+                        >
+                          {saving === "quiz" ? "Saving..." : "Save quiz"}
+                        </button>
+                        <button
+                          className="text-button"
+                          type="button"
+                          disabled={saving === "quiz"}
+                          onClick={() => saveQuiz(true)}
+                        >
+                          Clear override
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="empty">No quiz for this match.</div>
+                  )}
+                </section>
+
+                <section className="admin-label-section is-wide">
+                  <h4>Goal and scorer labels</h4>
+                  <textarea
+                    rows="10"
+                    value={draft.events_json ?? "[]"}
+                    onChange={(event) => updateDraft("events_json", event.target.value)}
+                  />
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={saving === "events"}
+                    onClick={() => saveJsonLabel("events")}
+                  >
+                    {saving === "events" ? "Saving..." : "Save goal labels"}
+                  </button>
+                </section>
+
+                <section className="admin-label-section is-wide">
+                  <h4>Player stat labels</h4>
+                  <textarea
+                    rows="10"
+                    value={draft.player_stats_json ?? "[]"}
+                    onChange={(event) =>
+                      updateDraft("player_stats_json", event.target.value)
+                    }
+                  />
+                  <button
+                    className="primary-button"
+                    type="button"
+                    disabled={saving === "player_stats"}
+                    onClick={() => saveJsonLabel("player_stats")}
+                  >
+                    {saving === "player_stats" ? "Saving..." : "Save player stats"}
+                  </button>
+                </section>
+              </div>
+            )}
+
+            <div className="admin-label-audit">
+              <h4>Recent label edits</h4>
+              {labels.audit?.length ? (
+                labels.audit.slice(0, 8).map((entry, index) => (
+                  <span key={`${entry.match_id}-${entry.created_at}-${index}`}>
+                    {entry.created_at}: {entry.label_type} · {entry.match_id}
+                  </span>
+                ))
+              ) : (
+                <span>No manual label edits yet.</span>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </article>
   );
 }
@@ -3097,7 +3629,6 @@ function PlayerProfile({
   tournamentPicksVisible,
   onUpdateName,
   onUpdateImage,
-  onChangePassword,
 }) {
   if (!player) {
     return (
@@ -3154,6 +3685,9 @@ function PlayerProfile({
               canEdit={isSelf}
               onUpdateName={onUpdateName}
             />
+            {player.email && (
+              <span className="profile-email">{player.email}</span>
+            )}
           </div>
           <div className="fifa-stats">
             {stats.map((stat) => (
@@ -3233,10 +3767,6 @@ function PlayerProfile({
           )}
         </article>
       </div>
-      <ChangePasswordPanel
-        canEdit={isSelf}
-        onChangePassword={onChangePassword}
-      />
       <LeeuwtjesHelpToggle used={player.leeuwtjes_used ?? 0} total={5} />
       <BadgeProgressSection
         player={player}
@@ -4355,6 +4885,7 @@ function fallbackProfile(pool) {
   return {
     user_id: user.id,
     name: user.name,
+    email: user.email,
     points: 0,
     precision: 0,
     shooting: 0,
@@ -4405,6 +4936,7 @@ function App() {
   );
   const [now, setNow] = useState(() => new Date());
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [changePasswordOpen, setChangePasswordOpen] = useState(false);
 
   function replacePath(path) {
     if (normalizeRoute(window.location.pathname) !== path) {
@@ -4623,6 +5155,16 @@ function App() {
     : 0;
   const selectedTeam = maps.teams.get(selectedTeamId) ?? null;
   const venueRows = data.venues;
+  const navItems = [
+    "home",
+    "matchday",
+    "leaderboard",
+    pool.me?.is_admin ? "admin" : null,
+    "groups",
+    "teams",
+    "schedule",
+    "venues",
+  ].filter(Boolean);
 
   return (
     <>
@@ -4659,11 +5201,25 @@ function App() {
           >
             {pool.me.name}
           </button>
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => setChangePasswordOpen(true)}
+          >
+            Change password
+          </button>
           <button className="text-button" type="button" onClick={logout}>
             Logout
           </button>
         </div>
       </header>
+
+      {changePasswordOpen && (
+        <ChangePasswordModal
+          onClose={() => setChangePasswordOpen(false)}
+          onChangePassword={changePassword}
+        />
+      )}
 
       <main>
         <section className="hero-panel">
@@ -4696,15 +5252,7 @@ function App() {
         </section>
 
         <nav className="tabs" aria-label="Dashboard views">
-          {[
-            "home",
-            "matchday",
-            "leaderboard",
-            "groups",
-            "teams",
-            "schedule",
-            "venues",
-          ].map((item) => {
+          {navItems.map((item) => {
             const active =
               view === item || (view === "team" && item === "teams");
             return (
@@ -4803,6 +5351,13 @@ function App() {
           </section>
         )}
 
+        {view === "admin" && pool.me?.is_admin && (
+          <section className="view is-active">
+            <AdminUsersPage currentUser={pool.me} />
+            <AdminLabelsPage />
+          </section>
+        )}
+
         {view === "profile" && (
           <section className="view is-active">
             <PlayerProfile
@@ -4813,7 +5368,6 @@ function App() {
               tournamentPicksVisible={tournamentPicksRevealed(pool)}
               onUpdateName={updateUserName}
               onUpdateImage={updateUserImage}
-              onChangePassword={changePassword}
             />
           </section>
         )}

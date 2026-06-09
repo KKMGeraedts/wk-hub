@@ -1521,6 +1521,15 @@ tr.highlight td {
     text-transform: uppercase;
 }
 
+.profile-email {
+    max-width: min(100%, 280px);
+    color: rgba(36, 27, 13, 0.72);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
 .profile-name-row,
 .profile-name-form {
     display: grid;
@@ -1555,10 +1564,6 @@ tr.highlight td {
     min-height: 34px;
 }
 
-.change-password-panel {
-    width: min(100%, 810px);
-}
-
 .change-password-form {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1571,6 +1576,153 @@ tr.highlight td {
 .change-password-form .primary-button {
     grid-column: 1 / -1;
     justify-self: start;
+}
+
+.admin-users-panel {
+    max-width: 980px;
+    margin: 0 auto;
+}
+
+.admin-labels-panel {
+    max-width: 1180px;
+    margin: 18px auto 0;
+}
+
+.admin-user-list {
+    display: grid;
+    gap: 10px;
+}
+
+.admin-user-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.admin-user-row.is-archived {
+    background: #f8fafc;
+    opacity: 0.72;
+}
+
+.admin-user-row strong,
+.admin-user-row span,
+.admin-user-row em {
+    display: block;
+    overflow-wrap: anywhere;
+}
+
+.admin-user-row span {
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.admin-user-row em {
+    color: var(--orange-dark);
+    font-size: 12px;
+    font-style: normal;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.admin-user-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.admin-label-toolbar {
+    display: grid;
+    grid-template-columns: minmax(260px, 380px) minmax(0, 1fr);
+    gap: 16px;
+    align-items: end;
+    margin-bottom: 18px;
+}
+
+.admin-label-source-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.admin-label-source-grid span,
+.admin-label-audit span {
+    display: block;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #f8fafc;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    overflow-wrap: anywhere;
+}
+
+.admin-label-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+}
+
+.admin-label-section {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.admin-label-section.is-wide {
+    grid-column: 1 / -1;
+}
+
+.admin-label-section h4,
+.admin-label-audit h4 {
+    margin: 0;
+    font-size: 14px;
+    text-transform: uppercase;
+}
+
+.admin-label-section p {
+    margin: 0;
+    color: var(--muted);
+    font-weight: 800;
+}
+
+.admin-label-fields {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.admin-label-section textarea {
+    min-height: 180px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    resize: vertical;
+}
+
+.admin-label-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.admin-label-audit {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
 }
 
 .fifa-card-name p {

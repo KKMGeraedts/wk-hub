@@ -108,7 +108,29 @@
 
 ---
 
-## Phase 7: Polish & Cross-Cutting Concerns
+## Phase 7: User Story 5 - Admins manage scoring labels without changing predictions (Priority: P1)
+
+**Goal**: Admins can inspect and manually adjust scoring labels for match results, quiz answers, scorer/goal events, and player stats without mutating participant predictions.
+
+**Independent Test**: Log in as an admin, inspect labels, save manual labels, verify label source metadata/audit entries, and confirm non-admin access is denied.
+
+### Implementation for User Story 5
+
+- [x] T035 [US5] Add DB-backed quiz label overrides and label audit storage in `backend/app.py`
+- [x] T036 [US5] Include label override/audit tables in database backup/status inventory in `backend/app.py`
+- [x] T037 [US5] Apply quiz label overrides when loading World Cup data so quiz scoring uses manual labels in `backend/app.py`
+- [x] T038 [US5] Preserve manual result, event, and player-stat labels from later API-Football sync writes in `backend/app.py`
+- [x] T039 [US5] Add admin-only label inspection API with result, quiz, event, player-stat, source, and audit metadata in `backend/app.py`
+- [x] T040 [US5] Add admin-only label update APIs for result, quiz, goal/event, and player-stat labels in `backend/app.py`
+- [x] T041 [US5] Keep admin label APIs scoped to label tables only, with no writes to participant prediction tables in `backend/app.py`
+- [x] T042 [US5] Add admin label editor UI under the existing admin page in `frontend/src/main.jsx`
+- [x] T043 [US5] Add responsive admin label editor styles in `frontend/src/styles.css`
+
+**Checkpoint**: User Story 5 is independently reviewable through the admin page and admin label APIs.
+
+---
+
+## Phase 8: Polish & Cross-Cutting Concerns
 
 **Purpose**: Final validation and traceability cleanup.
 
@@ -128,7 +150,8 @@
 - **User Story 1 (Phase 3)**: Depends on Foundational; MVP privacy story.
 - **User Story 2 (Phase 4)**: Depends on Foundational; can be worked after or alongside US1 frontend review.
 - **User Story 3 (Phase 5)**: Depends on Foundational; can be worked after or alongside US2 because it is mostly UI cleanup.
-- **Polish (Phase 6)**: Depends on all implemented stories.
+- **User Story 5 (Phase 7)**: Depends on admin auth/account management and existing API-Football label tables.
+- **Polish (Phase 8)**: Depends on all implemented stories.
 
 ### User Story Dependencies
 
@@ -136,6 +159,7 @@
 - **US2**: Independent of US3, but uses shared tournament lock metadata from foundation.
 - **US3**: Independent of US2, but uses leaderboard/profile surfaces touched by US1.
 - **US4**: Depends on leaderboard construction and onboarding surfaces; can be validated independently by creating or simulating a user with no predictions.
+- **US5**: Depends on admin access control and existing scoring-label tables; label updates are independent of participant prediction save flows.
 
 ### Parallel Opportunities
 
@@ -156,4 +180,5 @@
 1. Add searchable scorer picker (US2).
 2. Add leaderboard/tutorial/profile cleanup (US3).
 3. Add immediate account-created leaderboard inclusion (US4).
-4. Run automated checks and manual scenarios.
+4. Add admin scoring-label inspection and manual override flows (US5).
+5. Run automated checks and manual scenarios.

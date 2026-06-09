@@ -76,3 +76,36 @@
 **Alternatives considered**:
 
 - Add new onboarding persistence state: rejected unless implementation discovers current routing cannot reliably infer the required flow.
+
+## Decision 8: Reuse existing football label tables for manual result labels
+
+**Decision**: Treat `match_results`, `match_events`, and `player_match_stats` as the existing labels database for score/result labels, goal/scorer labels, and player-stat labels. Admin manual edits should write to these scoring-label tables, using source/manual metadata where available.
+
+**Rationale**: Current scoring already reads match scores from loaded match data populated by `match_results`, striker goal counts from `match_events`, and API-Football player stats from `player_match_stats`. Reusing the same tables keeps manual corrections on the same scoring path as synced API-Football labels.
+
+**Alternatives considered**:
+
+- Add a separate parallel manual-label table for all football labels: rejected because scoring helpers would need precedence merging across duplicate sources for data already represented in existing tables.
+- Edit static World Cup JSON at runtime: rejected because production serverless deployments should not depend on mutable packaged files.
+
+## Decision 9: Add DB-backed quiz label overrides
+
+**Decision**: Add DB-backed storage for quiz correct-answer and viewership-answer overrides, then apply those overrides when loading quiz data for scoring.
+
+**Rationale**: Quiz labels currently come from `quiz-2026.json`, not the football label tables. Admins need runtime fallback edits without mutating static files, and scoring must use the same loaded match/quiz shape after overrides are applied.
+
+**Alternatives considered**:
+
+- Store quiz labels in `match_results`: rejected because match result labels and quiz labels have different shape and validation rules.
+- Require code/file edits for quiz corrections: rejected because admins need in-app fallback operations.
+
+## Decision 10: Keep admin label editing separate from participant prediction editing
+
+**Decision**: Admin label APIs may update only label/result/override tables and audit metadata. They must not write to `match_predictions`, `quiz_predictions`, `leeuwtje_predictions`, `winner_predictions`, or `top_scorer_predictions`.
+
+**Rationale**: The user explicitly wants admins to correct labels but not adjust other people's predictions. Keeping the write paths separate preserves participant trust and avoids accidental prediction tampering.
+
+**Alternatives considered**:
+
+- Add admin prediction editing for support use cases: rejected by explicit requirement.
+- Reuse participant prediction save endpoint for admin correction: rejected because it targets prediction tables and current-user ownership semantics.

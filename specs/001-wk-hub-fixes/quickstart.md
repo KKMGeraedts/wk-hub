@@ -72,3 +72,25 @@ npm run check
    - Confirm the new user appears in the leaderboard with zero points and incomplete/missing-prediction indicators.
    - Confirm another logged-in user also sees the new account in the leaderboard.
    - Save only one subset of predictions, then confirm the user remains visible in the leaderboard.
+
+9. Admin label database:
+   - Confirm the database has scoring label storage for `match_results`, `match_events`, and `player_match_stats`.
+   - Confirm quiz label override storage exists after implementation.
+   - Confirm admin label inspection returns current result, event/scorer, player-stat, and quiz label state.
+
+10. Admin label editor access:
+   - Log in as an admin and confirm the admin labels page is visible.
+   - Log in as a non-admin and confirm the admin labels page and admin label APIs are unavailable.
+   - Confirm archived/non-admin account management does not grant label editing access.
+
+11. Manual result label update:
+   - Save a manual match score/result label.
+   - Confirm leaderboard/profile match prediction points use the updated score/result.
+   - Confirm rows in `match_predictions` are unchanged.
+
+12. Manual quiz and scorer label update:
+   - Save a manual quiz correct-answer or viewership label.
+   - Confirm quiz points use the updated label.
+   - Save manual goal/scorer labels for a match.
+   - Confirm top scorer and striker points use the updated labels.
+   - Confirm `quiz_predictions` and `top_scorer_predictions` are unchanged.

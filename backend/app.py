@@ -47,13 +47,18 @@ DATA_PATH = ROOT / "backend" / "worldcup-2026.json"
 QUIZ_PATH = ROOT / "backend" / "quiz-2026.json"
 TEAM_PROFILES_PATH = ROOT / "backend" / "team-profiles-2026.json"
 DB_PATH = Path(os.environ.get("WK_HUB_SQLITE_PATH", ROOT / "backend" / "pool.db"))
-DB_SCHEMA_VERSION = 4
+DB_SCHEMA_VERSION = 5
 PROFILE_IMAGE_MAX_BYTES = 750 * 1024
 PROFILE_IMAGE_DATA_URL_PATTERN = re.compile(
     r"^data:image/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=\s]+)$"
 )
 PASSWORD_MIN_LENGTH = 8
 DEFAULT_PASSWORD = "default-password"
+ADMIN_EMAILS = {
+    email.strip().casefold()
+    for email in os.environ.get("WK_HUB_ADMIN_EMAILS", "").split(",")
+    if email.strip()
+}
 DB_BACKUP_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("users", ("id",)),
     ("match_predictions", ("user_id", "match_id")),
@@ -76,6 +81,8 @@ DB_BACKUP_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("match_events", ("match_id", "provider_event_key")),
     ("match_clean_sheets", ("match_id", "local_team_id")),
     ("player_match_stats", ("match_id", "provider_player_key")),
+    ("quiz_label_overrides", ("match_id",)),
+    ("label_audit_log", ("id",)),
     ("newsletter_articles", ("published_at", "url")),
 )
 DIST_DIR = ROOT / "frontend" / "dist"
@@ -235,10 +242,55 @@ def load_world_cup_data() -> dict[str, Any]:
     apply_static_team_profiles(data)
 
     if not CONFIG_ERROR:
+        apply_quiz_label_overrides(data)
         apply_synced_team_profiles(data)
         apply_synced_match_results(data)
 
     return data
+
+
+def parse_correct_answers_json(value: Any) -> list[str]:
+    if value in (None, ""):
+        return []
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [answer for answer in (clean_text(item) for item in parsed) if answer]
+
+
+def apply_quiz_label_overrides(data: dict[str, Any]) -> None:
+    try:
+        with get_db() as conn:
+            rows = execute(
+                conn,
+                """
+                SELECT match_id, correct_answers_json, viewership_answer, source,
+                       updated_by_user_id, updated_at
+                FROM quiz_label_overrides
+                """,
+            ).fetchall()
+    except Exception:
+        logger.exception("Could not load quiz label overrides")
+        return
+
+    overrides = {row["match_id"]: row for row in rows}
+    for match in data.get("matches", []):
+        row = overrides.get(match["id"])
+        quiz = match.get("quiz")
+        if not row or not isinstance(quiz, dict):
+            continue
+        correct_answers = parse_correct_answers_json(row["correct_answers_json"])
+        if correct_answers:
+            quiz["correct_answers"] = correct_answers
+            quiz["correct_answer"] = correct_answers[0]
+        if row["viewership_answer"] is not None:
+            quiz["viewership_answer"] = int(row["viewership_answer"])
+        quiz["label_source"] = row["source"] or "manual"
+        quiz["label_updated_at"] = row["updated_at"]
+        quiz["label_updated_by_user_id"] = row["updated_by_user_id"]
 
 
 def merge_team_profile(team: dict[str, Any], profile: dict[str, Any]) -> None:
@@ -610,6 +662,8 @@ def init_db() -> None:
             email TEXT NOT NULL UNIQUE,
             profile_image_url TEXT,
             password_hash TEXT,
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            archived_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """,
@@ -856,6 +910,29 @@ def init_db() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS quiz_label_overrides (
+            match_id TEXT PRIMARY KEY,
+            correct_answers_json TEXT,
+            viewership_answer INTEGER,
+            source TEXT NOT NULL DEFAULT 'manual',
+            updated_by_user_id INTEGER,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (updated_by_user_id) REFERENCES users(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS label_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            admin_user_id INTEGER,
+            label_type TEXT NOT NULL,
+            match_id TEXT NOT NULL,
+            before_json TEXT,
+            after_json TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_user_id) REFERENCES users(id)
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS newsletter_articles (
             url TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -876,6 +953,8 @@ def init_db() -> None:
             email TEXT NOT NULL UNIQUE,
             profile_image_url TEXT,
             password_hash TEXT,
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            archived_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """,
@@ -1122,6 +1201,29 @@ def init_db() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS quiz_label_overrides (
+            match_id TEXT PRIMARY KEY,
+            correct_answers_json TEXT,
+            viewership_answer INTEGER,
+            source TEXT NOT NULL DEFAULT 'manual',
+            updated_by_user_id INTEGER,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (updated_by_user_id) REFERENCES users(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS label_audit_log (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            admin_user_id INTEGER,
+            label_type TEXT NOT NULL,
+            match_id TEXT NOT NULL,
+            before_json TEXT,
+            after_json TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (admin_user_id) REFERENCES users(id)
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS newsletter_articles (
             url TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -1171,6 +1273,26 @@ def init_db() -> None:
             ).fetchone()
             if user_password_column is None:
                 conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            user_admin_column = conn.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                  AND column_name = 'is_admin'
+                """
+            ).fetchone()
+            if user_admin_column is None:
+                conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+            user_archived_column = conn.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                  AND column_name = 'archived_at'
+                """
+            ).fetchone()
+            if user_archived_column is None:
+                conn.execute("ALTER TABLE users ADD COLUMN archived_at TIMESTAMPTZ")
             execute(
                 conn,
                 """
@@ -1215,6 +1337,10 @@ def init_db() -> None:
                 conn.execute("ALTER TABLE users ADD COLUMN profile_image_url TEXT")
             if not any(row["name"] == "password_hash" for row in user_columns):
                 conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            if not any(row["name"] == "is_admin" for row in user_columns):
+                conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+            if not any(row["name"] == "archived_at" for row in user_columns):
+                conn.execute("ALTER TABLE users ADD COLUMN archived_at TEXT")
             execute(
                 conn,
                 """
@@ -1242,6 +1368,28 @@ def init_db() -> None:
                     conn.execute(
                         f"ALTER TABLE top_scorer_predictions ADD COLUMN {column_name} TEXT"
                     )
+        if ADMIN_EMAILS:
+            for admin_email in ADMIN_EMAILS:
+                execute(
+                    conn,
+                    "UPDATE users SET is_admin = 1 WHERE LOWER(TRIM(email)) = ?",
+                    (admin_email,),
+                )
+        admin_row = execute(
+            conn,
+            "SELECT id FROM users WHERE is_admin = 1 AND archived_at IS NULL LIMIT 1",
+        ).fetchone()
+        if admin_row is None:
+            first_user = execute(
+                conn,
+                "SELECT id FROM users WHERE archived_at IS NULL ORDER BY id LIMIT 1",
+            ).fetchone()
+            if first_user is not None:
+                execute(
+                    conn,
+                    "UPDATE users SET is_admin = 1 WHERE id = ?",
+                    (first_user["id"],),
+                )
     logger.info("Database schema ready using %s", SCHEMA_DATABASE_URL_ENV or database_label())
 
 
@@ -1252,6 +1400,8 @@ def row_to_user(row: Any) -> dict[str, Any] | None:
         "id": row["id"],
         "name": row["name"],
         "email": row["email"],
+        "is_admin": bool(row["is_admin"]),
+        "archived_at": row["archived_at"],
         "profile_picture": user_profile_picture(row),
     }
 
@@ -1263,9 +1413,15 @@ def current_user() -> dict[str, Any] | None:
     with get_db() as conn:
         row = execute(
             conn,
-            "SELECT id, name, email, profile_image_url FROM users WHERE id = ?",
+            """
+            SELECT id, name, email, profile_image_url, is_admin, archived_at
+            FROM users
+            WHERE id = ? AND archived_at IS NULL
+            """,
             (user_id,),
         ).fetchone()
+    if row is None:
+        session.clear()
     return row_to_user(row)
 
 
@@ -2090,73 +2246,90 @@ def store_api_football_fixture_snapshot(
         """,
         (match["id"], api_fixture_id, json.dumps(fixture, sort_keys=True)),
     )
-    execute(
+    existing_result = execute(
         conn,
-        """
-        INSERT INTO match_results (
-            match_id, source, source_fixture_id, status_long, status_short,
-            elapsed, home_score, away_score, synced_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(match_id)
-        DO UPDATE SET source = excluded.source,
-                      source_fixture_id = excluded.source_fixture_id,
-                      status_long = excluded.status_long,
-                      status_short = excluded.status_short,
-                      elapsed = excluded.elapsed,
-                      home_score = excluded.home_score,
-                      away_score = excluded.away_score,
-                      synced_at = CURRENT_TIMESTAMP
-        """,
-        (
-            match["id"],
-            "api-football",
-            api_fixture_id,
-            status.get("long"),
-            status_short,
-            elapsed,
-            home_score,
-            away_score,
-        ),
-    )
-
-    execute(conn, "DELETE FROM match_events WHERE match_id = ?", (match["id"],))
-    for index, event in enumerate(fixture.get("events") or []):
-        team = event.get("team") or {}
-        player = event.get("player") or {}
-        assist = event.get("assist") or {}
-        api_team_id = int_or_none(team.get("id"))
-        time_data = event.get("time") or {}
+        "SELECT source FROM match_results WHERE match_id = ?",
+        (match["id"],),
+    ).fetchone()
+    manual_result = existing_result is not None and existing_result["source"] == "manual"
+    if not manual_result:
         execute(
             conn,
             """
-            INSERT INTO match_events (
-                match_id, provider_event_key, source_fixture_id, elapsed, extra,
-                local_team_id, api_team_id, team_name, api_player_id, player_name,
-                api_assist_id, assist_name, event_type, detail, comments, raw_json,
-                updated_at
+            INSERT INTO match_results (
+                match_id, source, source_fixture_id, status_long, status_short,
+                elapsed, home_score, away_score, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(match_id)
+            DO UPDATE SET source = excluded.source,
+                          source_fixture_id = excluded.source_fixture_id,
+                          status_long = excluded.status_long,
+                          status_short = excluded.status_short,
+                          elapsed = excluded.elapsed,
+                          home_score = excluded.home_score,
+                          away_score = excluded.away_score,
+                          synced_at = CURRENT_TIMESTAMP
             """,
             (
                 match["id"],
-                event_key(event, index),
+                "api-football",
                 api_fixture_id,
-                int_or_none(time_data.get("elapsed")),
-                int_or_none(time_data.get("extra")),
-                mapping.get(api_team_id) if api_team_id is not None else None,
-                api_team_id,
-                team.get("name"),
-                int_or_none(player.get("id")),
-                player.get("name"),
-                int_or_none(assist.get("id")),
-                assist.get("name"),
-                event.get("type") or "",
-                event.get("detail"),
-                event.get("comments"),
-                json.dumps(event, sort_keys=True),
+                status.get("long"),
+                status_short,
+                elapsed,
+                home_score,
+                away_score,
             ),
         )
+
+    manual_events = execute(
+        conn,
+        """
+        SELECT 1 FROM match_events
+        WHERE match_id = ? AND provider_event_key LIKE 'manual:%'
+        LIMIT 1
+        """,
+        (match["id"],),
+    ).fetchone()
+    if manual_events is None:
+        execute(conn, "DELETE FROM match_events WHERE match_id = ?", (match["id"],))
+        for index, event in enumerate(fixture.get("events") or []):
+            team = event.get("team") or {}
+            player = event.get("player") or {}
+            assist = event.get("assist") or {}
+            api_team_id = int_or_none(team.get("id"))
+            time_data = event.get("time") or {}
+            execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, source_fixture_id, elapsed, extra,
+                    local_team_id, api_team_id, team_name, api_player_id, player_name,
+                    api_assist_id, assist_name, event_type, detail, comments, raw_json,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    match["id"],
+                    event_key(event, index),
+                    api_fixture_id,
+                    int_or_none(time_data.get("elapsed")),
+                    int_or_none(time_data.get("extra")),
+                    mapping.get(api_team_id) if api_team_id is not None else None,
+                    api_team_id,
+                    team.get("name"),
+                    int_or_none(player.get("id")),
+                    player.get("name"),
+                    int_or_none(assist.get("id")),
+                    assist.get("name"),
+                    event.get("type") or "",
+                    event.get("detail"),
+                    event.get("comments"),
+                    json.dumps(event, sort_keys=True),
+                ),
+            )
 
     execute(conn, "DELETE FROM match_clean_sheets WHERE match_id = ?", (match["id"],))
     if final:
@@ -2190,55 +2363,65 @@ def store_api_football_fixture_snapshot(
                 (match["id"], local_team_id, api_team_id, api_team.get("name"), api_fixture_id),
             )
 
-    execute(conn, "DELETE FROM player_match_stats WHERE match_id = ?", (match["id"],))
-    for team_block in fixture.get("players") or []:
-        api_team = team_block.get("team") or {}
-        api_team_id = int_or_none(api_team.get("id"))
-        local_team_id = mapping.get(api_team_id) if api_team_id is not None else None
-        team_clean_sheet = bool(final and local_team_id and conceded.get(local_team_id) == 0)
-        for player_block in team_block.get("players") or []:
-            player = player_block.get("player") or {}
-            statistics = (player_block.get("statistics") or [{}])[0] or {}
-            games = statistics.get("games") or {}
-            goals = statistics.get("goals") or {}
-            cards = statistics.get("cards") or {}
-            api_player_id = int_or_none(player.get("id"))
-            player_name = player.get("name") or "Unknown"
-            provider_player_key = (
-                str(api_player_id) if api_player_id is not None else compact_name(player_name)
-            )
-            minutes = int_or_none(games.get("minutes")) or 0
-            execute(
-                conn,
-                """
-                INSERT INTO player_match_stats (
-                    match_id, provider_player_key, source_fixture_id, local_team_id,
-                    api_team_id, team_name, api_player_id, player_name, minutes,
-                    position, rating, goals, assists, yellow_cards, red_cards,
-                    clean_sheet, raw_json, updated_at
+    manual_stats = execute(
+        conn,
+        """
+        SELECT 1 FROM player_match_stats
+        WHERE match_id = ? AND provider_player_key LIKE 'manual:%'
+        LIMIT 1
+        """,
+        (match["id"],),
+    ).fetchone()
+    if manual_stats is None:
+        execute(conn, "DELETE FROM player_match_stats WHERE match_id = ?", (match["id"],))
+        for team_block in fixture.get("players") or []:
+            api_team = team_block.get("team") or {}
+            api_team_id = int_or_none(api_team.get("id"))
+            local_team_id = mapping.get(api_team_id) if api_team_id is not None else None
+            team_clean_sheet = bool(final and local_team_id and conceded.get(local_team_id) == 0)
+            for player_block in team_block.get("players") or []:
+                player = player_block.get("player") or {}
+                statistics = (player_block.get("statistics") or [{}])[0] or {}
+                games = statistics.get("games") or {}
+                goals = statistics.get("goals") or {}
+                cards = statistics.get("cards") or {}
+                api_player_id = int_or_none(player.get("id"))
+                player_name = player.get("name") or "Unknown"
+                provider_player_key = (
+                    str(api_player_id) if api_player_id is not None else compact_name(player_name)
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """,
-                (
-                    match["id"],
-                    provider_player_key,
-                    api_fixture_id,
-                    local_team_id,
-                    api_team_id,
-                    api_team.get("name"),
-                    api_player_id,
-                    player_name,
-                    minutes,
-                    games.get("position"),
-                    games.get("rating"),
-                    int_or_none(goals.get("total")) or 0,
-                    int_or_none(goals.get("assists")) or 0,
-                    int_or_none(cards.get("yellow")) or 0,
-                    int_or_none(cards.get("red")) or 0,
-                    bool_int(team_clean_sheet and minutes > 0),
-                    json.dumps(player_block, sort_keys=True),
-                ),
-            )
+                minutes = int_or_none(games.get("minutes")) or 0
+                execute(
+                    conn,
+                    """
+                    INSERT INTO player_match_stats (
+                        match_id, provider_player_key, source_fixture_id, local_team_id,
+                        api_team_id, team_name, api_player_id, player_name, minutes,
+                        position, rating, goals, assists, yellow_cards, red_cards,
+                        clean_sheet, raw_json, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        match["id"],
+                        provider_player_key,
+                        api_fixture_id,
+                        local_team_id,
+                        api_team_id,
+                        api_team.get("name"),
+                        api_player_id,
+                        player_name,
+                        minutes,
+                        games.get("position"),
+                        games.get("rating"),
+                        int_or_none(goals.get("total")) or 0,
+                        int_or_none(goals.get("assists")) or 0,
+                        int_or_none(cards.get("yellow")) or 0,
+                        int_or_none(cards.get("red")) or 0,
+                        bool_int(team_clean_sheet and minutes > 0),
+                        json.dumps(player_block, sort_keys=True),
+                    ),
+                )
 
     return {
         "match_id": match["id"],
@@ -3150,6 +3333,16 @@ def require_current_user(
     return user, None
 
 
+def require_admin_user() -> tuple[dict[str, Any] | None, Any | None]:
+    user, error_response = require_current_user("Log in as an admin before using this feature.")
+    if error_response:
+        return None, error_response
+    assert user is not None
+    if not user.get("is_admin"):
+        return None, (jsonify({"error": "Admin access required."}), 403)
+    return user, None
+
+
 def sync_token_from_request() -> str:
     auth_header = request.headers.get("Authorization", "")
     if auth_header.casefold().startswith("bearer "):
@@ -3169,7 +3362,12 @@ def social_state(user: dict[str, Any]) -> dict[str, Any]:
     with get_db() as conn:
         users = execute(
             conn,
-            "SELECT id, name, email, profile_image_url FROM users WHERE id != ? ORDER BY name",
+            """
+            SELECT id, name, email, profile_image_url
+            FROM users
+            WHERE id != ? AND archived_at IS NULL
+            ORDER BY name
+            """,
             (user["id"],),
         ).fetchall()
         follows = execute(conn, "SELECT follower_id, followed_id FROM user_follows").fetchall()
@@ -3339,7 +3537,13 @@ def build_leaderboard(
 
     with get_db() as conn:
         users = execute(
-            conn, "SELECT id, name, email, profile_image_url FROM users ORDER BY name"
+            conn,
+            """
+            SELECT id, name, email, profile_image_url
+            FROM users
+            WHERE archived_at IS NULL
+            ORDER BY name
+            """,
         ).fetchall()
         predictions = execute(conn, "SELECT * FROM match_predictions").fetchall()
         quiz_predictions = execute(conn, "SELECT * FROM quiz_predictions").fetchall()
@@ -3491,6 +3695,7 @@ def build_leaderboard(
             {
                 "user_id": user["id"],
                 "name": user["name"],
+                "email": user["email"],
                 "profile_picture": user_profile_picture(user),
                 "points": points,
                 "exact_scores": exact_scores,
@@ -3680,9 +3885,8 @@ def build_matchday_summary(
         if match_date < target_date:
             continue
         kickoff = match_kickoff(match)
-        if (
-            match_date > target_date
-            and (previous_kickoff is None or kickoff - previous_kickoff >= MATCHDAY_SESSION_GAP)
+        if match_date > target_date and (
+            previous_kickoff is None or kickoff - previous_kickoff >= MATCHDAY_SESSION_GAP
         ):
             break
         previous_kickoff = kickoff
@@ -3867,7 +4071,10 @@ def build_daily_recap(
     with get_db() as conn:
         predictions = execute(conn, "SELECT * FROM match_predictions").fetchall()
         quiz_predictions = execute(conn, "SELECT * FROM quiz_predictions").fetchall()
-        users = execute(conn, "SELECT id, name, profile_image_url FROM users").fetchall()
+        users = execute(
+            conn,
+            "SELECT id, name, profile_image_url FROM users WHERE archived_at IS NULL",
+        ).fetchall()
         leeuwtjes = execute(conn, "SELECT user_id, match_id FROM leeuwtje_predictions").fetchall()
 
     user_names = {user["id"]: user["name"] for user in users}
@@ -4162,6 +4369,193 @@ def match_result_details(match_id: str, data: dict[str, Any]) -> dict[str, Any] 
     }
 
 
+def match_by_id(data: dict[str, Any], match_id: str) -> dict[str, Any] | None:
+    return next((match for match in data.get("matches", []) if match.get("id") == match_id), None)
+
+
+def admin_label_source_from_key(value: Any, fallback: str = "api-football") -> str:
+    text = clean_text(value)
+    if text.startswith("manual:"):
+        return "manual"
+    return fallback
+
+
+def int_payload_value(payload: dict[str, Any], key: str, *, required: bool = False) -> int | None:
+    value = payload.get(key)
+    if value in (None, ""):
+        if required:
+            raise ValueError(f"{key} is required.")
+        return None
+    assert value is not None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{key} must be a whole number.") from error
+
+
+def clean_optional_payload_text(payload: dict[str, Any], key: str, limit: int = 160) -> str | None:
+    if key not in payload:
+        return None
+    value = clean_text(payload.get(key))
+    if len(value) > limit:
+        raise ValueError(f"{key} must be at most {limit} characters.")
+    return value or None
+
+
+def label_audit(
+    conn: Any,
+    admin_user_id: int,
+    label_type: str,
+    match_id: str,
+    before: Any,
+    after: Any,
+) -> None:
+    execute(
+        conn,
+        """
+        INSERT INTO label_audit_log (
+            admin_user_id, label_type, match_id, before_json, after_json, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        (
+            admin_user_id,
+            label_type,
+            match_id,
+            json.dumps(json_ready(before), sort_keys=True),
+            json.dumps(json_ready(after), sort_keys=True),
+        ),
+    )
+
+
+def quiz_label_for_admin(match: dict[str, Any], override: Any | None) -> dict[str, Any] | None:
+    quiz = match.get("quiz")
+    if not isinstance(quiz, dict):
+        return None
+    correct_answers = quiz.get("correct_answers")
+    if correct_answers is None and quiz.get("correct_answer") is not None:
+        correct_answers = [quiz.get("correct_answer")]
+    label = {
+        "question": quiz.get("question"),
+        "correct_answer": quiz.get("correct_answer"),
+        "correct_answers": correct_answers or [],
+        "viewership_answer": quiz.get("viewership_answer"),
+        "source": "static",
+        "updated_at": None,
+        "updated_by_user_id": None,
+    }
+    if override is not None:
+        override_answers = parse_correct_answers_json(override["correct_answers_json"])
+        label.update(
+            {
+                "correct_answer": override_answers[0] if override_answers else None,
+                "correct_answers": override_answers,
+                "viewership_answer": override["viewership_answer"],
+                "source": override["source"] or "manual",
+                "updated_at": override["updated_at"],
+                "updated_by_user_id": override["updated_by_user_id"],
+            }
+        )
+    return label
+
+
+def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
+    with get_db() as conn:
+        result_rows = execute(
+            conn,
+            """
+            SELECT match_id, source, source_fixture_id, status_long, status_short,
+                   elapsed, home_score, away_score, synced_at
+            FROM match_results
+            """,
+        ).fetchall()
+        event_rows = execute(
+            conn,
+            """
+            SELECT match_id, provider_event_key, source_fixture_id, elapsed, extra,
+                   local_team_id, api_team_id, team_name, api_player_id, player_name,
+                   api_assist_id, assist_name, event_type, detail, comments, updated_at
+            FROM match_events
+            ORDER BY match_id, COALESCE(elapsed, 999), COALESCE(extra, 0), provider_event_key
+            """,
+        ).fetchall()
+        stat_rows = execute(
+            conn,
+            """
+            SELECT match_id, provider_player_key, source_fixture_id, local_team_id,
+                   api_team_id, team_name, api_player_id, player_name, minutes,
+                   position, rating, goals, assists, yellow_cards, red_cards,
+                   clean_sheet, updated_at
+            FROM player_match_stats
+            ORDER BY match_id, team_name, position, player_name
+            """,
+        ).fetchall()
+        quiz_rows = execute(
+            conn,
+            """
+            SELECT match_id, correct_answers_json, viewership_answer, source,
+                   updated_by_user_id, updated_at
+            FROM quiz_label_overrides
+            """,
+        ).fetchall()
+        audit_rows = execute(
+            conn,
+            """
+            SELECT label_type, match_id, admin_user_id, created_at
+            FROM label_audit_log
+            ORDER BY created_at DESC, id DESC
+            LIMIT 50
+            """,
+        ).fetchall()
+
+    results = {row["match_id"]: row for row in result_rows}
+    quizzes = {row["match_id"]: row for row in quiz_rows}
+    events_by_match: dict[str, list[dict[str, Any]]] = {}
+    for row in event_rows:
+        event = dict(row)
+        event["source"] = admin_label_source_from_key(row["provider_event_key"])
+        event["event_id"] = row["provider_event_key"]
+        events_by_match.setdefault(row["match_id"], []).append(event)
+    stats_by_match: dict[str, list[dict[str, Any]]] = {}
+    for row in stat_rows:
+        stat = dict(row)
+        stat["source"] = admin_label_source_from_key(row["provider_player_key"])
+        stat["stat_id"] = row["provider_player_key"]
+        stats_by_match.setdefault(row["match_id"], []).append(stat)
+
+    matches = []
+    for match in data.get("matches", []):
+        result = results.get(match["id"])
+        matches.append(
+            {
+                "match_id": match["id"],
+                "round": match.get("round"),
+                "group": match.get("group"),
+                "date": match.get("date"),
+                "home_team_id": match.get("home_team_id"),
+                "away_team_id": match.get("away_team_id"),
+                "home_team_name": match.get("home_team"),
+                "away_team_name": match.get("away_team"),
+                "result": dict(result) if result else None,
+                "quiz": quiz_label_for_admin(match, quizzes.get(match["id"])),
+                "events": events_by_match.get(match["id"], []),
+                "player_stats": stats_by_match.get(match["id"], []),
+            }
+        )
+
+    return {
+        "matches": matches,
+        "audit": [json_ready(row) for row in audit_rows],
+        "tables": {
+            "match_results": True,
+            "match_events": True,
+            "player_match_stats": True,
+            "quiz_label_overrides": True,
+            "label_audit_log": True,
+        },
+    }
+
+
 if not CONFIG_ERROR:
     try:
         init_db()
@@ -4231,7 +4625,7 @@ def login():
         row = execute(
             conn,
             """
-            SELECT id, name, email, profile_image_url, password_hash
+            SELECT id, name, email, profile_image_url, password_hash, is_admin, archived_at
             FROM users
             WHERE LOWER(TRIM(email)) = ?
             ORDER BY id
@@ -4243,20 +4637,30 @@ def login():
                 password = validate_password(raw_password)
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
+            user_count = execute(
+                conn,
+                "SELECT COUNT(*) AS count FROM users WHERE archived_at IS NULL",
+            ).fetchone()["count"]
+            is_admin = int(user_count == 0 or email.casefold() in ADMIN_EMAILS)
             execute(
                 conn,
-                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
-                (name, email, generate_password_hash(password)),
+                """
+                INSERT INTO users (name, email, password_hash, is_admin)
+                VALUES (?, ?, ?, ?)
+                """,
+                (name, email, generate_password_hash(password), is_admin),
             )
             row = execute(
                 conn,
                 """
-                SELECT id, name, email, profile_image_url, password_hash
+                SELECT id, name, email, profile_image_url, password_hash, is_admin, archived_at
                 FROM users
                 WHERE email = ?
                 """,
                 (email,),
             ).fetchone()
+        elif row["archived_at"] is not None:
+            return jsonify({"error": "This account has been archived."}), 403
         elif normalize_identity(row["name"]) != name_key:
             return jsonify({"error": "Use the username linked to this email address."}), 409
         elif not raw_password or not check_password_hash(row["password_hash"], str(raw_password)):
@@ -4270,7 +4674,7 @@ def login():
             row = execute(
                 conn,
                 """
-                SELECT id, name, email, profile_image_url, password_hash
+                SELECT id, name, email, profile_image_url, password_hash, is_admin, archived_at
                 FROM users
                 WHERE id = ?
                 """,
@@ -4296,7 +4700,12 @@ def forgot_password():
     with get_db() as conn:
         row = execute(
             conn,
-            "SELECT id FROM users WHERE LOWER(TRIM(email)) = ? ORDER BY id",
+            """
+            SELECT id
+            FROM users
+            WHERE LOWER(TRIM(email)) = ? AND archived_at IS NULL
+            ORDER BY id
+            """,
             (email,),
         ).fetchone()
         if row is not None:
@@ -4400,7 +4809,11 @@ def update_me():
             )
         row = execute(
             conn,
-            "SELECT id, name, email, profile_image_url FROM users WHERE id = ?",
+            """
+            SELECT id, name, email, profile_image_url, is_admin, archived_at
+            FROM users
+            WHERE id = ? AND archived_at IS NULL
+            """,
             (user["id"],),
         ).fetchone()
 
@@ -4425,6 +4838,419 @@ def logout():
 def pool():
     data = load_world_cup_data()
     return jsonify(user_pool_state(current_user(), data))
+
+
+@app.get("/api/admin/users")
+def admin_users():
+    _admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    with get_db() as conn:
+        rows = execute(
+            conn,
+            """
+            SELECT id, name, email, profile_image_url, is_admin, archived_at, created_at
+            FROM users
+            ORDER BY archived_at IS NOT NULL, name
+            """,
+        ).fetchall()
+    return jsonify({"users": [json_ready(row) for row in rows]})
+
+
+@app.patch("/api/admin/users/<int:user_id>")
+def admin_update_user(user_id: int):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+    payload = request.get_json(silent=True) or {}
+    if "is_admin" not in payload:
+        return jsonify({"error": "No admin changes submitted."}), 400
+
+    is_admin = bool(payload.get("is_admin"))
+    if user_id == admin["id"] and not is_admin:
+        return jsonify({"error": "You cannot remove your own admin access."}), 400
+    with get_db() as conn:
+        target = execute(
+            conn,
+            "SELECT id, is_admin, archived_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if target is None:
+            return jsonify({"error": "Account not found."}), 404
+        if target["archived_at"] is not None:
+            return jsonify({"error": "Restore the account before changing admin status."}), 400
+        if not is_admin and bool(target["is_admin"]):
+            active_admins = execute(
+                conn,
+                "SELECT COUNT(*) AS count FROM users WHERE is_admin = 1 AND archived_at IS NULL",
+            ).fetchone()["count"]
+            if active_admins <= 1:
+                return jsonify({"error": "At least one active admin is required."}), 400
+        execute(
+            conn,
+            "UPDATE users SET is_admin = ? WHERE id = ?",
+            (int(is_admin), user_id),
+        )
+    logger.info("Admin %s set admin=%s for user %s", admin["id"], is_admin, user_id)
+    return admin_users()
+
+
+@app.post("/api/admin/users/<int:user_id>/archive")
+def admin_archive_user(user_id: int):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+    if user_id == admin["id"]:
+        return jsonify({"error": "You cannot archive your own account."}), 400
+
+    with get_db() as conn:
+        target = execute(
+            conn,
+            "SELECT id, is_admin, archived_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if target is None:
+            return jsonify({"error": "Account not found."}), 404
+        if target["archived_at"] is not None:
+            return admin_users()
+        if bool(target["is_admin"]):
+            active_admins = execute(
+                conn,
+                "SELECT COUNT(*) AS count FROM users WHERE is_admin = 1 AND archived_at IS NULL",
+            ).fetchone()["count"]
+            if active_admins <= 1:
+                return jsonify({"error": "At least one active admin is required."}), 400
+        execute(
+            conn,
+            "UPDATE users SET archived_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (user_id,),
+        )
+        execute(
+            conn,
+            "DELETE FROM user_follows WHERE follower_id = ? OR followed_id = ?",
+            (user_id, user_id),
+        )
+    logger.info("Admin %s archived user %s", admin["id"], user_id)
+    return admin_users()
+
+
+@app.post("/api/admin/users/<int:user_id>/restore")
+def admin_restore_user(user_id: int):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+    with get_db() as conn:
+        target = execute(conn, "SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        if target is None:
+            return jsonify({"error": "Account not found."}), 404
+        execute(
+            conn,
+            "UPDATE users SET archived_at = NULL WHERE id = ?",
+            (user_id,),
+        )
+    logger.info("Admin %s restored user %s", admin["id"], user_id)
+    return admin_users()
+
+
+@app.get("/api/admin/labels")
+def admin_labels():
+    _admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    return jsonify(admin_labels_payload(load_world_cup_data()))
+
+
+@app.patch("/api/admin/labels/<match_id>/result")
+def admin_update_result_label(match_id: str):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+    data = load_world_cup_data()
+    if match_by_id(data, match_id) is None:
+        return jsonify({"error": "Match not found."}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        home_score = int_payload_value(payload, "home_score", required=True)
+        away_score = int_payload_value(payload, "away_score", required=True)
+        elapsed = int_payload_value(payload, "elapsed")
+        status_short = clean_optional_payload_text(payload, "status_short", 24) or "FT"
+        status_long = clean_optional_payload_text(payload, "status_long", 80) or "Manual result"
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    assert home_score is not None and away_score is not None
+    if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
+        return jsonify({"error": "Scores must be between 0 and 30."}), 400
+
+    with get_db() as conn:
+        before = execute(
+            conn,
+            "SELECT * FROM match_results WHERE match_id = ?",
+            (match_id,),
+        ).fetchone()
+        execute(
+            conn,
+            """
+            INSERT INTO match_results (
+                match_id, source, source_fixture_id, status_long, status_short,
+                elapsed, home_score, away_score, synced_at
+            )
+            VALUES (?, 'manual', NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(match_id)
+            DO UPDATE SET source = 'manual',
+                          source_fixture_id = NULL,
+                          status_long = excluded.status_long,
+                          status_short = excluded.status_short,
+                          elapsed = excluded.elapsed,
+                          home_score = excluded.home_score,
+                          away_score = excluded.away_score,
+                          synced_at = CURRENT_TIMESTAMP
+            """,
+            (match_id, status_long, status_short, elapsed, home_score, away_score),
+        )
+        after = execute(
+            conn,
+            "SELECT * FROM match_results WHERE match_id = ?",
+            (match_id,),
+        ).fetchone()
+        label_audit(conn, admin["id"], "result", match_id, before, after)
+    return jsonify(admin_labels_payload(load_world_cup_data()))
+
+
+@app.patch("/api/admin/labels/<match_id>/quiz")
+def admin_update_quiz_label(match_id: str):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+    data = load_world_cup_data()
+    match = match_by_id(data, match_id)
+    if match is None:
+        return jsonify({"error": "Match not found."}), 404
+    if not match.get("quiz"):
+        return jsonify({"error": "This match has no quiz label."}), 400
+    payload = request.get_json(silent=True) or {}
+
+    with get_db() as conn:
+        before = execute(
+            conn,
+            "SELECT * FROM quiz_label_overrides WHERE match_id = ?",
+            (match_id,),
+        ).fetchone()
+        if payload.get("clear_override"):
+            execute(conn, "DELETE FROM quiz_label_overrides WHERE match_id = ?", (match_id,))
+            after = None
+        else:
+            raw_answers = payload.get("correct_answers")
+            if raw_answers is None and "correct_answer" in payload:
+                raw_answers = [payload.get("correct_answer")]
+            if isinstance(raw_answers, str):
+                raw_answers = [raw_answers]
+            if not isinstance(raw_answers, list):
+                return jsonify({"error": "correct_answers must be a list or text value."}), 400
+            correct_answers = [
+                answer for answer in (clean_text(item) for item in raw_answers) if answer
+            ]
+            try:
+                viewership_answer = int_payload_value(payload, "viewership_answer")
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
+            execute(
+                conn,
+                """
+                INSERT INTO quiz_label_overrides (
+                    match_id, correct_answers_json, viewership_answer, source,
+                    updated_by_user_id, updated_at
+                )
+                VALUES (?, ?, ?, 'manual', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(match_id)
+                DO UPDATE SET correct_answers_json = excluded.correct_answers_json,
+                              viewership_answer = excluded.viewership_answer,
+                              source = 'manual',
+                              updated_by_user_id = excluded.updated_by_user_id,
+                              updated_at = CURRENT_TIMESTAMP
+                """,
+                (match_id, json.dumps(correct_answers), viewership_answer, admin["id"]),
+            )
+            after = execute(
+                conn,
+                "SELECT * FROM quiz_label_overrides WHERE match_id = ?",
+                (match_id,),
+            ).fetchone()
+        label_audit(conn, admin["id"], "quiz", match_id, before, after)
+    return jsonify(admin_labels_payload(load_world_cup_data()))
+
+
+@app.put("/api/admin/labels/<match_id>/events")
+def admin_update_event_labels(match_id: str):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+    data = load_world_cup_data()
+    if match_by_id(data, match_id) is None:
+        return jsonify({"error": "Match not found."}), 404
+    payload = request.get_json(silent=True) or {}
+    events = payload.get("events")
+    if not isinstance(events, list):
+        return jsonify({"error": "events must be a list."}), 400
+
+    cleaned_events = []
+    for index, event in enumerate(events, start=1):
+        if not isinstance(event, dict):
+            return jsonify({"error": "Each event must be an object."}), 400
+        player_name = clean_text(event.get("player_name"))
+        event_type = clean_text(event.get("event_type") or "Goal")
+        if not player_name:
+            return jsonify({"error": "Each event needs a player_name."}), 400
+        if len(player_name) > 160 or len(event_type) > 80:
+            return jsonify({"error": "Event names are too long."}), 400
+        cleaned_events.append(
+            {
+                "provider_event_key": f"manual:{match_id}:{index}",
+                "elapsed": int_or_none(event.get("elapsed")),
+                "extra": int_or_none(event.get("extra")),
+                "local_team_id": clean_text(event.get("local_team_id")) or None,
+                "team_name": clean_text(event.get("team_name")) or None,
+                "player_name": player_name,
+                "event_type": event_type,
+                "detail": clean_text(event.get("detail")) or None,
+                "comments": clean_text(event.get("comments")) or None,
+            }
+        )
+
+    with get_db() as conn:
+        before = execute(
+            conn,
+            "SELECT * FROM match_events WHERE match_id = ?",
+            (match_id,),
+        ).fetchall()
+        execute(conn, "DELETE FROM match_events WHERE match_id = ?", (match_id,))
+        for event in cleaned_events:
+            execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, source_fixture_id, elapsed, extra,
+                    local_team_id, api_team_id, team_name, api_player_id, player_name,
+                    api_assist_id, assist_name, event_type, detail, comments, raw_json,
+                    updated_at
+                )
+                VALUES (
+                    ?, ?, NULL, ?, ?, ?, NULL, ?, NULL, ?, NULL, NULL, ?, ?, ?, ?,
+                    CURRENT_TIMESTAMP
+                )
+                """,
+                (
+                    match_id,
+                    event["provider_event_key"],
+                    event["elapsed"],
+                    event["extra"],
+                    event["local_team_id"],
+                    event["team_name"],
+                    event["player_name"],
+                    event["event_type"],
+                    event["detail"],
+                    event["comments"],
+                    json.dumps({"source": "manual", **event}, sort_keys=True),
+                ),
+            )
+        after = execute(
+            conn,
+            "SELECT * FROM match_events WHERE match_id = ?",
+            (match_id,),
+        ).fetchall()
+        label_audit(conn, admin["id"], "events", match_id, before, after)
+    return jsonify(admin_labels_payload(load_world_cup_data()))
+
+
+@app.put("/api/admin/labels/<match_id>/player-stats")
+def admin_update_player_stat_labels(match_id: str):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+    data = load_world_cup_data()
+    if match_by_id(data, match_id) is None:
+        return jsonify({"error": "Match not found."}), 404
+    payload = request.get_json(silent=True) or {}
+    stats = payload.get("player_stats")
+    if not isinstance(stats, list):
+        return jsonify({"error": "player_stats must be a list."}), 400
+
+    cleaned_stats = []
+    for index, stat in enumerate(stats, start=1):
+        if not isinstance(stat, dict):
+            return jsonify({"error": "Each player stat must be an object."}), 400
+        player_name = clean_text(stat.get("player_name"))
+        if not player_name:
+            return jsonify({"error": "Each player stat needs a player_name."}), 400
+        cleaned_stats.append(
+            {
+                "provider_player_key": f"manual:{match_id}:{index}",
+                "local_team_id": clean_text(stat.get("local_team_id")) or None,
+                "team_name": clean_text(stat.get("team_name")) or None,
+                "player_name": player_name[:160],
+                "minutes": int_or_none(stat.get("minutes")) or 0,
+                "position": clean_text(stat.get("position")) or None,
+                "rating": clean_text(stat.get("rating")) or None,
+                "goals": int_or_none(stat.get("goals")) or 0,
+                "assists": int_or_none(stat.get("assists")) or 0,
+                "yellow_cards": int_or_none(stat.get("yellow_cards")) or 0,
+                "red_cards": int_or_none(stat.get("red_cards")) or 0,
+                "clean_sheet": bool_int(bool(stat.get("clean_sheet"))),
+            }
+        )
+
+    with get_db() as conn:
+        before = execute(
+            conn,
+            "SELECT * FROM player_match_stats WHERE match_id = ?",
+            (match_id,),
+        ).fetchall()
+        execute(conn, "DELETE FROM player_match_stats WHERE match_id = ?", (match_id,))
+        for stat in cleaned_stats:
+            execute(
+                conn,
+                """
+                INSERT INTO player_match_stats (
+                    match_id, provider_player_key, source_fixture_id, local_team_id,
+                    api_team_id, team_name, api_player_id, player_name, minutes,
+                    position, rating, goals, assists, yellow_cards, red_cards,
+                    clean_sheet, raw_json, updated_at
+                )
+                VALUES (
+                    ?, ?, NULL, ?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    CURRENT_TIMESTAMP
+                )
+                """,
+                (
+                    match_id,
+                    stat["provider_player_key"],
+                    stat["local_team_id"],
+                    stat["team_name"],
+                    stat["player_name"],
+                    stat["minutes"],
+                    stat["position"],
+                    stat["rating"],
+                    stat["goals"],
+                    stat["assists"],
+                    stat["yellow_cards"],
+                    stat["red_cards"],
+                    stat["clean_sheet"],
+                    json.dumps({"source": "manual", **stat}, sort_keys=True),
+                ),
+            )
+        after = execute(
+            conn,
+            "SELECT * FROM player_match_stats WHERE match_id = ?",
+            (match_id,),
+        ).fetchall()
+        label_audit(conn, admin["id"], "player_stats", match_id, before, after)
+    return jsonify(admin_labels_payload(load_world_cup_data()))
 
 
 @app.get("/api/newsletters")
@@ -4609,7 +5435,11 @@ def follow_user():
         return jsonify({"error": "You cannot follow yourself."}), 400
 
     with get_db() as conn:
-        target = execute(conn, "SELECT id FROM users WHERE id = ?", (followed_id,)).fetchone()
+        target = execute(
+            conn,
+            "SELECT id FROM users WHERE id = ? AND archived_at IS NULL",
+            (followed_id,),
+        ).fetchone()
         if target is None:
             return jsonify({"error": "That player is not in the pool."}), 404
         execute(
@@ -4652,7 +5482,7 @@ def profile_predictions(profile_user_id: int):
     with get_db() as conn:
         profile = execute(
             conn,
-            "SELECT id, name FROM users WHERE id = ?",
+            "SELECT id, name FROM users WHERE id = ? AND archived_at IS NULL",
             (profile_user_id,),
         ).fetchone()
     if profile is None:

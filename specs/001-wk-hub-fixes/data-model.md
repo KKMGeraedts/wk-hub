@@ -182,3 +182,171 @@ Represents the onboarding leaderboard preview and optional prediction flow.
 - Completing or skipping any onboarding prediction prompt leads to normal app views without affecting leaderboard eligibility.
 - Tutorial/onboarding text must not claim that predictions are required to join or appear in the leaderboard.
 - Normal profile navigation remains available outside tutorial.
+
+## Admin User
+
+Represents an account user with elevated permissions.
+
+**Existing storage involved**:
+
+- `users`
+
+**Fields**:
+
+- `id`
+- `name`
+- `email`
+- `is_admin`
+- `archived_at`
+
+**Validation rules**:
+
+- Only admin users may inspect or update scoring labels.
+- Admin users may manage scoring labels and accounts.
+- Admin users must not update another participant's prediction records.
+- Non-admin users must receive an authorization error for admin label routes.
+
+## Match Result Label
+
+Represents the actual score/result label used to score match predictions and group standings.
+
+**Existing storage involved**:
+
+- `match_results`
+
+**Fields**:
+
+- `match_id`
+- `source`
+- `source_fixture_id`
+- `status_long`
+- `status_short`
+- `elapsed`
+- `home_score`
+- `away_score`
+- `synced_at`
+
+**State transitions**:
+
+1. Missing before API-Football sync or manual entry.
+2. API-sourced after successful API-Football result sync.
+3. Manual/admin-sourced after admin correction or fallback entry.
+
+**Validation rules**:
+
+- Scores must be whole numbers in the same accepted score range as match predictions.
+- Manual result labels are scoring labels only and must not mutate `match_predictions`.
+- Scoring should use manual/admin labels where present and otherwise use API-Football labels.
+
+## Match Event Label
+
+Represents goal/scorer event labels used for top scorer and striker scoring.
+
+**Existing storage involved**:
+
+- `match_events`
+
+**Fields**:
+
+- `match_id`
+- `provider_event_key`
+- `elapsed`
+- `local_team_id`
+- `team_name`
+- `api_player_id`
+- `player_name`
+- `event_type`
+- `detail`
+- `comments`
+- `raw_json`
+- `updated_at`
+
+**Validation rules**:
+
+- Goal event labels should identify scorer name and team when known.
+- Own goals and non-goal events must not incorrectly count as striker goals.
+- Manual event edits must feed `goal_counts_by_player()` or equivalent scoring helper.
+- Manual event edits must not mutate `top_scorer_predictions`.
+
+## Player Stat Label
+
+Represents synced or manually corrected player statistics relevant for inspection and future scoring labels.
+
+**Existing storage involved**:
+
+- `player_match_stats`
+
+**Fields**:
+
+- `match_id`
+- `provider_player_key`
+- `local_team_id`
+- `team_name`
+- `api_player_id`
+- `player_name`
+- `minutes`
+- `position`
+- `goals`
+- `assists`
+- `clean_sheet`
+- `raw_json`
+- `updated_at`
+
+**Validation rules**:
+
+- Stats must remain tied to a match and player identity.
+- Goal totals should remain consistent with goal event labels or clearly show source/override state.
+- Manual stat edits are label edits only and must not mutate participant predictions.
+
+## Quiz Label Override
+
+Represents DB-backed admin overrides for quiz labels that are otherwise loaded from static quiz data.
+
+**Storage involved**:
+
+- New or extended DB-backed quiz label override storage
+
+**Fields**:
+
+- `match_id`
+- `correct_answer`
+- `correct_answers`
+- `viewership_answer`
+- `source`
+- `updated_by_user_id`
+- `updated_at`
+
+**State transitions**:
+
+1. Missing, so scoring uses static quiz data.
+2. Present, so scoring uses admin override values.
+3. Cleared, so scoring returns to static quiz data.
+
+**Validation rules**:
+
+- Correct-answer overrides must match the quiz type and allowed choices when choices exist.
+- Viewership answers must be whole numbers when present.
+- Overrides affect quiz scoring only and must not mutate `quiz_predictions`.
+
+## Label Audit Entry
+
+Represents traceability for manual scoring-label changes.
+
+**Storage involved**:
+
+- Existing `prediction_audit_log` if scoped clearly, or a new label-specific audit table if implementation needs distinct retention
+
+**Fields**:
+
+- `id`
+- `admin_user_id`
+- `label_type`
+- `match_id`
+- `before`
+- `after`
+- `created_at`
+
+**Validation rules**:
+
+- Every manual label update should record who changed it and when.
+- Audit entries must not contain participant prediction edits.
