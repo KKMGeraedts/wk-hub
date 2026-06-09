@@ -1530,6 +1530,10 @@ tr.highlight td {
     overflow-wrap: anywhere;
 }
 
+.profile-admin-link {
+    justify-self: center;
+}
+
 .profile-name-row,
 .profile-name-form {
     display: grid;
@@ -1581,6 +1585,20 @@ tr.highlight td {
 .admin-users-panel {
     max-width: 980px;
     margin: 0 auto;
+}
+
+.admin-page {
+    display: grid;
+    gap: 18px;
+}
+
+.admin-switcher-panel {
+    max-width: 1180px;
+    margin: 0 auto;
+}
+
+.admin-section-select {
+    min-width: 220px;
 }
 
 .admin-labels-panel {
@@ -1637,21 +1655,6 @@ tr.highlight td {
     justify-content: flex-end;
 }
 
-.admin-label-toolbar {
-    display: grid;
-    grid-template-columns: minmax(260px, 380px) minmax(0, 1fr);
-    gap: 16px;
-    align-items: end;
-    margin-bottom: 18px;
-}
-
-.admin-label-source-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 8px;
-}
-
-.admin-label-source-grid span,
 .admin-label-audit span {
     display: block;
     padding: 8px 10px;
@@ -1663,6 +1666,53 @@ tr.highlight td {
     font-weight: 900;
     text-transform: uppercase;
     overflow-wrap: anywhere;
+}
+
+.admin-label-match-list {
+    max-height: none;
+}
+
+.admin-label-match {
+    gap: 12px;
+}
+
+.admin-label-status {
+    align-items: center;
+}
+
+.admin-label-score input {
+    pointer-events: none;
+}
+
+.admin-label-readout {
+    margin-top: 0;
+}
+
+.admin-label-readout-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.admin-label-readout-grid span {
+    display: block;
+    min-width: 0;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 800;
+    overflow-wrap: anywhere;
+}
+
+.admin-label-readout-grid strong {
+    display: block;
+    margin-bottom: 4px;
+    color: var(--ink);
+    font-size: 11px;
+    text-transform: uppercase;
 }
 
 .admin-label-grid {

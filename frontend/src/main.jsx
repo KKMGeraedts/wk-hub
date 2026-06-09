@@ -1821,7 +1821,6 @@ function GroupPanel({ group, data, teams }) {
 }
 
 function LoginPanel({ onLogin }) {
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [resetMode, setResetMode] = useState(false);
@@ -1849,7 +1848,7 @@ function LoginPanel({ onLogin }) {
 
       const result = await apiJson("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ name, email, password }),
+        body: JSON.stringify({ email, password }),
       });
       await onLogin(result.user);
     } catch (err) {
@@ -1867,7 +1866,7 @@ function LoginPanel({ onLogin }) {
           <p>
             {resetMode
               ? "Enter your account email and use the default password after reset."
-              : "Log in, or create a new account with a password."}
+              : "Log in with your email address and password."}
           </p>
         </div>
         <span className="pill orange">{resetMode ? "Reset" : "Login"}</span>
@@ -1886,15 +1885,6 @@ function LoginPanel({ onLogin }) {
           </label>
         ) : (
           <>
-            <label>
-              Username
-              <input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="your username"
-                autoComplete="username"
-              />
-            </label>
             <label>
               Email
               <input
@@ -2375,9 +2365,28 @@ function labelStatDraft(stats = []) {
   );
 }
 
-function AdminLabelsPage() {
+function labelSource(match, type) {
+  if (type === "result") return match.result?.source ?? "missing";
+  if (type === "quiz") return match.quiz?.source ?? "missing";
+  if (type === "events") {
+    if (match.events?.some((event) => event.source === "manual")) return "manual";
+    return match.events?.length ? "api-football" : "missing";
+  }
+  if (type === "stats") {
+    if (match.player_stats?.some((stat) => stat.source === "manual")) return "manual";
+    return match.player_stats?.length ? "api-football" : "missing";
+  }
+  return "missing";
+}
+
+function LabelSourcePill({ source }) {
+  return <span className={source === "manual" ? "pill orange" : "pill"}>{source}</span>;
+}
+
+function AdminLabelsPage({ teams }) {
   const [labels, setLabels] = useState({ matches: [], audit: [], tables: {} });
   const [selectedMatchId, setSelectedMatchId] = useState("");
+  const [editingMatchId, setEditingMatchId] = useState("");
   const [drafts, setDrafts] = useState({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState("");
@@ -2532,180 +2541,276 @@ function AdminLabelsPage() {
           <div className="empty">Loading scoring labels...</div>
         ) : (
           <>
-            <div className="admin-label-toolbar">
-              <label>
-                Match
-                <select
-                  value={selectedMatchId}
-                  onChange={(event) => setSelectedMatchId(event.target.value)}
-                >
-                  {labels.matches.map((item) => (
-                    <option key={item.match_id} value={item.match_id}>
-                      {item.match_id} · {item.home_team_name} - {item.away_team_name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {match && (
-                <div className="admin-label-source-grid">
-                  <span>Result: {match.result?.source ?? "missing"}</span>
-                  <span>Quiz: {match.quiz?.source ?? "missing"}</span>
-                  <span>
-                    Events:{" "}
-                    {match.events.some((event) => event.source === "manual")
-                      ? "manual"
-                      : match.events.length
-                        ? "api-football"
-                        : "missing"}
-                  </span>
-                  <span>
-                    Stats:{" "}
-                    {match.player_stats.some((stat) => stat.source === "manual")
-                      ? "manual"
-                      : match.player_stats.length
-                        ? "api-football"
-                        : "missing"}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {match && (
-              <div className="admin-label-grid">
-                <section className="admin-label-section">
-                  <h4>Result label</h4>
-                  <div className="admin-label-fields">
-                    <label>
-                      Home
-                      <input
-                        type="number"
-                        min="0"
-                        max="30"
-                        value={draft.home_score ?? ""}
-                        onChange={(event) => updateDraft("home_score", event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      Away
-                      <input
-                        type="number"
-                        min="0"
-                        max="30"
-                        value={draft.away_score ?? ""}
-                        onChange={(event) => updateDraft("away_score", event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      Status
-                      <input
-                        value={draft.status_short ?? ""}
-                        onChange={(event) => updateDraft("status_short", event.target.value)}
-                      />
-                    </label>
-                    <label>
-                      Elapsed
-                      <input
-                        type="number"
-                        value={draft.elapsed ?? ""}
-                        onChange={(event) => updateDraft("elapsed", event.target.value)}
-                      />
-                    </label>
-                  </div>
-                  <button
-                    className="primary-button"
-                    type="button"
-                    disabled={saving === "result"}
-                    onClick={saveResult}
+            <div className="prediction-fixture-list admin-label-match-list">
+              {labels.matches.map((labelMatch, index) => {
+                const editing = editingMatchId === labelMatch.match_id;
+                const goalEvents = (labelMatch.events ?? []).filter(
+                  (event) =>
+                    String(event.event_type ?? "").toLowerCase() === "goal",
+                );
+                const goalSummary = goalEvents.length
+                  ? goalEvents
+                      .map((event) => event.player_name)
+                      .filter(Boolean)
+                      .join(", ")
+                  : "No goal labels";
+                const statSummary = labelMatch.player_stats?.length
+                  ? `${labelMatch.player_stats.length} player stat labels`
+                  : "No player stat labels";
+                return (
+                  <article
+                    className={
+                      editing
+                        ? "prediction-fixture-row admin-label-match is-active"
+                        : "prediction-fixture-row admin-label-match"
+                    }
+                    key={labelMatch.match_id}
                   >
-                    {saving === "result" ? "Saving..." : "Save result"}
-                  </button>
-                </section>
-
-                <section className="admin-label-section">
-                  <h4>Quiz label</h4>
-                  {match.quiz ? (
-                    <>
-                      <p>{match.quiz.question}</p>
-                      <label>
-                        Correct answers
-                        <input
-                          value={draft.correct_answers ?? ""}
-                          onChange={(event) =>
-                            updateDraft("correct_answers", event.target.value)
-                          }
-                        />
-                      </label>
-                      <label>
-                        Viewership answer
-                        <input
-                          type="number"
-                          value={draft.viewership_answer ?? ""}
-                          onChange={(event) =>
-                            updateDraft("viewership_answer", event.target.value)
-                          }
-                        />
-                      </label>
-                      <div className="admin-label-actions">
+                    <div className="fixture-row-header">
+                      <div className="fixture-open-button as-static">
+                        <span className="fixture-number">{index + 1}</span>
+                        <span>
+                          <strong>
+                            <TeamLabel id={labelMatch.home_team_id} teams={teams} />{" "}
+                            <TeamLabel id={labelMatch.away_team_id} teams={teams} />
+                          </strong>
+                          <em>
+                            {labelMatch.date ?? "Date unknown"} ·{" "}
+                            {labelMatch.round ?? "Match"}
+                            {labelMatch.group ? ` · Group ${labelMatch.group}` : ""}
+                          </em>
+                        </span>
+                      </div>
+                      <div className="fixture-row-status admin-label-status">
+                        <LabelSourcePill source={labelSource(labelMatch, "result")} />
+                        <LabelSourcePill source={labelSource(labelMatch, "quiz")} />
+                        <LabelSourcePill source={labelSource(labelMatch, "events")} />
                         <button
-                          className="primary-button"
+                          className={editing ? "text-button is-active" : "text-button"}
                           type="button"
-                          disabled={saving === "quiz"}
-                          onClick={() => saveQuiz(false)}
+                          onClick={() => {
+                            if (editing) {
+                              setEditingMatchId("");
+                              return;
+                            }
+                            setSelectedMatchId(labelMatch.match_id);
+                            setEditingMatchId(labelMatch.match_id);
+                          }}
                         >
-                          {saving === "quiz" ? "Saving..." : "Save quiz"}
-                        </button>
-                        <button
-                          className="text-button"
-                          type="button"
-                          disabled={saving === "quiz"}
-                          onClick={() => saveQuiz(true)}
-                        >
-                          Clear override
+                          {editing ? "Close" : "Edit"}
                         </button>
                       </div>
-                    </>
-                  ) : (
-                    <div className="empty">No quiz for this match.</div>
-                  )}
-                </section>
+                    </div>
 
-                <section className="admin-label-section is-wide">
-                  <h4>Goal and scorer labels</h4>
-                  <textarea
-                    rows="10"
-                    value={draft.events_json ?? "[]"}
-                    onChange={(event) => updateDraft("events_json", event.target.value)}
-                  />
-                  <button
-                    className="primary-button"
-                    type="button"
-                    disabled={saving === "events"}
-                    onClick={() => saveJsonLabel("events")}
-                  >
-                    {saving === "events" ? "Saving..." : "Save goal labels"}
-                  </button>
-                </section>
+                    <div className="fixture-score-grid has-no-submit admin-label-score">
+                      <label className="fixture-team-input is-home">
+                        <TeamBadge id={labelMatch.home_team_id} teams={teams} />
+                        <input
+                          value={labelMatch.result?.home_score ?? ""}
+                          readOnly
+                          aria-label="Home result label"
+                        />
+                      </label>
+                      <span className="fixture-score-separator">-</span>
+                      <label className="fixture-team-input is-away">
+                        <TeamBadge
+                          id={labelMatch.away_team_id}
+                          teams={teams}
+                          align="right"
+                        />
+                        <input
+                          value={labelMatch.result?.away_score ?? ""}
+                          readOnly
+                          aria-label="Away result label"
+                        />
+                      </label>
+                    </div>
 
-                <section className="admin-label-section is-wide">
-                  <h4>Player stat labels</h4>
-                  <textarea
-                    rows="10"
-                    value={draft.player_stats_json ?? "[]"}
-                    onChange={(event) =>
-                      updateDraft("player_stats_json", event.target.value)
-                    }
-                  />
-                  <button
-                    className="primary-button"
-                    type="button"
-                    disabled={saving === "player_stats"}
-                    onClick={() => saveJsonLabel("player_stats")}
-                  >
-                    {saving === "player_stats" ? "Saving..." : "Save player stats"}
-                  </button>
-                </section>
-              </div>
-            )}
+                    <section
+                      className="fixture-quiz admin-label-readout"
+                      aria-label="Scoring labels"
+                    >
+                      <div className="fixture-quiz-heading">
+                        <div>
+                          <strong>
+                            {labelMatch.quiz?.question ?? "No quiz question"}
+                          </strong>
+                        </div>
+                      </div>
+                      <div className="admin-label-readout-grid">
+                        <span>
+                          <strong>Quiz label</strong>
+                          {labelMatch.quiz?.correct_answers?.length
+                            ? labelMatch.quiz.correct_answers.join(", ")
+                            : "Missing"}
+                        </span>
+                        <span>
+                          <strong>Viewership</strong>
+                          {formatNumber(labelMatch.quiz?.viewership_answer) ||
+                            "Missing"}
+                        </span>
+                        <span>
+                          <strong>Scorers</strong>
+                          {goalSummary}
+                        </span>
+                        <span>
+                          <strong>Stats</strong>
+                          {statSummary}
+                        </span>
+                      </div>
+                    </section>
+
+                    {editing && match && (
+                      <div className="admin-label-grid">
+                        <section className="admin-label-section">
+                          <h4>Result label</h4>
+                          <div className="admin-label-fields">
+                            <label>
+                              Home
+                              <input
+                                type="number"
+                                min="0"
+                                max="30"
+                                value={draft.home_score ?? ""}
+                                onChange={(event) =>
+                                  updateDraft("home_score", event.target.value)
+                                }
+                              />
+                            </label>
+                            <label>
+                              Away
+                              <input
+                                type="number"
+                                min="0"
+                                max="30"
+                                value={draft.away_score ?? ""}
+                                onChange={(event) =>
+                                  updateDraft("away_score", event.target.value)
+                                }
+                              />
+                            </label>
+                            <label>
+                              Status
+                              <input
+                                value={draft.status_short ?? ""}
+                                onChange={(event) =>
+                                  updateDraft("status_short", event.target.value)
+                                }
+                              />
+                            </label>
+                            <label>
+                              Elapsed
+                              <input
+                                type="number"
+                                value={draft.elapsed ?? ""}
+                                onChange={(event) =>
+                                  updateDraft("elapsed", event.target.value)
+                                }
+                              />
+                            </label>
+                          </div>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={saving === "result"}
+                            onClick={saveResult}
+                          >
+                            {saving === "result" ? "Saving..." : "Save result"}
+                          </button>
+                        </section>
+
+                        <section className="admin-label-section">
+                          <h4>Quiz label</h4>
+                          {match.quiz ? (
+                            <>
+                              <label>
+                                Correct answers
+                                <input
+                                  value={draft.correct_answers ?? ""}
+                                  onChange={(event) =>
+                                    updateDraft("correct_answers", event.target.value)
+                                  }
+                                />
+                              </label>
+                              <label>
+                                Viewership answer
+                                <input
+                                  type="number"
+                                  value={draft.viewership_answer ?? ""}
+                                  onChange={(event) =>
+                                    updateDraft("viewership_answer", event.target.value)
+                                  }
+                                />
+                              </label>
+                              <div className="admin-label-actions">
+                                <button
+                                  className="primary-button"
+                                  type="button"
+                                  disabled={saving === "quiz"}
+                                  onClick={() => saveQuiz(false)}
+                                >
+                                  {saving === "quiz" ? "Saving..." : "Save quiz"}
+                                </button>
+                                <button
+                                  className="text-button"
+                                  type="button"
+                                  disabled={saving === "quiz"}
+                                  onClick={() => saveQuiz(true)}
+                                >
+                                  Clear override
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="empty">No quiz for this match.</div>
+                          )}
+                        </section>
+
+                        <section className="admin-label-section is-wide">
+                          <h4>Goal and scorer labels</h4>
+                          <textarea
+                            rows="8"
+                            value={draft.events_json ?? "[]"}
+                            onChange={(event) =>
+                              updateDraft("events_json", event.target.value)
+                            }
+                          />
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={saving === "events"}
+                            onClick={() => saveJsonLabel("events")}
+                          >
+                            {saving === "events" ? "Saving..." : "Save goal labels"}
+                          </button>
+                        </section>
+
+                        <section className="admin-label-section is-wide">
+                          <h4>Player stat labels</h4>
+                          <textarea
+                            rows="8"
+                            value={draft.player_stats_json ?? "[]"}
+                            onChange={(event) =>
+                              updateDraft("player_stats_json", event.target.value)
+                            }
+                          />
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={saving === "player_stats"}
+                            onClick={() => saveJsonLabel("player_stats")}
+                          >
+                            {saving === "player_stats"
+                              ? "Saving..."
+                              : "Save player stats"}
+                          </button>
+                        </section>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
 
             <div className="admin-label-audit">
               <h4>Recent label edits</h4>
@@ -2723,6 +2828,35 @@ function AdminLabelsPage() {
         )}
       </div>
     </article>
+  );
+}
+
+function AdminPage({ currentUser, teams }) {
+  const [section, setSection] = useState("labels");
+
+  return (
+    <div className="admin-page">
+      <article className="panel admin-switcher-panel">
+        <div className="panel-header">
+          <div>
+            <h3>Admin</h3>
+            <p>Manage pool access and scoring labels.</p>
+          </div>
+          <label className="admin-section-select">
+            Section
+            <select value={section} onChange={(event) => setSection(event.target.value)}>
+              <option value="users">User management</option>
+              <option value="labels">Adjust labels</option>
+            </select>
+          </label>
+        </div>
+      </article>
+      {section === "users" ? (
+        <AdminUsersPage currentUser={currentUser} />
+      ) : (
+        <AdminLabelsPage teams={teams} />
+      )}
+    </div>
   );
 }
 
@@ -3625,10 +3759,12 @@ function PlayerProfile({
   player,
   rank,
   isSelf,
+  viewerIsAdmin,
   badgeCatalog,
   tournamentPicksVisible,
   onUpdateName,
   onUpdateImage,
+  onAdmin,
 }) {
   if (!player) {
     return (
@@ -3687,6 +3823,11 @@ function PlayerProfile({
             />
             {player.email && (
               <span className="profile-email">{player.email}</span>
+            )}
+            {viewerIsAdmin && player.is_admin && (
+              <button className="text-button profile-admin-link" type="button" onClick={onAdmin}>
+                Admin
+              </button>
             )}
           </div>
           <div className="fifa-stats">
@@ -5161,7 +5302,6 @@ function App() {
     "home",
     "matchday",
     "leaderboard",
-    pool.me?.is_admin ? "admin" : null,
     "groups",
     "teams",
     "schedule",
@@ -5355,8 +5495,7 @@ function App() {
 
         {view === "admin" && pool.me?.is_admin && (
           <section className="view is-active">
-            <AdminUsersPage currentUser={pool.me} />
-            <AdminLabelsPage />
+            <AdminPage currentUser={pool.me} teams={maps.teams} />
           </section>
         )}
 
@@ -5366,10 +5505,12 @@ function App() {
               player={selectedProfile}
               rank={selectedProfileRank}
               isSelf={selectedProfile?.user_id === pool.me?.id}
+              viewerIsAdmin={Boolean(pool.me?.is_admin)}
               badgeCatalog={pool.badge_catalog ?? []}
               tournamentPicksVisible={tournamentPicksRevealed(pool)}
               onUpdateName={updateUserName}
               onUpdateImage={updateUserImage}
+              onAdmin={() => navigateToView("admin")}
             />
           </section>
         )}

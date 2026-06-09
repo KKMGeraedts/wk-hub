@@ -54,7 +54,12 @@ PROFILE_IMAGE_DATA_URL_PATTERN = re.compile(
 )
 PASSWORD_MIN_LENGTH = 8
 DEFAULT_PASSWORD = "default-password"
-ADMIN_EMAILS = {
+DEFAULT_ADMIN_EMAILS = {
+    "karel.geraedts@talpanetwork.com",
+    "olivier.thijsen@talpanetwork.com",
+    "sem.aslier@talpanetwork.com",
+}
+ADMIN_EMAILS = DEFAULT_ADMIN_EMAILS | {
     email.strip().casefold()
     for email in os.environ.get("WK_HUB_ADMIN_EMAILS", "").split(",")
     if email.strip()
@@ -1418,6 +1423,10 @@ def ensure_db_initialized() -> str | None:
     return None
 
 
+def is_admin_email(email: Any) -> bool:
+    return normalize_email(email) in ADMIN_EMAILS
+
+
 def row_to_user(row: Any) -> dict[str, Any] | None:
     if row is None:
         return None
@@ -1425,7 +1434,7 @@ def row_to_user(row: Any) -> dict[str, Any] | None:
         "id": row["id"],
         "name": row["name"],
         "email": row["email"],
-        "is_admin": bool(row["is_admin"]),
+        "is_admin": bool(row["is_admin"]) or is_admin_email(row["email"]),
         "archived_at": row["archived_at"],
         "profile_picture": user_profile_picture(row),
     }
@@ -1519,6 +1528,11 @@ def normalize_identity(value: Any) -> str:
 
 def normalize_email(value: Any) -> str:
     return str(value or "").strip().casefold()
+
+
+def default_name_from_email(email: str) -> str:
+    local_part = clean_text(email.split("@", 1)[0].replace(".", " ").replace("_", " "))
+    return local_part[:60] or "WK speler"
 
 
 def normalize_answer(value: Any) -> str:
@@ -3564,7 +3578,7 @@ def build_leaderboard(
         users = execute(
             conn,
             """
-            SELECT id, name, email, profile_image_url
+            SELECT id, name, email, profile_image_url, is_admin
             FROM users
             WHERE archived_at IS NULL
             ORDER BY name
@@ -3721,6 +3735,7 @@ def build_leaderboard(
                 "user_id": user["id"],
                 "name": user["name"],
                 "email": user["email"],
+                "is_admin": bool(user["is_admin"]) or is_admin_email(user["email"]),
                 "profile_picture": user_profile_picture(user),
                 "points": points,
                 "exact_scores": exact_scores,
@@ -4623,14 +4638,8 @@ def me():
 @app.post("/api/auth/login")
 def login():
     payload = request.get_json(silent=True) or {}
-    name = clean_text(payload.get("name", ""))
-    name_key = normalize_identity(name)
     email = normalize_email(payload.get("email", ""))
     raw_password = payload.get("password", "")
-    if len(name_key) < 2:
-        return jsonify({"error": "Username must be at least 2 characters."}), 400
-    if len(name) > 60:
-        return jsonify({"error": "Username must be at most 60 characters."}), 400
     if "@" not in email or "." not in email:
         return jsonify({"error": "Use a valid Talpa email address."}), 400
 
@@ -4655,6 +4664,7 @@ def login():
                 "SELECT COUNT(*) AS count FROM users WHERE archived_at IS NULL",
             ).fetchone()["count"]
             is_admin = int(user_count == 0 or email.casefold() in ADMIN_EMAILS)
+            name = clean_text(payload.get("name")) or default_name_from_email(email)
             execute(
                 conn,
                 """
@@ -4674,10 +4684,23 @@ def login():
             ).fetchone()
         elif row["archived_at"] is not None:
             return jsonify({"error": "This account has been archived."}), 403
-        elif normalize_identity(row["name"]) != name_key:
-            return jsonify({"error": "Use the username linked to this email address."}), 409
         elif not raw_password or not check_password_hash(row["password_hash"], str(raw_password)):
             return jsonify({"error": "Incorrect password."}), 401
+        elif is_admin_email(email) and not bool(row["is_admin"]):
+            execute(
+                conn,
+                "UPDATE users SET is_admin = 1 WHERE id = ?",
+                (row["id"],),
+            )
+            row = execute(
+                conn,
+                """
+                SELECT id, name, email, profile_image_url, password_hash, is_admin, archived_at
+                FROM users
+                WHERE id = ?
+                """,
+                (row["id"],),
+            ).fetchone()
         elif row["email"] != email:
             execute(
                 conn,
@@ -4792,9 +4815,9 @@ def update_me():
     name = clean_text(payload.get("name", user["name"]))
     if has_name:
         if len(normalize_identity(name)) < 2:
-            return jsonify({"error": "Username must be at least 2 characters."}), 400
+            return jsonify({"error": "Profile name must be at least 2 characters."}), 400
         if len(name) > 60:
-            return jsonify({"error": "Username must be at most 60 characters."}), 400
+            return jsonify({"error": "Profile name must be at most 60 characters."}), 400
 
     try:
         profile_image_url = (
