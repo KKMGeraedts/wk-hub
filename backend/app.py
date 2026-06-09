@@ -101,6 +101,8 @@ CONFIG_ERROR = (
     if IS_VERCEL and not DATABASE_URL
     else None
 )
+DB_INIT_DONE = False
+DB_INIT_ERROR: str | None = None
 LOG_LEVEL_NAME = os.environ.get("WK_HUB_LOG_LEVEL", "INFO").upper()
 LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
 if not isinstance(LOG_LEVEL, int):
@@ -405,8 +407,10 @@ def track_request_start() -> None:
 
 @app.before_request
 def reject_misconfigured_deployment() -> Any | None:
-    if CONFIG_ERROR and request.path.startswith("/api/") and request.path != "/api/health":
-        return jsonify({"ok": False, "error": CONFIG_ERROR}), 503
+    if request.path.startswith("/api/") and request.path != "/api/health":
+        init_error = ensure_db_initialized()
+        if init_error:
+            return jsonify({"ok": False, "error": init_error}), 503
     return None
 
 
@@ -1391,6 +1395,27 @@ def init_db() -> None:
                     (first_user["id"],),
                 )
     logger.info("Database schema ready using %s", SCHEMA_DATABASE_URL_ENV or database_label())
+
+
+def ensure_db_initialized() -> str | None:
+    global DB_INIT_DONE, DB_INIT_ERROR
+    if CONFIG_ERROR:
+        return CONFIG_ERROR
+    if DB_INIT_DONE:
+        return None
+    try:
+        init_db()
+    except Exception:
+        if not IS_VERCEL:
+            raise
+        logger.exception("Database initialization failed")
+        DB_INIT_ERROR = (
+            "Database initialization failed. Check DATABASE_URL or POSTGRES_URL in Vercel."
+        )
+        return DB_INIT_ERROR
+    DB_INIT_DONE = True
+    DB_INIT_ERROR = None
+    return None
 
 
 def row_to_user(row: Any) -> dict[str, Any] | None:
@@ -4554,18 +4579,6 @@ def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
             "label_audit_log": True,
         },
     }
-
-
-if not CONFIG_ERROR:
-    try:
-        init_db()
-    except Exception:
-        if not IS_VERCEL:
-            raise
-        logger.exception("Database initialization failed")
-        CONFIG_ERROR = (
-            "Database initialization failed. Check DATABASE_URL or POSTGRES_URL in Vercel."
-        )
 
 
 @app.get("/api/health")

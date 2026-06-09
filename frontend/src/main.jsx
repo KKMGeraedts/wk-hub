@@ -5011,34 +5011,36 @@ function App() {
 
     async function loadInitialState() {
       try {
-        const poolState = await apiJson("/api/pool");
+        const meState = await apiJson("/api/me");
         if (cancelled) return;
-        setPool(poolState);
 
-        if (!poolState.me) {
+        if (!meState.user) {
+          setPool({ me: null });
           replacePath("/login");
           return;
         }
 
-        if (poolState.me) {
-          const worldCup = await apiJson("/api/world-cup");
-          if (!cancelled) {
-            setData(worldCup);
-            const nextView = authenticatedViewFromRoute(
-              poolState,
-              window.location.pathname,
-            );
-            const profileId = profileIdFromRoute(window.location.pathname);
-            const teamId = teamIdFromRoute(window.location.pathname);
-            setSelectedProfileId(profileId);
-            setSelectedTeamId(teamId);
-            setView(nextView);
-            if (
-              normalizeRoute(window.location.pathname) !==
-              routeForView(nextView, profileId, teamId)
-            ) {
-              replacePath(routeForView(nextView, profileId, teamId));
-            }
+        const [poolState, worldCup] = await Promise.all([
+          apiJson("/api/pool"),
+          apiJson("/api/world-cup"),
+        ]);
+        if (!cancelled) {
+          setPool(poolState);
+          setData(worldCup);
+          const nextView = authenticatedViewFromRoute(
+            poolState,
+            window.location.pathname,
+          );
+          const profileId = profileIdFromRoute(window.location.pathname);
+          const teamId = teamIdFromRoute(window.location.pathname);
+          setSelectedProfileId(profileId);
+          setSelectedTeamId(teamId);
+          setView(nextView);
+          if (
+            normalizeRoute(window.location.pathname) !==
+            routeForView(nextView, profileId, teamId)
+          ) {
+            replacePath(routeForView(nextView, profileId, teamId));
           }
         }
       } catch (error) {
@@ -5082,7 +5084,7 @@ function App() {
   async function logout() {
     await apiJson("/api/auth/logout", { method: "POST", body: "{}" });
     setData(null);
-    setPool(await apiJson("/api/pool"));
+    setPool({ me: null });
     setView("leaderboard");
     replacePath("/login");
   }
