@@ -6,7 +6,7 @@
 
 **Status**: Draft
 
-**Input**: User description: "WK Hub fixes from testing: champion, top scorer, and strikers must remain secret and editable until 1 hour before the first match on 11 June; after that users may see each other's champion, top scorer, and striker picks. Per-match predictions from other users become available once each match can no longer be adjusted, 1 hour before that match. Top scorer selection must not be constrained by selected champion. Top scorer and striker lists must be searchable. Personal profile text/layout needs improvement. Tutorial flow breaks when users leave it; completing tutorial should reach leaderboard; profile should not be clickable in tutorial; Back to leaderboard on profile can be removed. Leaderboard should remove awkward top scorer/striker display; player names should be clickable like profile pictures."
+**Input**: User description: "WK Hub fixes from testing: champion, top scorer, and strikers must remain secret and editable until 1 hour before the first match on 11 June; after that users may see each other's champion, top scorer, and striker picks. Per-match predictions from other users become available once each match can no longer be adjusted, 1 hour before that match. Top scorer selection must not be constrained by selected champion. Top scorer and striker lists must be searchable. Personal profile text/layout needs improvement. Tutorial flow breaks when users leave it; completing tutorial should reach leaderboard; profile should not be clickable in tutorial; Back to leaderboard on profile can be removed. Leaderboard should remove awkward top scorer/striker display; player names should be clickable like profile pictures. People who just created an account do not show up in the leaderboard yet; remove the old tutorial/prediction completion gate so users can join the app, use full functionality, and be included in the leaderboard regardless of which predictions they have filled in."
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -52,16 +52,33 @@ As a participant, I want profile, leaderboard, and tutorial screens to have clea
 
 **Why this priority**: These fixes improve usability after the fairness-critical prediction rules are correct.
 
-**Independent Test**: Can be tested by walking through onboarding, viewing the leaderboard preview, completing required predictions, opening profiles from the normal leaderboard, and checking profile readability on common screen sizes.
+**Independent Test**: Can be tested by walking through onboarding, viewing the leaderboard preview, continuing without mandatory prediction prerequisites, opening profiles from the normal leaderboard, and checking profile readability on common screen sizes.
 
 **Acceptance Scenarios**:
 
 1. **Given** a participant is in the tutorial leaderboard preview, **When** they interact with leaderboard rows, **Then** profile links are not active in that tutorial context.
-2. **Given** a participant completes the required onboarding prediction step, **When** they continue, **Then** they arrive at the leaderboard.
+2. **Given** a participant continues from onboarding, with or without saving predictions, **When** they proceed, **Then** they arrive at a normal app view such as the leaderboard.
 3. **Given** a participant views a profile page, **When** the page is displayed, **Then** there is no profile-specific "Back to leaderboard" control.
 4. **Given** a participant views the normal leaderboard, **When** they select either a player's profile picture or name, **Then** the player's profile opens.
 5. **Given** a participant views the leaderboard, **When** standings are displayed, **Then** top scorer and striker names are not shown in leaderboard columns.
 6. **Given** a participant views a profile with long names or labels, **When** the profile is displayed on common desktop or mobile widths, **Then** text remains readable without awkward overflow or truncation.
+
+---
+
+### User Story 4 - Join immediately without prediction prerequisites (Priority: P1)
+
+As a newly registered participant, I want to access the app and appear in the leaderboard immediately, so that joining the pool is not blocked by an outdated tutorial requirement or by missing tournament predictions.
+
+**Why this priority**: New users currently disappear from the leaderboard until they complete legacy prediction steps. That makes account creation feel broken and hides active participants from the pool.
+
+**Independent Test**: Can be tested by creating a new account, entering the app without saving champion, top scorer, striker, Netherlands, or other predictions, and verifying the user has normal app access and a leaderboard row.
+
+**Acceptance Scenarios**:
+
+1. **Given** a person has just created an account and saved no predictions, **When** they enter the app, **Then** they can access normal app functionality without being forced through a prediction prerequisite.
+2. **Given** a person has just created an account and saved no predictions, **When** the leaderboard is loaded, **Then** that participant appears in the leaderboard with zero points and appropriate incomplete-prediction progress state.
+3. **Given** a participant has filled in only some predictions, **When** the leaderboard is loaded, **Then** that participant remains visible in the leaderboard.
+4. **Given** a participant has not filled in champion, top scorer, or striker picks, **When** their leaderboard row or profile is displayed, **Then** missing picks are represented as empty/not chosen states rather than excluding the participant.
 
 ---
 
@@ -73,8 +90,8 @@ As a participant, I want profile, leaderboard, and tutorial screens to have clea
 - A saved scorer or striker name is no longer present in the current available player list.
 - Multiple available players share the same display name across different teams.
 - Search returns no matching players.
-- A participant exits or reloads during tutorial before completing required predictions.
-- A participant appears in leaderboard contexts with incomplete optional predictions.
+- A participant exits or reloads during tutorial before completing any predictions.
+- A participant appears in leaderboard contexts with no predictions or with incomplete optional predictions.
 - Profile names, player names, or team names are unusually long.
 
 ## Requirements *(mandatory)*
@@ -99,7 +116,7 @@ As a participant, I want profile, leaderboard, and tutorial screens to have clea
 - **FR-016**: The system MUST preserve already-saved scorer and striker selections when a participant revisits or reloads prediction entry before lock time.
 - **FR-017**: The system MUST allow a participant to clear or replace a scorer or striker selection before the tournament-pick lock moment.
 - **FR-018**: The system MUST keep profile links inactive in tutorial leaderboard previews.
-- **FR-019**: The system MUST route a participant to the leaderboard after they successfully complete the required onboarding prediction step.
+- **FR-019**: The system MUST route a participant to a normal app view such as the leaderboard when they continue from onboarding, regardless of whether they saved predictions.
 - **FR-020**: The system MUST remove the profile-specific "Back to leaderboard" control from profile pages.
 - **FR-021**: The system MUST make both player profile pictures and player names open profiles from the normal leaderboard.
 - **FR-022**: The system MUST remove top scorer and striker names from leaderboard display.
@@ -107,6 +124,11 @@ As a participant, I want profile, leaderboard, and tutorial screens to have clea
 - **FR-024**: The system MUST improve profile text layout so names, stat labels, pick labels, and long player/team names remain readable on common desktop and mobile widths.
 - **FR-025**: The system MUST present clear empty states when scorer search has no results or when a participant has not made tournament picks.
 - **FR-026**: The system MUST use consistent, understandable Dutch-facing labels for affected tournament-pick and profile concepts.
+- **FR-027**: The system MUST include every account user in the leaderboard, regardless of whether they have completed Netherlands group predictions, champion picks, top scorer picks, striker picks, or any other prediction set.
+- **FR-028**: The system MUST treat prediction completion as progress metadata only and MUST NOT use completion state as a prerequisite for app access or leaderboard eligibility.
+- **FR-029**: The system MUST show newly registered users with no predictions as leaderboard participants with zero earned points and appropriate incomplete/missing-prediction indicators.
+- **FR-030**: The system MUST allow participants with no or partial predictions to access normal app functionality, including leaderboard, profiles, prediction entry, and adjustment flows where otherwise permitted.
+- **FR-031**: Onboarding/tutorial copy and routing MUST NOT state or imply that specific predictions are required to join the app or appear on the leaderboard.
 
 ### Key Entities
 
@@ -117,6 +139,7 @@ As a participant, I want profile, leaderboard, and tutorial screens to have clea
 - **Leaderboard Row**: A summary of participant ranking and scoring information, with profile navigation but without detailed scorer/striker names.
 - **Profile View**: A detailed participant view that can display tournament picks and match prediction details when visibility rules allow.
 - **Tutorial Context**: The onboarding flow where leaderboard preview content is informational and must not activate profile navigation.
+- **App Participant**: An account user who has access to normal app functionality and leaderboard inclusion independent of prediction completion.
 
 ## Success Criteria *(mandatory)*
 
@@ -128,10 +151,13 @@ As a participant, I want profile, leaderboard, and tutorial screens to have clea
 - **SC-004**: Participants can successfully save a top scorer from a different team than their selected champion before tournament-pick lock time.
 - **SC-005**: Participants can find relevant scorer or striker options by typing part of a player name or team name.
 - **SC-006**: Duplicate striker selections are prevented for 100% of striker slots.
-- **SC-007**: Participants who complete the required onboarding prediction step arrive at the leaderboard without needing additional manual navigation.
+- **SC-007**: Participants who continue from onboarding arrive at a normal app view without needing additional manual navigation or prediction completion.
 - **SC-008**: In tutorial leaderboard preview, profile navigation is unavailable for 100% of leaderboard rows.
 - **SC-009**: In normal leaderboard view, both the profile picture and player name provide access to the participant profile.
 - **SC-010**: Profile pages remain readable without horizontal text overflow at common desktop and mobile viewport widths.
+- **SC-011**: 100% of newly created accounts appear in the leaderboard before saving any predictions.
+- **SC-012**: 100% of participants with partial or missing tournament picks remain visible in the leaderboard.
+- **SC-013**: Newly created accounts can reach normal app views without completing Netherlands, champion, top scorer, or striker predictions first.
 
 ## Assumptions
 
@@ -140,4 +166,5 @@ As a participant, I want profile, leaderboard, and tutorial screens to have clea
 - "Other participants' match predictions" includes score, quiz, and Leeuwtje details because these are match-specific prediction details shown in profile prediction groups.
 - Leaderboard should not show top scorer or striker names; detailed tournament-pick names should be revealed through profile or prediction-detail surfaces after reveal.
 - Scorer and striker choices are selected from available player options; if an already-saved value is not currently in the option list, it should remain visible to its owner and manageable before lock time.
-- Existing login/session behavior and pool eligibility rules remain unchanged.
+- Existing login/session behavior remains unchanged.
+- Account creation is sufficient to make a user an app participant for leaderboard purposes; prediction completion affects scoring/progress only.

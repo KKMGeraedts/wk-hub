@@ -1,6 +1,6 @@
 # Implementation Plan: WK Hub Fixes
 
-**Branch**: `001-wk-hub-fixes` | **Date**: 2026-06-04 | **Spec**: `specs/001-wk-hub-fixes/spec.md`
+**Branch**: `main` | **Date**: 2026-06-09 | **Spec**: `specs/001-wk-hub-fixes/spec.md`
 
 **Input**: Feature specification from `specs/001-wk-hub-fixes/spec.md`
 
@@ -8,7 +8,7 @@
 
 ## Summary
 
-Implement the WK Hub testing fixes by enforcing prediction privacy at the correct lock moments, improving tournament-pick entry UX, cleaning leaderboard/profile navigation, and refining profile readability. The approach is to reuse existing lock semantics, enforce privacy in returned pool/profile data, replace long scorer selects with searchable controls, remove scorer/striker names from leaderboard display, disable profile links in tutorial context, and adjust profile layout/copy without introducing schema changes.
+Implement the WK Hub testing fixes by enforcing prediction privacy at the correct lock moments, improving tournament-pick entry UX, cleaning leaderboard/profile navigation, refining profile readability, and removing legacy onboarding eligibility gates. Newly created accounts should have full app access and appear in the leaderboard immediately, regardless of whether champion, top scorer, striker, Netherlands, or other predictions have been filled in.
 
 ## Technical Context
 
@@ -18,17 +18,17 @@ Implement the WK Hub testing fixes by enforcing prediction privacy at the correc
 
 **Storage**: Existing SQLite local / Postgres production tables; no new tables planned
 
-**Testing**: Existing project checks via `npm run build`, `npm run py:check`, and `npm run check`; manual scenario review required for time-based visibility and onboarding flows
+**Testing**: Existing project checks via `npm run build`, `npm run py:check`, and `npm run check`; manual scenario review required for time-based visibility, onboarding, and empty-prediction leaderboard flows
 
 **Target Platform**: Web app running locally via Flask/Vite and production via Vercel serverless Python plus Vite static frontend
 
 **Project Type**: Full-stack web application with monolithic Flask backend and single-file React frontend
 
-**Performance Goals**: Searchable scorer picker remains responsive for the current tournament player list; pool/profile data responses avoid exposing hidden data before reveal
+**Performance Goals**: Searchable scorer picker remains responsive for the current tournament player list; pool/profile data responses avoid exposing hidden data before reveal; leaderboard construction includes all account users without noticeable extra overhead
 
-**Constraints**: Preserve existing prediction scoring and persistence; avoid new dependencies unless clearly justified; no database schema migration expected; privacy must be enforced server-side, not only hidden in the UI
+**Constraints**: Preserve existing prediction scoring and persistence; avoid new dependencies unless clearly justified; no database schema migration expected; privacy must be enforced server-side, not only hidden in the UI; leaderboard eligibility must not depend on prediction completion
 
-**Scale/Scope**: Existing 2026 World Cup pool data, participant leaderboard/profile surfaces, prediction entry/adjust flows, tutorial onboarding flow
+**Scale/Scope**: Existing 2026 World Cup pool data, participant leaderboard/profile surfaces, prediction entry/adjust flows, tutorial/onboarding flow, and account-created participant rows
 
 ## Constitution Check
 
@@ -37,7 +37,7 @@ Implement the WK Hub testing fixes by enforcing prediction privacy at the correc
 The current constitution file is still a placeholder and defines no enforceable project-specific gates. General Spec Kit gates apply:
 
 - Feature spec exists and has no unresolved `[NEEDS CLARIFICATION]` markers: PASS
-- Requirements quality checklist exists and is complete: PASS
+- Requirements quality checklist exists and is complete for the existing feature scope: PASS
 - Plan avoids implementation before approval: PASS
 - No known privacy/security violation introduced by design: PASS
 
@@ -45,7 +45,7 @@ Post-design re-check:
 
 - Research decisions resolve technical unknowns: PASS
 - Data model confirms no schema change is required: PASS
-- Contracts define privacy-sensitive response/display behavior: PASS
+- Contracts define privacy-sensitive response/display behavior and leaderboard eligibility behavior: PASS
 - Quickstart defines validation and manual review paths: PASS
 
 ## Project Structure
@@ -69,7 +69,7 @@ specs/001-wk-hub-fixes/
 
 ```text
 backend/
-├── app.py                  # Pool state, prediction privacy, save validation, profile prediction visibility
+├── app.py                  # Pool state, leaderboard eligibility, prediction privacy, save validation, profile prediction visibility
 ├── worldcup-2026.json       # Source of match schedule/lock timing
 ├── quiz-2026.json           # Existing quiz data
 └── team-profiles-2026.json  # Static/synced team profile fallback data
@@ -106,6 +106,7 @@ Key decisions:
 - Use existing tournament and match lock semantics as the source of truth.
 - Enforce tournament-pick privacy in backend-returned data.
 - Keep leaderboard focused on ranking and move detailed pick reveal to profile/detail surfaces.
+- Treat account creation, not prediction completion, as leaderboard eligibility.
 - Use a custom searchable player picker rather than native grouped selects.
 - Keep the data model unchanged.
 - Treat tutorial/profile fixes as navigation and layout refinements.
@@ -120,19 +121,22 @@ Design outputs:
 
 Design notes:
 
-- The feature changes visibility and UI behavior, not stored entities.
+- The feature changes visibility, eligibility, and UI behavior, not stored entities.
 - Hidden tournament-pick names should be masked before response data reaches the frontend for other users.
 - Other users' match predictions should be filtered by match lock time rather than match result completion.
+- Every account user should receive a leaderboard row, with missing predictions represented as empty/incomplete progress rather than exclusion.
 - Searchable player selection must support player/team filtering, duplicate prevention, clear states, and locked state.
 - Tutorial leaderboard preview requires non-clickable rows; normal leaderboard requires avatar and name profile navigation.
 
 ## Planned Implementation Areas *(for future `/speckit-tasks`, not implementation in this phase)*
 
-1. Backend privacy and lock semantics
+1. Backend privacy, lock semantics, and leaderboard eligibility
    - Add clearer tournament-pick lock/reveal helpers.
    - Pass viewer context into leaderboard/pool state construction.
    - Mask tournament-pick names for other users before reveal.
    - Change profile prediction group visibility from result-complete to match-locked.
+   - Remove any leaderboard row filter that requires Netherlands group, champion, top scorer, striker, or all-prediction completion.
+   - Keep completion flags/counts as progress metadata only.
 
 2. Frontend visibility and navigation
    - Consume tournament-pick visibility metadata.
@@ -141,6 +145,7 @@ Design notes:
    - Make leaderboard name and avatar a combined profile link outside tutorial.
    - Disable profile links in tutorial leaderboard preview.
    - Remove profile-specific `Back to leaderboard`.
+   - Update onboarding and leaderboard empty/progress copy so predictions are optional for participation.
 
 3. Searchable scorer picker
    - Replace native scorer/striker selects with searchable controls.
@@ -172,3 +177,7 @@ The following plan decisions were reviewed and approved by the user on 2026-06-0
 - **Approved**: Match-specific prediction visibility includes score, quiz, and Leeuwtje details.
 - **Approved**: No database schema change is planned.
 - **Approved**: Privacy must be enforced backend-side, not only hidden in the frontend.
+
+The following additional decision was provided by the user on 2026-06-09 and is binding for task generation and implementation:
+
+- **Approved**: Users who create an account have full app functionality and appear in the leaderboard even when they have not filled in champion, top scorer, striker, Netherlands, or any other predictions.

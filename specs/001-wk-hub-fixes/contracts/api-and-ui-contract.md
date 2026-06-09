@@ -35,6 +35,26 @@ For rows representing users other than the current viewer, hidden tournament-pic
 
 Rows for the current viewer may include the viewer's own picks before reveal.
 
+### Leaderboard eligibility
+
+Pool state must include a leaderboard row for every account user. The backend must not filter leaderboard rows by Netherlands group completion, all-prediction completion, champion selection, top scorer selection, striker selection, or tutorial completion.
+
+```json
+{
+  "user_id": 9,
+  "name": "New Participant",
+  "points": 0,
+  "all_predictions_complete": false,
+  "entry_complete": false,
+  "winner_pick": null,
+  "winner_pick_name": null,
+  "top_scorer_pick": null,
+  "top_scorer_picks": []
+}
+```
+
+Completion fields may remain in the response as progress indicators, but they are not eligibility fields.
+
 ### Leaderboard display contract
 
 Leaderboard UI must display ranking/scoring information and profile navigation, but not top scorer or striker names. Champion/winner display should not be used as a primary reveal surface.
@@ -84,7 +104,8 @@ In tutorial context:
 
 - Leaderboard rows may display ranking information.
 - Profile picture and player name are not interactive profile links.
-- Continuing after successful required prediction completion routes to the leaderboard.
+- Continuing, completing, or skipping any onboarding prediction prompt routes to normal app views without changing leaderboard eligibility.
+- Copy must not state that completing predictions is required to join the app or appear in the leaderboard.
 
 ## UI Contract: Normal Leaderboard
 
@@ -93,6 +114,8 @@ In normal leaderboard context:
 - Profile picture opens the participant profile.
 - Player name opens the participant profile.
 - Top scorer and striker names are not displayed in leaderboard columns.
+- Users with no predictions are displayed with zero points and incomplete/missing-prediction progress states.
+- Empty leaderboard messaging must only appear when there are no account users available to display, not when account users lack predictions.
 
 ## UI Contract: Profile Page
 

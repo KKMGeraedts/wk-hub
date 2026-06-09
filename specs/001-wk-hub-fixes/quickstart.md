@@ -57,10 +57,18 @@ npm run check
 
 6. Tutorial and leaderboard:
    - Profile links are inactive in tutorial leaderboard preview.
-   - Completing required onboarding predictions leads to leaderboard.
+   - Completing or skipping onboarding prediction prompts leads to normal app views.
    - In normal leaderboard, avatar and name open profile.
    - Top scorer and striker names are not shown in leaderboard columns.
+   - Onboarding and empty-state copy does not say predictions are required to join or appear on the leaderboard.
 
 7. Profile layout:
    - Profile page has no profile-specific `Back to leaderboard` button.
    - Long names and labels remain readable on common desktop and mobile widths.
+
+8. New account leaderboard inclusion:
+   - Create a new account and do not save any predictions.
+   - Confirm the user can access the leaderboard, profiles, prediction entry, and prediction adjustment views where normal lock rules allow.
+   - Confirm the new user appears in the leaderboard with zero points and incomplete/missing-prediction indicators.
+   - Confirm another logged-in user also sees the new account in the leaderboard.
+   - Save only one subset of predictions, then confirm the user remains visible in the leaderboard.

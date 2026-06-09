@@ -33,7 +33,19 @@
 - Keep names hidden until reveal, then show in leaderboard: rejected because it preserves the clutter the user wants removed.
 - Remove all scorer-related information, including points: left for implementation judgment based on current leaderboard readability, but pick names must be removed.
 
-## Decision 4: Use a searchable custom player picker rather than native grouped select
+## Decision 4: Treat account creation as leaderboard eligibility
+
+**Decision**: Every account user should be included in leaderboard construction immediately. Prediction completion, including any old Netherlands group/tutorial requirement and tournament picks, should remain progress metadata only and must not filter leaderboard rows or normal app access.
+
+**Rationale**: The user explicitly identified the missing-new-account behavior as a remnant of the previous tutorial phase. Account creation is the current participation boundary, and hiding users with incomplete predictions makes the app appear broken.
+
+**Alternatives considered**:
+
+- Keep requiring Netherlands group predictions before leaderboard inclusion: rejected because this is the legacy behavior being removed.
+- Require champion/top scorer/striker picks before leaderboard inclusion: rejected because tournament picks are optional for access and may remain incomplete until lock.
+- Frontend-only insertion of the current user into the leaderboard: rejected because other participants also need to see newly joined users, and ranking/points should stay backend-authored.
+
+## Decision 5: Use a searchable custom player picker rather than native grouped select
 
 **Decision**: Replace long native player selects with searchable controls supporting player-name and team-name filtering, duplicate-striker prevention, clearing, and locked disabled state.
 
@@ -44,7 +56,7 @@
 - Browser datalist: rejected because duplicate disabling, grouped metadata, and consistent UX are harder to control.
 - External component dependency: rejected unless implementation reveals a strong need; the project currently has no UI component dependency.
 
-## Decision 5: Keep data model unchanged
+## Decision 6: Keep data model unchanged
 
 **Decision**: No database schema changes are required. Privacy and display behavior can be derived from existing prediction rows, user identity, and lock times.
 
@@ -55,9 +67,9 @@
 - Add reveal-state columns: rejected because reveal state is deterministic from match schedule and current time.
 - Add audit tables: rejected because prediction audit logging already exists for saves.
 
-## Decision 6: Profile and tutorial fixes are navigation/layout refinements
+## Decision 7: Profile and tutorial fixes are navigation/layout refinements
 
-**Decision**: Profile readability and tutorial navigation changes should be handled as UI state and copy/layout refinements without changing participant eligibility or authentication rules.
+**Decision**: Profile readability and tutorial navigation changes should be handled as UI state and copy/layout refinements without changing authentication rules. Tutorial copy and routing should be updated so it no longer presents prediction completion as required for leaderboard inclusion.
 
 **Rationale**: The requested issues are about where users land, which links are active in tutorial, and how text flows.
 

@@ -90,7 +90,25 @@
 
 ---
 
-## Phase 6: Polish & Cross-Cutting Concerns
+## Phase 6: User Story 4 - Join immediately without prediction prerequisites (Priority: P1)
+
+**Goal**: Newly created accounts can use the app and appear in the leaderboard even with no predictions.
+
+**Independent Test**: Create a new account, save no predictions, and verify the account appears in the leaderboard with zero points and can navigate normal app views.
+
+### Implementation for User Story 4
+
+- [x] T030 [US4] Remove Netherlands group completion filtering from leaderboard construction in `backend/app.py`
+- [x] T031 [US4] Keep leaderboard completion fields as progress-only metadata in `backend/app.py`
+- [x] T032 [US4] Update leaderboard and onboarding copy so prediction completion is not presented as required in `frontend/src/main.jsx`
+- [x] T033 [US4] Allow continuing from prediction entry without completed Netherlands predictions in `frontend/src/main.jsx`
+- [x] T034 [US4] Verify detected ignore-file patterns for Python and Node artifacts in `.gitignore`
+
+**Checkpoint**: User Story 4 should be independently reviewable after implementation.
+
+---
+
+## Phase 7: Polish & Cross-Cutting Concerns
 
 **Purpose**: Final validation and traceability cleanup.
 
@@ -117,6 +135,7 @@
 - **US1**: Required for privacy correctness and MVP.
 - **US2**: Independent of US3, but uses shared tournament lock metadata from foundation.
 - **US3**: Independent of US2, but uses leaderboard/profile surfaces touched by US1.
+- **US4**: Depends on leaderboard construction and onboarding surfaces; can be validated independently by creating or simulating a user with no predictions.
 
 ### Parallel Opportunities
 
@@ -136,4 +155,5 @@
 
 1. Add searchable scorer picker (US2).
 2. Add leaderboard/tutorial/profile cleanup (US3).
-3. Run automated checks and manual scenarios.
+3. Add immediate account-created leaderboard inclusion (US4).
+4. Run automated checks and manual scenarios.

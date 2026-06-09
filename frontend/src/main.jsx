@@ -2876,7 +2876,7 @@ function Leaderboard({
       <div className="panel-header">
         <div>
           <h3>Leaderboard</h3>
-          <p>Shows players who completed the Netherlands group.</p>
+          <p>Shows everyone who has joined the pool.</p>
         </div>
         <span className="pill green">{pool.leaderboard.length} players</span>
       </div>
@@ -2964,8 +2964,8 @@ function Leaderboard({
         </div>
         {!pool.leaderboard.length && (
           <div className="empty">
-            No leaderboard entries yet. Complete the Netherlands group to appear
-            here.
+            No leaderboard entries yet. New accounts will appear here as soon
+            as they join.
           </div>
         )}
       </div>
@@ -3316,9 +3316,8 @@ function WelcomeStep({ pool, onNext }) {
         <div className="panel-body">
           <p className="onboarding-message">
             This is the Talpa WK Pool for the 2026 World Cup. Check the
-            leaderboard to see who is in, then add your Netherlands group
-            predictions. After that first round is done, the app opens straight
-            to the leaderboard.
+            leaderboard to see who is in, then add predictions whenever you are
+            ready. Your account is already part of the pool.
           </p>
           <LeeuwtjesInfo />
           <OnboardingActions nextLabel="View leaderboard" onNext={onNext} />
@@ -3344,18 +3343,15 @@ function JoinStep({ onBack, onNext }) {
         <div className="panel-header">
           <div>
             <h3>Wanna join?</h3>
-            <p>
-              Fill in the Netherlands group to claim your spot on the
-              leaderboard.
-            </p>
+            <p>Your account already has a spot on the leaderboard.</p>
           </div>
           <span className="pill orange">Step 2</span>
         </div>
         <div className="panel-body">
           <p className="onboarding-message">
             Your predictions can be adjusted later until each match locks one
-            hour before kickoff. Start with the Netherlands group, then keep
-            going if you want the full card.
+            hour before kickoff. Start with any group now, or continue and come
+            back when you are ready.
           </p>
           <OnboardingActions
             nextLabel="Start predictions"
@@ -3831,7 +3827,7 @@ function PredictionPanel({
               <h4>
                 {requiredPredictionsComplete
                   ? "Ready for the leaderboard"
-                  : "Finish the essentials"}
+                  : "You are already on the leaderboard"}
               </h4>
               <p>
                 {requiredPredictionsComplete &&
@@ -3848,15 +3844,15 @@ function PredictionPanel({
                     : requiredPredictionsComplete
                       ? "You can pick your champion, top scorer and strikers above now or continue to the leaderboard."
                       : requiredPredictedCount === 0
-                        ? "Fill in the Netherlands group first, then add your tournament picks."
-                        : `You still need ${missingRequiredCount} score prediction${missingRequiredCount === 1 ? "" : "s"} in the Netherlands group before you can continue.`}
+                        ? "You can continue now with an empty card, or save predictions here first."
+                        : `${missingRequiredCount} Netherlands group score prediction${missingRequiredCount === 1 ? "" : "s"} still open. You can continue now and finish them later.`}
               </p>
             </div>
             <button
               className="primary-button"
               type="button"
               onClick={continueToLeaderboard}
-              disabled={!requiredPredictionsComplete || saving}
+              disabled={saving}
             >
               {saving ? "Saving..." : "Continue"}
             </button>

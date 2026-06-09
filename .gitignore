@@ -1,4 +1,5 @@
 .venv/
+venv/
 .env
 .env.*
 !.env.example
@@ -8,6 +9,9 @@ __pycache__/
 *.py[cod]
 .mypy_cache/
 .ruff_cache/
+dist/
+build/
 frontend/dist/
 node_modules/
+*.log
 backend/pool.db

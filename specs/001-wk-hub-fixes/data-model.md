@@ -18,11 +18,41 @@ Represents a pool user.
 - Has zero or one top scorer / striker prediction record.
 - Has many quiz predictions.
 - Has many Leeuwtje predictions.
+- Has one leaderboard row after account creation, even when all prediction relationships are empty.
 
 **Validation rules**:
 
 - A participant can always view their own predictions.
 - Other participants' prediction visibility is governed by tournament or match lock moments.
+- Prediction completion is not a prerequisite for app access or leaderboard inclusion.
+
+## App Participant
+
+Represents an account user participating in the pool.
+
+**Existing storage involved**:
+
+- `users`
+
+**Fields**:
+
+- `id`
+- `name`
+- `email`
+- `profile_image_url`
+
+**State transitions**:
+
+1. Created account with zero predictions and zero points.
+2. Partial prediction progress as match/tournament picks are saved.
+3. Complete prediction progress if all tracked predictions are filled in.
+
+**Validation rules**:
+
+- Account creation is sufficient for leaderboard inclusion.
+- Missing predictions produce zero prediction-derived points and incomplete progress indicators.
+- Missing champion, top scorer, or striker picks are empty/not chosen states, not invalid participation states.
+- App functionality remains available unless a separate authentication or lock rule blocks a specific action.
 
 ## Tournament Pick
 
@@ -121,6 +151,8 @@ Represents a ranked participant summary.
 - Must not expose top scorer or striker names in leaderboard display.
 - Tournament-pick names for other participants must be masked in response data before reveal if included for any downstream surface.
 - Profile navigation is enabled in normal leaderboard contexts and disabled in tutorial preview contexts.
+- Must be created for every account user regardless of prediction completion.
+- Completion booleans/counts describe progress only and must not determine whether the row exists.
 
 ## Profile View
 
@@ -142,10 +174,11 @@ Represents detailed participant information.
 
 ## Tutorial Context
 
-Represents the onboarding leaderboard preview and required prediction flow.
+Represents the onboarding leaderboard preview and optional prediction flow.
 
 **Rules**:
 
 - Profile navigation is inactive inside tutorial leaderboard preview.
-- Completing the required onboarding prediction step leads to the leaderboard.
+- Completing or skipping any onboarding prediction prompt leads to normal app views without affecting leaderboard eligibility.
+- Tutorial/onboarding text must not claim that predictions are required to join or appear in the leaderboard.
 - Normal profile navigation remains available outside tutorial.

@@ -3402,12 +3402,6 @@ def build_leaderboard(
         required_group_predictions = sum(
             1 for match_id in user_prediction_ids if match_id in required_group_ids
         )
-        required_group_complete = bool(required_group_ids) and required_group_predictions >= len(
-            required_group_ids
-        )
-        if not required_group_complete:
-            continue
-
         for prediction in user_predictions:
             match = matches.get(prediction["match_id"])
             if match is None:
@@ -3686,9 +3680,11 @@ def build_matchday_summary(
         if match_date < target_date:
             continue
         kickoff = match_kickoff(match)
-        if match_date > target_date:
-            if previous_kickoff is None or kickoff - previous_kickoff >= MATCHDAY_SESSION_GAP:
-                break
+        if (
+            match_date > target_date
+            and (previous_kickoff is None or kickoff - previous_kickoff >= MATCHDAY_SESSION_GAP)
+        ):
+            break
         previous_kickoff = kickoff
         if match.get("home_team_id") and match.get("away_team_id"):
             target_matches.append(match)
