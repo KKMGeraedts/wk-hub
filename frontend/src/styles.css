@@ -2410,9 +2410,47 @@ tr.highlight td {
 }
 
 .match-teams {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+    align-items: center;
     min-width: 0;
     font-size: 17px;
     font-weight: 900;
+}
+
+.schedule-prediction-chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 22px;
+    margin-left: 5px;
+    padding: 0 9px;
+    border: 1px solid #dfe5ed;
+    border-radius: 999px;
+    background: #f1f3f6;
+    color: #8792a1;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.schedule-prediction-chip.has-score {
+    background: #edf7f8;
+    color: #5f7380;
+}
+
+.schedule-prediction-chip:hover,
+.schedule-prediction-chip:focus-visible {
+    border-color: rgba(243, 108, 33, 0.38);
+    color: var(--orange-dark);
+    outline: none;
+}
+
+.schedule-prediction-chip:disabled {
+    cursor: not-allowed;
+    opacity: 0.56;
 }
 
 .match-meta {

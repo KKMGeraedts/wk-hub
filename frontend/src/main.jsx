@@ -1273,7 +1273,12 @@ function MatchPredictionRow({
   );
 }
 
-function MatchCard({ match, teams, venues }) {
+function predictionScoreLabel(prediction) {
+  if (!scoreComplete(prediction)) return "... - ...";
+  return `${prediction.home_score} - ${prediction.away_score}`;
+}
+
+function MatchCard({ match, teams, venues, prediction, locked, onPrediction }) {
   const venue = venues.get(match.venue_id);
   const venueLabel =
     match.venue_id === "to_confirm"
@@ -1290,6 +1295,21 @@ function MatchCard({ match, teams, venues }) {
           <TeamLabel id={match.home_team_id} teams={teams} />{" "}
           <span className="muted">vs</span>{" "}
           <TeamLabel id={match.away_team_id} teams={teams} />
+          <button
+            className={
+              scoreComplete(prediction)
+                ? "schedule-prediction-chip has-score"
+                : "schedule-prediction-chip"
+            }
+            type="button"
+            disabled={locked}
+            onClick={onPrediction}
+            aria-label={`Open prediction for ${
+              teams.get(match.home_team_id)?.name ?? "home"
+            } versus ${teams.get(match.away_team_id)?.name ?? "away"}`}
+          >
+            {predictionScoreLabel(prediction)}
+          </button>
         </div>
         <div className="match-meta">
           {formatDate(match, true)} · {venueLabel}
@@ -1320,9 +1340,11 @@ function MatchCard({ match, teams, venues }) {
   );
 }
 
-function Schedule({ matches, teams, venues }) {
+function Schedule({ matches, teams, venues, pool, onPoolUpdate }) {
+  const [activeMatch, setActiveMatch] = useState(null);
   if (!matches.length)
     return <div className="empty">No matches available.</div>;
+  const predictions = poolPredictions(pool);
   const grouped = matches.reduce((days, match) => {
     const key = localDateKey(match);
     if (!days.has(key)) days.set(key, []);
@@ -1330,21 +1352,39 @@ function Schedule({ matches, teams, venues }) {
     return days;
   }, new Map());
 
-  return [...grouped.entries()].map(([key, dayMatches]) => (
-    <React.Fragment key={key}>
-      <h3 className="date-heading">{formatDate(dayMatches[0])}</h3>
-      <div className="match-list">
-        {dayMatches.map((match) => (
-          <MatchCard
-            key={match.id}
-            match={match}
-            teams={teams}
-            venues={venues}
-          />
-        ))}
-      </div>
-    </React.Fragment>
-  ));
+  return (
+    <>
+      {[...grouped.entries()].map(([key, dayMatches]) => (
+        <React.Fragment key={key}>
+          <h3 className="date-heading">{formatDate(dayMatches[0])}</h3>
+          <div className="match-list">
+            {dayMatches.map((match) => {
+              const lock = matchLock(pool, match.id);
+              const locked = Boolean(lock.locked);
+              return (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  teams={teams}
+                  venues={venues}
+                  prediction={predictions[match.id]}
+                  locked={locked}
+                  onPrediction={() => setActiveMatch({ ...match, locked })}
+                />
+              );
+            })}
+          </div>
+        </React.Fragment>
+      ))}
+      <MatchdayPredictionModal
+        match={activeMatch}
+        teams={teams}
+        pool={pool}
+        onClose={() => setActiveMatch(null)}
+        onPoolUpdate={onPoolUpdate}
+      />
+    </>
+  );
 }
 
 function TeamDirectoryPage({ data, teams, onTeam }) {
@@ -3556,8 +3596,12 @@ function MatchdayPredictionModal({
 
   useEffect(() => {
     if (!match) return;
+    const existingPrediction = poolPredictions(pool)[match.id] ?? {};
     const existingQuiz = poolQuizPredictions(pool)[match.id] ?? {};
-    setScores({ home_score: "", away_score: "" });
+    setScores({
+      home_score: existingPrediction.home_score ?? "",
+      away_score: existingPrediction.away_score ?? "",
+    });
     setQuizDraft({
       answer: existingQuiz.answer ?? "",
       viewership_prediction: existingQuiz.viewership_prediction ?? "",
@@ -3576,6 +3620,8 @@ function MatchdayPredictionModal({
     currentLeeuwtjes.has(match.id) ||
     currentLeeuwtjes.size < leeuwtjeTotal;
   const locked = Boolean(match.locked);
+  const quizComplete = quizAnswerComplete(match.quiz, quizDraft);
+  const canSave = scoreComplete(scores) && quizComplete && !saving && !locked;
 
   function setScore(_matchId, key, value) {
     setScores((current) => ({ ...current, [key]: value }));
@@ -3590,7 +3636,7 @@ function MatchdayPredictionModal({
   }
 
   async function savePrediction() {
-    if (!scoreComplete(scores) || saving || locked) return;
+    if (!canSave) return;
     setSaving(true);
     setError("");
     const body = {
@@ -3667,9 +3713,11 @@ function MatchdayPredictionModal({
             onSubmit={savePrediction}
             saving={saving}
             compact
+            showSubmit={false}
           />
           <MatchQuizEditor
             match={match}
+            teams={teams}
             prediction={quizDraft}
             locked={locked}
             onAnswer={setQuizAnswer}
@@ -3686,11 +3734,16 @@ function MatchdayPredictionModal({
               className="primary-button"
               type="button"
               onClick={savePrediction}
-              disabled={!scoreComplete(scores) || saving || locked}
+              disabled={!canSave}
             >
               {saving ? "Saving..." : "Save prediction"}
             </button>
           </div>
+          {!quizComplete && match.quiz && (
+            <span className="form-hint">
+              Vul ook de quizvraag in om deze voorspelling op te slaan.
+            </span>
+          )}
           {error && <span className="form-error">{error}</span>}
         </div>
       </article>
@@ -5990,6 +6043,8 @@ function App() {
               matches={sortedMatches}
               teams={maps.teams}
               venues={maps.venues}
+              pool={pool}
+              onPoolUpdate={updatePoolOnly}
             />
           </section>
         )}
