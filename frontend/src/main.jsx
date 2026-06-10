@@ -891,12 +891,7 @@ function draftPredictions(draft) {
 function quizAnswerComplete(quiz, prediction) {
   if (!quiz) return true;
   const answer = String(prediction?.answer ?? "").trim();
-  if (!answer) return false;
-  if (quiz.viewership) {
-    const viewership = prediction?.viewership_prediction;
-    return viewership !== undefined && viewership !== null && viewership !== "";
-  }
-  return true;
+  return Boolean(answer);
 }
 
 function quizDraftHasValue(prediction) {
@@ -912,12 +907,6 @@ function draftQuizPredictions(draft, existing = {}) {
     .map(([match_id, prediction]) => ({
       match_id,
       answer: String(prediction?.answer ?? "").trim(),
-      viewership_prediction:
-        prediction?.viewership_prediction === "" ||
-        prediction?.viewership_prediction === undefined ||
-        prediction?.viewership_prediction === null
-          ? null
-          : Number(prediction.viewership_prediction),
     }));
 }
 
@@ -1073,7 +1062,6 @@ function MatchQuizEditor({
   prediction,
   locked,
   onAnswer,
-  onViewership,
 }) {
   const quiz = match.quiz;
   if (!quiz) return null;
@@ -1091,13 +1079,7 @@ function MatchQuizEditor({
           <strong>{quiz.question}</strong>
         </div>
       </div>
-      <div
-        className={
-          quiz.viewership
-            ? "fixture-quiz-inputs has-viewership"
-            : "fixture-quiz-inputs"
-        }
-      >
+      <div className="fixture-quiz-inputs">
         <label>
           Antwoord
           {choices.length ? (
@@ -1136,26 +1118,6 @@ function MatchQuizEditor({
             />
           )}
         </label>
-        {quiz.viewership && (
-          <label>
-            Kijkers
-            <input
-              aria-label="Kijkers"
-              value={prediction?.viewership_prediction ?? ""}
-              disabled={locked}
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={12}
-              placeholder="Aantal kijkers"
-              onChange={(event) =>
-                onViewership?.(
-                  match.id,
-                  event.target.value.replace(/\D/g, "").slice(0, 12),
-                )
-              }
-            />
-          </label>
-        )}
       </div>
     </section>
   );
@@ -1198,7 +1160,6 @@ function MatchPredictionRow({
   onEdit,
   onScore,
   onQuizAnswer,
-  onQuizViewership,
   onToggleLeeuwtje,
   onSubmit,
   compact = false,
@@ -1267,7 +1228,6 @@ function MatchPredictionRow({
         prediction={quizPrediction}
         locked={locked}
         onAnswer={onQuizAnswer}
-        onViewership={onQuizViewership}
       />
     </article>
   );
@@ -3230,10 +3190,7 @@ function ScoringRulesPanel({ rules }) {
         <div>
           <strong>Quiz</strong>
           <span>Keuze-opties tonen hun eigen punten.</span>
-          <span>
-            Player dropdowns: {rules?.quiz_open ?? 12} punten. Kijkcijfersbonus:{" "}
-            {rules?.quiz_viewership ?? 15}.
-          </span>
+          <span>Open quizvragen: {rules?.quiz_open ?? 12} punten.</span>
         </div>
         <div>
           <strong>Toernooi</strong>
@@ -3588,7 +3545,6 @@ function MatchdayPredictionModal({
   const [scores, setScores] = useState({ home_score: "", away_score: "" });
   const [quizDraft, setQuizDraft] = useState({
     answer: "",
-    viewership_prediction: "",
   });
   const [leeuwtjeActive, setLeeuwtjeActive] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -3604,7 +3560,6 @@ function MatchdayPredictionModal({
     });
     setQuizDraft({
       answer: existingQuiz.answer ?? "",
-      viewership_prediction: existingQuiz.viewership_prediction ?? "",
     });
     setLeeuwtjeActive(false);
     setError("");
@@ -3631,10 +3586,6 @@ function MatchdayPredictionModal({
     setQuizDraft((current) => ({ ...current, answer: value }));
   }
 
-  function setQuizViewership(_matchId, value) {
-    setQuizDraft((current) => ({ ...current, viewership_prediction: value }));
-  }
-
   async function savePrediction() {
     if (!canSave) return;
     setSaving(true);
@@ -3653,12 +3604,6 @@ function MatchdayPredictionModal({
         {
           match_id: match.id,
           answer: String(quizDraft.answer ?? "").trim(),
-          viewership_prediction:
-            quizDraft.viewership_prediction === "" ||
-            quizDraft.viewership_prediction === undefined ||
-            quizDraft.viewership_prediction === null
-              ? null
-              : Number(quizDraft.viewership_prediction),
         },
       ];
     }
@@ -3721,7 +3666,6 @@ function MatchdayPredictionModal({
             prediction={quizDraft}
             locked={locked}
             onAnswer={setQuizAnswer}
-            onViewership={setQuizViewership}
           />
           <div className="matchday-modal-actions">
             <LeeuwtjeButton
@@ -4151,12 +4095,7 @@ function PlayerPredictions({ player, canView }) {
                         {formatTime(prediction)}
                       </span>
                       {prediction.quiz_answer && (
-                        <span>
-                          Quiz: {prediction.quiz_answer}
-                          {prediction.viewership_prediction
-                            ? ` · ${formatNumber(prediction.viewership_prediction)} kijkers`
-                            : ""}
-                        </span>
+                        <span>Quiz: {prediction.quiz_answer}</span>
                       )}
                       {prediction.leeuwtje && <span>Leeuwtje ingezet</span>}
                     </div>
@@ -4523,7 +4462,6 @@ function PredictionPanel({
       const quizPrediction = quizPredictions[match.id];
       nextQuizDraft[match.id] = {
         answer: quizPrediction?.answer ?? "",
-        viewership_prediction: quizPrediction?.viewership_prediction ?? "",
       };
     }
     setDraft(nextDraft);
@@ -4596,13 +4534,6 @@ function PredictionPanel({
     setQuizDraft((current) => ({
       ...current,
       [matchId]: { ...current[matchId], answer: value },
-    }));
-  }
-
-  function setQuizViewership(matchId, value) {
-    setQuizDraft((current) => ({
-      ...current,
-      [matchId]: { ...current[matchId], viewership_prediction: value },
     }));
   }
 
@@ -4880,7 +4811,6 @@ function PredictionPanel({
                         leeuwtjesRemaining={leeuwtjesRemaining}
                         onScore={setScore}
                         onQuizAnswer={setQuizAnswer}
-                        onQuizViewership={setQuizViewership}
                         onToggleLeeuwtje={() => toggleLeeuwtje(match.id)}
                         onSubmit={() => save(true)}
                         compact
@@ -5036,7 +4966,6 @@ function AdjustPredictionsPanel({
       const quizPrediction = quizPredictions[match.id];
       nextQuizDraft[match.id] = {
         answer: quizPrediction?.answer ?? "",
-        viewership_prediction: quizPrediction?.viewership_prediction ?? "",
       };
     }
     setDraft(nextDraft);
@@ -5080,14 +5009,6 @@ function AdjustPredictionsPanel({
     setQuizDraft((current) => ({
       ...current,
       [matchId]: { ...current[matchId], answer: value },
-    }));
-    markDirty();
-  }
-
-  function setQuizViewership(matchId, value) {
-    setQuizDraft((current) => ({
-      ...current,
-      [matchId]: { ...current[matchId], viewership_prediction: value },
     }));
     markDirty();
   }
@@ -5370,7 +5291,6 @@ function AdjustPredictionsPanel({
                         leeuwtjesRemaining={leeuwtjesRemaining}
                         onScore={setScore}
                         onQuizAnswer={setQuizAnswer}
-                        onQuizViewership={setQuizViewership}
                         onToggleLeeuwtje={() => toggleLeeuwtje(match.id)}
                         onSubmit={() => save(true)}
                         focused={focusedMatchId === match.id}

@@ -3964,10 +3964,6 @@ tr.highlight td {
     padding: 0 9px;
 }
 
-.fixture-quiz-inputs.has-viewership {
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
-}
-
 .match-prompt {
     display: grid;
     gap: 16px;
@@ -4147,9 +4143,6 @@ tr.highlight td {
         grid-template-columns: 1fr;
     }
     .team-fixture-row {
-        grid-template-columns: 1fr;
-    }
-    .fixture-quiz-inputs.has-viewership {
         grid-template-columns: 1fr;
     }
     .match-card {

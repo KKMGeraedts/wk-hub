@@ -3808,11 +3808,7 @@ def quiz_complete(quiz: dict[str, Any] | None, prediction: Any | None) -> bool:
     if not quiz:
         return True
     answer = clean_text(prediction["answer"] if prediction else "")
-    if not answer:
-        return False
-    if quiz.get("viewership") and prediction:
-        return prediction["viewership_prediction"] is not None
-    return True
+    return bool(answer)
 
 
 def quiz_answer_points(quiz: dict[str, Any], prediction: Any | None) -> int:
@@ -3838,46 +3834,18 @@ def quiz_answer_points(quiz: dict[str, Any], prediction: Any | None) -> int:
 
 
 def quiz_viewership_winners(
-    data: dict[str, Any], quiz_predictions: list[Any]
+    _data: dict[str, Any], _quiz_predictions: list[Any]
 ) -> set[tuple[int, str]]:
-    predictions_by_match: dict[str, list[Any]] = {}
-    for prediction in quiz_predictions:
-        if prediction["viewership_prediction"] is not None:
-            predictions_by_match.setdefault(prediction["match_id"], []).append(prediction)
-
-    winners = set()
-    for match in data["matches"]:
-        quiz = match.get("quiz")
-        if not quiz or quiz.get("viewership_answer") is None:
-            continue
-        try:
-            correct_value = int(quiz["viewership_answer"])
-        except (TypeError, ValueError):
-            continue
-        match_predictions = predictions_by_match.get(match["id"], [])
-        if not match_predictions:
-            continue
-        deltas = [
-            (abs(int(row["viewership_prediction"]) - correct_value), row)
-            for row in match_predictions
-        ]
-        closest_delta = min(delta for delta, _ in deltas)
-        for delta, row in deltas:
-            if delta == closest_delta:
-                winners.add((row["user_id"], row["match_id"]))
-    return winners
+    return set()
 
 
 def quiz_points_for_prediction(
-    match: dict[str, Any], prediction: Any | None, viewership_winners: set[tuple[int, str]]
+    match: dict[str, Any], prediction: Any | None, _viewership_winners: set[tuple[int, str]]
 ) -> int:
     quiz = match.get("quiz")
     if not quiz:
         return 0
-    points = quiz_answer_points(quiz, prediction)
-    if prediction and (prediction["user_id"], prediction["match_id"]) in viewership_winners:
-        points += QUIZ_VIEWERSHIP_POINTS
-    return points
+    return quiz_answer_points(quiz, prediction)
 
 
 def standings_from_scores(
@@ -4883,19 +4851,12 @@ def missing_action_items(
         quiz = match.get("quiz")
         quiz_prediction = quiz_predictions.get(match["id"])
         if quiz and not quiz_complete(quiz, quiz_prediction):
-            quiz_answer = quiz_prediction["answer"] if quiz_prediction else ""
-            has_quiz_answer = bool(clean_text(quiz_answer))
-            missing_viewership = bool(quiz.get("viewership") and has_quiz_answer)
             items.append(
                 {
                     **base_item,
                     "kind": "quiz",
-                    "title": "Kijkers open" if missing_viewership else "Quizvraag open",
-                    "body": (
-                        f"{base_item['label']} mist nog een kijkersvoorspelling."
-                        if missing_viewership
-                        else f"{base_item['label']} mist nog een quizantwoord."
-                    ),
+                    "title": "Quizvraag open",
+                    "body": f"{base_item['label']} mist nog een quizantwoord.",
                     "target_kind": "quiz",
                 }
             )
@@ -5527,7 +5488,6 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             },
             "quiz_yes_no": QUIZ_YES_NO_POINTS,
             "quiz_open": QUIZ_OPEN_POINTS,
-            "quiz_viewership": QUIZ_VIEWERSHIP_POINTS,
             "leeuwtjes_total": LEEUWTJES_LIMIT,
             "note": (
                 "Predictions, quiz answers and Leeuwtjes can be adjusted until one hour "
@@ -7116,23 +7076,10 @@ def save_predictions():
             if answer and choices and normalize_answer(answer) not in choices:
                 return jsonify({"error": f"Choose a valid quiz answer for match {match_id}."}), 400
 
-            viewership_prediction = item.get("viewership_prediction")
-            if viewership_prediction in ("", None):
-                viewership_prediction = None
-            else:
-                try:
-                    viewership_prediction = int(viewership_prediction)
-                except (TypeError, ValueError):
-                    return jsonify({"error": "Kijkcijfers must be a whole number."}), 400
-                if viewership_prediction < 0 or viewership_prediction > 50_000_000:
-                    return jsonify({"error": "Kijkcijfers must be between 0 and 50,000,000."}), 400
-            if viewership_prediction is not None and not quiz.get("viewership"):
-                return jsonify({"error": f"Match {match_id} has no kijkcijfers question."}), 400
-
+            viewership_prediction = None
             existing = existing_quizzes.get(match_id)
             existing_answer = clean_text(existing["answer"] if existing else "")
-            existing_viewership = existing["viewership_prediction"] if existing else None
-            changed = answer != existing_answer or viewership_prediction != existing_viewership
+            changed = answer != existing_answer
             if changed and is_prediction_locked(match, now):
                 return jsonify({"error": f"Quiz for match {match_id} is closed."}), 400
             if answer or viewership_prediction is not None:
