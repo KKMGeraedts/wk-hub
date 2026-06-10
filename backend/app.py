@@ -90,6 +90,9 @@ DB_BACKUP_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("quiz_label_overrides", ("match_id",)),
     ("label_audit_log", ("id",)),
     ("admin_broadcast_notifications", ("created_at", "id")),
+    ("provider_sync_attempts", ("id",)),
+    ("computed_points", ("user_id", "scope_type", "scope_id", "category")),
+    ("admin_sync_notifications", ("created_at", "id")),
     ("newsletter_articles", ("published_at", "url")),
 )
 DIST_DIR = ROOT / "frontend" / "dist"
@@ -142,6 +145,27 @@ API_FOOTBALL_DAILY_LIMIT = int(os.environ.get("API_FOOTBALL_DAILY_LIMIT", "90"))
 API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE = int(os.environ.get("API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE", "6"))
 API_FOOTBALL_SQUAD_REFRESH_HOURS = int(os.environ.get("API_FOOTBALL_SQUAD_REFRESH_HOURS", "24"))
 API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get("CRON_SECRET", "")
+API_FOOTBALL_PROVIDER_KEY = "api-football"
+SYNC_TARGET_MATCH_RESULT = "match_result"
+SYNC_TARGET_TEAM_SQUAD = "team_squad"
+SYNC_ATTEMPT_FIRST_POST_MATCH = "first_post_match"
+SYNC_ATTEMPT_SECOND_POST_MATCH = "second_post_match"
+SYNC_ATTEMPT_MANUAL = "manual"
+SYNC_ATTEMPT_SQUAD_REFRESH = "squad_refresh"
+SYNC_ATTEMPT_KINDS = {
+    SYNC_ATTEMPT_FIRST_POST_MATCH,
+    SYNC_ATTEMPT_SECOND_POST_MATCH,
+    SYNC_ATTEMPT_MANUAL,
+    SYNC_ATTEMPT_SQUAD_REFRESH,
+}
+SYNC_STATUS_PENDING = "pending"
+SYNC_STATUS_RUNNING = "running"
+SYNC_STATUS_SUCCEEDED = "succeeded"
+SYNC_STATUS_SKIPPED = "skipped"
+SYNC_STATUS_FAILED = "failed"
+SYNC_TERMINAL_STATUSES = {SYNC_STATUS_SUCCEEDED, SYNC_STATUS_SKIPPED, SYNC_STATUS_FAILED}
+RESULT_SYNC_FIRST_AFTER = timedelta(minutes=15)
+RESULT_SYNC_SECOND_AFTER = timedelta(hours=2)
 API_FOOTBALL_POSTMATCH_BUFFER = timedelta(
     minutes=int(os.environ.get("API_FOOTBALL_POSTMATCH_BUFFER_MINUTES", "135"))
 )
@@ -478,6 +502,409 @@ def get_db(*, schema: bool = False) -> Any:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def sql_timestamp(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return iso_utc(value.astimezone(UTC))
+
+
+def result_sync_scheduled_for(match: dict[str, Any], attempt_kind: str) -> datetime:
+    if attempt_kind == SYNC_ATTEMPT_FIRST_POST_MATCH:
+        return match_kickoff(match) + RESULT_SYNC_FIRST_AFTER
+    if attempt_kind == SYNC_ATTEMPT_SECOND_POST_MATCH:
+        return match_kickoff(match) + RESULT_SYNC_SECOND_AFTER
+    raise ValueError(f"Unsupported result sync attempt kind: {attempt_kind}")
+
+
+def due_result_sync_attempt_kinds(
+    match: dict[str, Any],
+    *,
+    now: datetime,
+    terminal_attempt_kinds: set[str],
+) -> list[str]:
+    if not match.get("home_team_id") or not match.get("away_team_id"):
+        return []
+
+    first_due_at = result_sync_scheduled_for(match, SYNC_ATTEMPT_FIRST_POST_MATCH)
+    if SYNC_ATTEMPT_FIRST_POST_MATCH not in terminal_attempt_kinds and now >= first_due_at:
+        return [SYNC_ATTEMPT_FIRST_POST_MATCH]
+
+    second_due_at = result_sync_scheduled_for(match, SYNC_ATTEMPT_SECOND_POST_MATCH)
+    if (
+        SYNC_ATTEMPT_FIRST_POST_MATCH in terminal_attempt_kinds
+        and SYNC_ATTEMPT_SECOND_POST_MATCH not in terminal_attempt_kinds
+        and now >= second_due_at
+    ):
+        return [SYNC_ATTEMPT_SECOND_POST_MATCH]
+
+    return []
+
+
+def terminal_sync_attempt_kinds(
+    conn: Any,
+    *,
+    provider_key: str,
+    target_type: str,
+    target_id: str,
+) -> set[str]:
+    rows = execute(
+        conn,
+        """
+        SELECT attempt_kind
+        FROM provider_sync_attempts
+        WHERE provider_key = ?
+          AND target_type = ?
+          AND target_id = ?
+          AND status IN (?, ?, ?)
+        """,
+        (
+            provider_key,
+            target_type,
+            target_id,
+            SYNC_STATUS_SUCCEEDED,
+            SYNC_STATUS_SKIPPED,
+            SYNC_STATUS_FAILED,
+        ),
+    ).fetchall()
+    return {row["attempt_kind"] for row in rows}
+
+
+def create_provider_sync_attempt(
+    conn: Any,
+    *,
+    provider_key: str,
+    target_type: str,
+    target_id: str,
+    attempt_kind: str,
+    scheduled_for: datetime | None,
+    status: str = SYNC_STATUS_RUNNING,
+) -> int | None:
+    started_at = utc_now() if status == SYNC_STATUS_RUNNING else None
+    if USING_POSTGRES:
+        row = execute(
+            conn,
+            """
+            INSERT INTO provider_sync_attempts (
+                provider_key, target_type, target_id, attempt_kind, scheduled_for,
+                started_at, status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            RETURNING id
+            """,
+            (
+                provider_key,
+                target_type,
+                target_id,
+                attempt_kind,
+                sql_timestamp(scheduled_for),
+                sql_timestamp(started_at),
+                status,
+            ),
+        ).fetchone()
+        return int(row["id"]) if row else None
+
+    cursor = execute(
+        conn,
+        """
+        INSERT INTO provider_sync_attempts (
+            provider_key, target_type, target_id, attempt_kind, scheduled_for,
+            started_at, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            provider_key,
+            target_type,
+            target_id,
+            attempt_kind,
+            sql_timestamp(scheduled_for),
+            sql_timestamp(started_at),
+            status,
+        ),
+    )
+    return int(cursor.lastrowid) if cursor.lastrowid is not None else None
+
+
+def finish_provider_sync_attempt(
+    conn: Any,
+    attempt_id: int | None,
+    *,
+    status: str,
+    provider_request_id: int | None = None,
+    raw_snapshot_id: int | None = None,
+    failure_code: str | None = None,
+    failure_message: str | None = None,
+) -> None:
+    if attempt_id is None:
+        return
+    execute(
+        conn,
+        """
+        UPDATE provider_sync_attempts
+        SET status = ?,
+            finished_at = CURRENT_TIMESTAMP,
+            provider_request_id = ?,
+            raw_snapshot_id = ?,
+            failure_code = ?,
+            failure_message = ?
+        WHERE id = ?
+        """,
+        (
+            status,
+            provider_request_id,
+            raw_snapshot_id,
+            failure_code,
+            failure_message,
+            attempt_id,
+        ),
+    )
+
+
+def create_admin_sync_notification(
+    conn: Any,
+    *,
+    notification_type: str,
+    target_type: str,
+    target_id: str,
+    title: str,
+    body: str,
+    severity: str = "warning",
+    related_attempt_id: int | None = None,
+) -> None:
+    existing = execute(
+        conn,
+        """
+        SELECT id
+        FROM admin_sync_notifications
+        WHERE type = ?
+          AND target_type = ?
+          AND target_id = ?
+          AND is_active = 1
+        """,
+        (notification_type, target_type, target_id),
+    ).fetchone()
+    if existing:
+        execute(
+            conn,
+            """
+            UPDATE admin_sync_notifications
+            SET title = ?,
+                body = ?,
+                severity = ?,
+                related_attempt_id = ?,
+                created_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (title, body, severity, related_attempt_id, existing["id"]),
+        )
+        return
+    execute(
+        conn,
+        """
+        INSERT INTO admin_sync_notifications (
+            type, target_type, target_id, title, body, severity, related_attempt_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (notification_type, target_type, target_id, title, body, severity, related_attempt_id),
+    )
+
+
+def resolve_admin_sync_notification(
+    conn: Any,
+    *,
+    notification_type: str,
+    target_type: str,
+    target_id: str,
+) -> None:
+    execute(
+        conn,
+        """
+        UPDATE admin_sync_notifications
+        SET is_active = 0,
+            resolved_at = CURRENT_TIMESTAMP
+        WHERE type = ?
+          AND target_type = ?
+          AND target_id = ?
+          AND is_active = 1
+        """,
+        (notification_type, target_type, target_id),
+    )
+
+
+def active_admin_sync_notifications(conn: Any) -> list[dict[str, Any]]:
+    rows = execute(
+        conn,
+        """
+        SELECT id, type, target_type, target_id, title, body, severity, created_at
+        FROM admin_sync_notifications
+        WHERE is_active = 1
+        ORDER BY created_at DESC, id DESC
+        """,
+    ).fetchall()
+    return [json_ready(row) for row in rows]
+
+
+def upsert_computed_point(
+    conn: Any,
+    *,
+    user_id: int,
+    scope_type: str,
+    scope_id: str,
+    category: str,
+    points: int,
+    details: dict[str, Any] | None = None,
+    facts_revision_key: str | None = None,
+) -> None:
+    execute(
+        conn,
+        """
+        INSERT INTO computed_points (
+            user_id, scope_type, scope_id, category, points, details_json,
+            facts_revision_key, computed_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, scope_type, scope_id, category)
+        DO UPDATE SET points = excluded.points,
+                      details_json = excluded.details_json,
+                      facts_revision_key = excluded.facts_revision_key,
+                      computed_at = CURRENT_TIMESTAMP
+        """,
+        (
+            user_id,
+            scope_type,
+            scope_id,
+            category,
+            points,
+            json.dumps(details or {}, sort_keys=True),
+            facts_revision_key,
+        ),
+    )
+
+
+def delete_computed_points(
+    conn: Any,
+    *,
+    scope_type: str,
+    scope_id: str,
+    category: str | None = None,
+) -> None:
+    if category is None:
+        execute(
+            conn,
+            "DELETE FROM computed_points WHERE scope_type = ? AND scope_id = ?",
+            (scope_type, scope_id),
+        )
+        return
+    execute(
+        conn,
+        """
+        DELETE FROM computed_points
+        WHERE scope_type = ? AND scope_id = ? AND category = ?
+        """,
+        (scope_type, scope_id, category),
+    )
+
+
+def computed_point_rows(
+    conn: Any,
+    *,
+    user_id: int | None = None,
+    scope_type: str | None = None,
+    scope_id: str | None = None,
+) -> list[dict[str, Any]]:
+    clauses = []
+    params: list[Any] = []
+    if user_id is not None:
+        clauses.append("user_id = ?")
+        params.append(user_id)
+    if scope_type is not None:
+        clauses.append("scope_type = ?")
+        params.append(scope_type)
+    if scope_id is not None:
+        clauses.append("scope_id = ?")
+        params.append(scope_id)
+    where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    rows = execute(
+        conn,
+        f"""
+        SELECT user_id, scope_type, scope_id, category, points, details_json,
+               facts_revision_key, computed_at
+        FROM computed_points
+        {where_clause}
+        ORDER BY user_id, scope_type, scope_id, category
+        """,
+        tuple(params),
+    ).fetchall()
+    return [json_ready(row) for row in rows]
+
+
+def computed_leaderboard_points_by_user(conn: Any) -> dict[int, dict[str, int]]:
+    rows = execute(
+        conn,
+        """
+        SELECT user_id, category, points
+        FROM computed_points
+        WHERE scope_type = 'leaderboard' AND scope_id = 'current'
+        """,
+    ).fetchall()
+    by_user: dict[int, dict[str, int]] = {}
+    for row in rows:
+        by_user.setdefault(int(row["user_id"]), {})[row["category"]] = int(row["points"])
+    return by_user
+
+
+def apply_stored_leaderboard_points(
+    user_points: dict[str, int],
+    stored_points: dict[str, int],
+) -> dict[str, int]:
+    merged = dict(user_points)
+    for key, value in stored_points.items():
+        if key in merged:
+            merged[key] = value
+    merged["points"] = sum(
+        merged.get(key, 0)
+        for key in (
+            "match_score_points",
+            "group_position_points",
+            "quiz_points",
+            "winner_points",
+            "top_scorer_points",
+            "striker_points",
+            "leeuwtje_points",
+        )
+    )
+    return merged
+
+
+def recompute_all_computed_points(data: dict[str, Any]) -> None:
+    rows = build_leaderboard(data, use_computed_points=False)
+    with get_db() as conn:
+        delete_computed_points(conn, scope_type="leaderboard", scope_id="current")
+        for row in rows:
+            user_id = int(row["user_id"])
+            category_points = {
+                "match_score_points": int(row.get("match_score_points") or 0),
+                "group_position_points": int(row.get("group_position_points") or 0),
+                "quiz_points": int(row.get("quiz_points") or 0),
+                "winner_points": int(row.get("winner_points") or 0),
+                "top_scorer_points": int(row.get("top_scorer_points") or 0),
+                "striker_points": int(row.get("striker_points") or 0),
+                "leeuwtje_points": int(row.get("leeuwtje_points") or 0),
+            }
+            for category, points in category_points.items():
+                upsert_computed_point(
+                    conn,
+                    user_id=user_id,
+                    scope_type="leaderboard",
+                    scope_id="current",
+                    category=category,
+                    points=points,
+                    details={"source": "recompute_all_computed_points"},
+                    facts_revision_key=iso_utc(utc_now()),
+                )
 
 
 def database_snapshot(*, include_rows: bool) -> dict[str, Any]:
@@ -980,6 +1407,58 @@ def init_db() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS provider_sync_attempts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider_key TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            attempt_kind TEXT NOT NULL,
+            scheduled_for TEXT,
+            started_at TEXT,
+            finished_at TEXT,
+            status TEXT NOT NULL,
+            provider_request_id INTEGER,
+            raw_snapshot_id INTEGER,
+            failure_code TEXT,
+            failure_message TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS computed_points (
+            user_id INTEGER NOT NULL,
+            scope_type TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            points INTEGER NOT NULL DEFAULT 0,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            facts_revision_key TEXT,
+            computed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, scope_type, scope_id, category),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS admin_sync_notifications (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'warning',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            related_attempt_id INTEGER,
+            resolved_at TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_sync_notifications_active_unique
+        ON admin_sync_notifications (type, target_type, target_id)
+        WHERE is_active = 1
+        """,
+        """
         CREATE TABLE IF NOT EXISTS newsletter_articles (
             url TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -1287,6 +1766,58 @@ def init_db() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS provider_sync_attempts (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            provider_key TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            attempt_kind TEXT NOT NULL,
+            scheduled_for TIMESTAMPTZ,
+            started_at TIMESTAMPTZ,
+            finished_at TIMESTAMPTZ,
+            status TEXT NOT NULL,
+            provider_request_id INTEGER,
+            raw_snapshot_id INTEGER,
+            failure_code TEXT,
+            failure_message TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS computed_points (
+            user_id INTEGER NOT NULL,
+            scope_type TEXT NOT NULL,
+            scope_id TEXT NOT NULL,
+            category TEXT NOT NULL,
+            points INTEGER NOT NULL DEFAULT 0,
+            details_json TEXT NOT NULL DEFAULT '{}',
+            facts_revision_key TEXT,
+            computed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (user_id, scope_type, scope_id, category),
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS admin_sync_notifications (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            type TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body TEXT NOT NULL,
+            severity TEXT NOT NULL DEFAULT 'warning',
+            is_active INTEGER NOT NULL DEFAULT 1,
+            related_attempt_id INTEGER,
+            resolved_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_sync_notifications_active_unique
+        ON admin_sync_notifications (type, target_type, target_id)
+        WHERE is_active = 1
+        """,
+        """
         CREATE TABLE IF NOT EXISTS newsletter_articles (
             url TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -1455,9 +1986,7 @@ def init_db() -> None:
             quiz_override_column_names = {row["name"] for row in quiz_override_columns}
             for column_name in ("question", "choices_json"):
                 if column_name not in quiz_override_column_names:
-                    conn.execute(
-                        f"ALTER TABLE quiz_label_overrides ADD COLUMN {column_name} TEXT"
-                    )
+                    conn.execute(f"ALTER TABLE quiz_label_overrides ADD COLUMN {column_name} TEXT")
         if ADMIN_EMAILS:
             for admin_email in ADMIN_EMAILS:
                 execute(
@@ -1884,6 +2413,8 @@ def api_football_request_count_today() -> int:
     return int(row["count"] if row else 0)
 
 
+# API-Football provider adapter boundary. Functions in this section know the
+# provider's endpoints, payload names, IDs, and request accounting.
 def record_api_football_request(
     endpoint: str,
     params: dict[str, Any],
@@ -2005,8 +2536,7 @@ def apply_synced_match_results(data: dict[str, Any]) -> None:
         row = by_match.get(match["id"])
         if not row:
             continue
-        match["api_football"] = {
-            "fixture_id": row["source_fixture_id"],
+        match["result_sync"] = {
             "status": row["status_short"],
             "synced_at": row["synced_at"],
         }
@@ -2098,16 +2628,13 @@ def apply_synced_team_profiles(data: dict[str, Any]) -> None:
             profile["head_coach"] = coaches[0]
             profile["coaching_staff"] = coaches
         if snapshot:
-            profile["api_football"] = {
-                "team_id": snapshot["api_team_id"],
-                "synced_at": snapshot["synced_at"],
-            }
+            profile["squad_sync"] = {"synced_at": snapshot["synced_at"]}
             sources = list_value(profile.get("sources"))
             if not any(
-                isinstance(source, dict) and source.get("label") == "API-Football squad sync"
+                isinstance(source, dict) and source.get("label") == "Squad sync"
                 for source in sources
             ):
-                sources.append({"label": "API-Football squad sync"})
+                sources.append({"label": "Squad sync"})
             profile["sources"] = sources
         team["profile"] = profile
 
@@ -2301,6 +2828,8 @@ def api_football_fixture_links() -> dict[str, int]:
     return {row["match_id"]: int(row["api_fixture_id"]) for row in rows}
 
 
+# Provider-agnostic sync orchestration boundary. Functions in this section work
+# with app match/team IDs, sync attempts, current facts, and admin notifications.
 def synced_result_rows() -> dict[str, Any]:
     with get_db() as conn:
         rows = execute(
@@ -2318,23 +2847,65 @@ def due_api_football_matches(
     force: bool = False,
     limit: int = API_FOOTBALL_MAX_BATCH_SIZE,
 ) -> list[dict[str, Any]]:
-    current = utc_now()
-    synced = synced_result_rows()
-    due = []
+    return [
+        item["match"] for item in due_api_football_match_attempts(data, force=force, limit=limit)
+    ]
+
+
+def due_api_football_match_attempts(
+    data: dict[str, Any],
+    force: bool = False,
+    dry_run: bool = False,
+    limit: int = API_FOOTBALL_MAX_BATCH_SIZE,
+    match_id: str | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    current = now or utc_now()
+    limit = max(1, min(API_FOOTBALL_MAX_BATCH_SIZE, int(limit)))
+    candidates = []
+    terminal_by_match: dict[str, set[str]] = {}
+    if not dry_run:
+        with get_db() as conn:
+            for match in data["matches"]:
+                if match_id and match["id"] != match_id:
+                    continue
+                terminal_by_match[match["id"]] = terminal_sync_attempt_kinds(
+                    conn,
+                    provider_key=API_FOOTBALL_PROVIDER_KEY,
+                    target_type=SYNC_TARGET_MATCH_RESULT,
+                    target_id=match["id"],
+                )
+
     for match in sorted(data["matches"], key=match_kickoff):
+        if match_id and match["id"] != match_id:
+            continue
         if not match.get("home_team_id") or not match.get("away_team_id"):
             continue
-        if not force and current < match_kickoff(match) + API_FOOTBALL_POSTMATCH_BUFFER:
-            continue
-        row = synced.get(match["id"])
-        if row and row["status_short"] in API_FOOTBALL_FINAL_STATUSES and not force:
-            synced_at = parse_iso_datetime(row["synced_at"])
-            if synced_at and current < synced_at + API_FOOTBALL_FINAL_RESYNC_AFTER:
+        if force and match_id:
+            attempt_kind = SYNC_ATTEMPT_MANUAL
+            scheduled_for = current
+        else:
+            terminal_attempt_kinds = terminal_by_match.get(match["id"], set())
+            due_kinds = due_result_sync_attempt_kinds(
+                match,
+                now=current,
+                terminal_attempt_kinds=terminal_attempt_kinds,
+            )
+            if not due_kinds:
                 continue
-        due.append(match)
-        if len(due) >= limit:
+            attempt_kind = due_kinds[0]
+            scheduled_for = result_sync_scheduled_for(match, attempt_kind)
+        candidates.append(
+            {
+                "match": match,
+                "match_id": match["id"],
+                "attempt_kind": attempt_kind,
+                "scheduled_for": scheduled_for,
+            }
+        )
+        if len(candidates) >= limit:
             break
-    return due
+    return candidates
 
 
 def event_key(event: dict[str, Any], index: int) -> str:
@@ -2389,16 +2960,33 @@ def store_api_football_fixture_snapshot(
         """,
         (match["id"], api_fixture_id, json.dumps(fixture, sort_keys=True)),
     )
-    execute(
-        conn,
-        """
-        INSERT INTO api_football_fixture_snapshot_history (
-            match_id, api_fixture_id, payload_json, synced_at
+    if USING_POSTGRES:
+        history_row = execute(
+            conn,
+            """
+            INSERT INTO api_football_fixture_snapshot_history (
+                match_id, api_fixture_id, payload_json, synced_at
+            )
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            RETURNING id
+            """,
+            (match["id"], api_fixture_id, json.dumps(fixture, sort_keys=True)),
+        ).fetchone()
+        raw_snapshot_id = int(history_row["id"]) if history_row else None
+    else:
+        history_cursor = execute(
+            conn,
+            """
+            INSERT INTO api_football_fixture_snapshot_history (
+                match_id, api_fixture_id, payload_json, synced_at
+            )
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (match["id"], api_fixture_id, json.dumps(fixture, sort_keys=True)),
         )
-        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-        """,
-        (match["id"], api_fixture_id, json.dumps(fixture, sort_keys=True)),
-    )
+        raw_snapshot_id = (
+            int(history_cursor.lastrowid) if history_cursor.lastrowid is not None else None
+        )
     existing_result = execute(
         conn,
         "SELECT source FROM match_results WHERE match_id = ?",
@@ -2426,7 +3014,7 @@ def store_api_football_fixture_snapshot(
             """,
             (
                 match["id"],
-                "api-football",
+                API_FOOTBALL_PROVIDER_KEY,
                 api_fixture_id,
                 status.get("long"),
                 status_short,
@@ -2583,6 +3171,7 @@ def store_api_football_fixture_snapshot(
         "final": final,
         "home_score": home_score,
         "away_score": away_score,
+        "raw_snapshot_id": raw_snapshot_id,
         "events": len(fixture.get("events") or []),
         "player_rows": sum(
             len(block.get("players") or []) for block in fixture.get("players") or []
@@ -2590,49 +3179,234 @@ def store_api_football_fixture_snapshot(
     }
 
 
+def restore_provider_facts_from_latest_snapshot(
+    conn: Any,
+    *,
+    match_id: str,
+    data: dict[str, Any],
+    clear_result: bool = False,
+    clear_events: bool = False,
+    clear_stats: bool = False,
+) -> bool:
+    row = execute(
+        conn,
+        """
+        SELECT payload_json
+        FROM api_football_fixture_snapshot_history
+        WHERE match_id = ?
+        ORDER BY synced_at DESC, id DESC
+        LIMIT 1
+        """,
+        (match_id,),
+    ).fetchone()
+    if row is None:
+        if clear_result:
+            execute(
+                conn,
+                "DELETE FROM match_results WHERE match_id = ? AND source = 'manual'",
+                (match_id,),
+            )
+        if clear_events:
+            execute(
+                conn,
+                """
+                DELETE FROM match_events
+                WHERE match_id = ? AND provider_event_key LIKE 'manual:%'
+                """,
+                (match_id,),
+            )
+        if clear_stats:
+            execute(
+                conn,
+                """
+                DELETE FROM player_match_stats
+                WHERE match_id = ? AND provider_player_key LIKE 'manual:%'
+                """,
+                (match_id,),
+            )
+        return False
+
+    match = match_by_id(data, match_id)
+    if match is None:
+        return False
+    if clear_result:
+        execute(
+            conn,
+            "DELETE FROM match_results WHERE match_id = ? AND source = 'manual'",
+            (match_id,),
+        )
+    if clear_events:
+        execute(
+            conn,
+            """
+            DELETE FROM match_events
+            WHERE match_id = ? AND provider_event_key LIKE 'manual:%'
+            """,
+            (match_id,),
+        )
+    if clear_stats:
+        execute(
+            conn,
+            """
+            DELETE FROM player_match_stats
+            WHERE match_id = ? AND provider_player_key LIKE 'manual:%'
+            """,
+            (match_id,),
+        )
+    store_api_football_fixture_snapshot(conn, match, json.loads(row["payload_json"]), data)
+    return True
+
+
 def run_api_football_completed_sync(
     data: dict[str, Any],
     force: bool = False,
     dry_run: bool = False,
     limit: int = API_FOOTBALL_MAX_BATCH_SIZE,
+    match_id: str | None = None,
 ) -> dict[str, Any]:
-    if not API_FOOTBALL_KEY:
-        return {"ok": False, "error": "API_FOOTBALL_KEY is not configured."}
-
     limit = max(1, min(API_FOOTBALL_MAX_BATCH_SIZE, int(limit)))
-    candidates = due_api_football_matches(data, force=force, limit=limit)
+    candidates = due_api_football_match_attempts(
+        data,
+        force=force,
+        dry_run=dry_run,
+        limit=limit,
+        match_id=match_id,
+    )
     if not candidates:
-        return {"ok": True, "synced": [], "skipped": [], "linking": None, "dry_run": dry_run}
+        return {"ok": True, "attempts": [], "synced": [], "skipped": [], "dry_run": dry_run}
 
     links = api_football_fixture_links()
-    missing_link_ids = [match["id"] for match in candidates if match["id"] not in links]
-    linking = None
-    if missing_link_ids and not dry_run:
-        linking = api_football_link_fixtures(data)
-        links = api_football_fixture_links()
-
-    linked_candidates = [match for match in candidates if match["id"] in links]
+    linked_candidates = [item for item in candidates if item["match_id"] in links]
     skipped = [
-        {"match_id": match["id"], "reason": "missing_api_football_fixture_link"}
-        for match in candidates
-        if match["id"] not in links
+        {
+            "target_type": SYNC_TARGET_MATCH_RESULT,
+            "target_id": item["match_id"],
+            "match_id": item["match_id"],
+            "attempt_kind": item["attempt_kind"],
+            "scheduled_for": iso_utc(item["scheduled_for"]),
+            "reason": "missing_api_football_fixture_link",
+        }
+        for item in candidates
+        if item["match_id"] not in links
     ]
     if dry_run:
         return {
             "ok": True,
             "dry_run": True,
             "candidates": [
-                {"match_id": match["id"], "fixture_id": links.get(match["id"])}
-                for match in candidates
+                {
+                    "target_type": SYNC_TARGET_MATCH_RESULT,
+                    "target_id": item["match_id"],
+                    "match_id": item["match_id"],
+                    "attempt_kind": item["attempt_kind"],
+                    "scheduled_for": iso_utc(item["scheduled_for"]),
+                    "fixture_id": links.get(item["match_id"]),
+                }
+                for item in candidates
             ],
             "skipped": skipped,
-            "linking": linking,
         }
-    if not linked_candidates:
-        return {"ok": True, "synced": [], "skipped": skipped, "linking": linking}
+    if not API_FOOTBALL_KEY:
+        return {"ok": False, "error": "API_FOOTBALL_KEY is not configured."}
 
-    fixture_ids = [links[match["id"]] for match in linked_candidates]
-    payload = api_football_get("fixtures", {"ids": "-".join(str(value) for value in fixture_ids)})
+    attempts = []
+    with get_db() as conn:
+        for item in skipped:
+            attempt_id = create_provider_sync_attempt(
+                conn,
+                provider_key=API_FOOTBALL_PROVIDER_KEY,
+                target_type=SYNC_TARGET_MATCH_RESULT,
+                target_id=item["match_id"],
+                attempt_kind=item["attempt_kind"],
+                scheduled_for=parse_iso_datetime(item.get("scheduled_for")),
+                status=SYNC_STATUS_SKIPPED,
+            )
+            finish_provider_sync_attempt(
+                conn,
+                attempt_id,
+                status=SYNC_STATUS_SKIPPED,
+                failure_code="missing_provider_fixture_link",
+                failure_message="No API-Football fixture link exists for this due match.",
+            )
+            create_admin_sync_notification(
+                conn,
+                notification_type="missing_provider_link",
+                target_type=SYNC_TARGET_MATCH_RESULT,
+                target_id=item["match_id"],
+                title="Result sync needs a fixture link",
+                body="A due match could not be synced because no provider fixture link exists.",
+                related_attempt_id=attempt_id,
+            )
+            attempts.append({**item, "status": SYNC_STATUS_SKIPPED})
+    if not linked_candidates:
+        return {
+            "ok": True,
+            "dry_run": False,
+            "attempts": attempts,
+            "synced": [],
+            "skipped": skipped,
+        }
+
+    running_attempts = {}
+    with get_db() as conn:
+        for item in linked_candidates:
+            attempt_id = create_provider_sync_attempt(
+                conn,
+                provider_key=API_FOOTBALL_PROVIDER_KEY,
+                target_type=SYNC_TARGET_MATCH_RESULT,
+                target_id=item["match_id"],
+                attempt_kind=item["attempt_kind"],
+                scheduled_for=item["scheduled_for"],
+            )
+            running_attempts[item["match_id"]] = attempt_id
+
+    fixture_ids = [links[item["match_id"]] for item in linked_candidates]
+    try:
+        payload = api_football_get(
+            "fixtures",
+            {"ids": "-".join(str(value) for value in fixture_ids)},
+        )
+    except Exception as error:
+        with get_db() as conn:
+            for item in linked_candidates:
+                attempt_id = running_attempts.get(item["match_id"])
+                finish_provider_sync_attempt(
+                    conn,
+                    attempt_id,
+                    status=SYNC_STATUS_FAILED,
+                    failure_code="provider_request_failed",
+                    failure_message=str(error)[:500],
+                )
+                create_admin_sync_notification(
+                    conn,
+                    notification_type="provider_request_failed",
+                    target_type=SYNC_TARGET_MATCH_RESULT,
+                    target_id=item["match_id"],
+                    title="Result sync request failed",
+                    body="A due match could not be retrieved from the provider.",
+                    related_attempt_id=attempt_id,
+                )
+                attempts.append(
+                    {
+                        "target_type": SYNC_TARGET_MATCH_RESULT,
+                        "target_id": item["match_id"],
+                        "match_id": item["match_id"],
+                        "attempt_kind": item["attempt_kind"],
+                        "status": SYNC_STATUS_FAILED,
+                        "reason": "provider_request_failed",
+                    }
+                )
+        return {
+            "ok": False,
+            "error": str(error),
+            "dry_run": False,
+            "attempts": attempts,
+            "synced": [],
+            "skipped": skipped,
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+
     fixture_by_id = {}
     for fixture in payload.get("response", []):
         api_fixture_id = int_or_none((fixture.get("fixture") or {}).get("id"))
@@ -2640,19 +3414,90 @@ def run_api_football_completed_sync(
             fixture_by_id[api_fixture_id] = fixture
     synced = []
     with get_db() as conn:
-        for match in linked_candidates:
-            fixture = fixture_by_id.get(links[match["id"]])
+        for item in linked_candidates:
+            match = item["match"]
+            attempt_id = running_attempts.get(item["match_id"])
+            fixture = fixture_by_id.get(links[item["match_id"]])
             if fixture is None:
-                skipped.append({"match_id": match["id"], "reason": "fixture_not_returned"})
+                skipped.append(
+                    {
+                        "target_type": SYNC_TARGET_MATCH_RESULT,
+                        "target_id": item["match_id"],
+                        "match_id": item["match_id"],
+                        "attempt_kind": item["attempt_kind"],
+                        "reason": "fixture_not_returned",
+                    }
+                )
+                finish_provider_sync_attempt(
+                    conn,
+                    attempt_id,
+                    status=SYNC_STATUS_FAILED,
+                    failure_code="fixture_not_returned",
+                    failure_message="Provider response did not include the requested fixture.",
+                )
+                create_admin_sync_notification(
+                    conn,
+                    notification_type="provider_request_failed",
+                    target_type=SYNC_TARGET_MATCH_RESULT,
+                    target_id=item["match_id"],
+                    title="Result sync fixture missing",
+                    body="The provider response did not include the requested fixture.",
+                    related_attempt_id=attempt_id,
+                )
+                attempts.append(
+                    {
+                        "target_type": SYNC_TARGET_MATCH_RESULT,
+                        "target_id": item["match_id"],
+                        "match_id": item["match_id"],
+                        "attempt_kind": item["attempt_kind"],
+                        "status": SYNC_STATUS_FAILED,
+                        "reason": "fixture_not_returned",
+                    }
+                )
                 continue
-            synced.append(store_api_football_fixture_snapshot(conn, match, fixture, data))
+            synced_item = store_api_football_fixture_snapshot(conn, match, fixture, data)
+            synced.append(synced_item)
+            finish_provider_sync_attempt(
+                conn,
+                attempt_id,
+                status=SYNC_STATUS_SUCCEEDED,
+                raw_snapshot_id=synced_item.get("raw_snapshot_id"),
+            )
+            resolve_admin_sync_notification(
+                conn,
+                notification_type="missing_provider_link",
+                target_type=SYNC_TARGET_MATCH_RESULT,
+                target_id=item["match_id"],
+            )
+            resolve_admin_sync_notification(
+                conn,
+                notification_type="provider_request_failed",
+                target_type=SYNC_TARGET_MATCH_RESULT,
+                target_id=item["match_id"],
+            )
+            attempts.append(
+                {
+                    "target_type": SYNC_TARGET_MATCH_RESULT,
+                    "target_id": item["match_id"],
+                    "match_id": item["match_id"],
+                    "attempt_kind": item["attempt_kind"],
+                    "status": SYNC_STATUS_SUCCEEDED,
+                    "provider_key": API_FOOTBALL_PROVIDER_KEY,
+                    "fixture_id": links[item["match_id"]],
+                    "changed_facts": ["result", "events", "player_stats"],
+                    "computed_points_updated": False,
+                }
+            )
+
+    if synced:
+        recompute_all_computed_points(data)
 
     return {
         "ok": True,
         "dry_run": False,
+        "attempts": attempts,
         "synced": synced,
         "skipped": skipped,
-        "linking": linking,
         "requests_today": api_football_request_count_today(),
         "daily_limit": API_FOOTBALL_DAILY_LIMIT,
     }
@@ -3670,6 +4515,7 @@ def build_leaderboard(
     data: dict[str, Any],
     viewer_user_id: int | None = None,
     now: datetime | None = None,
+    use_computed_points: bool = True,
 ) -> list[dict[str, Any]]:
     matches = {match["id"]: match for match in data["matches"]}
     teams = {team["id"]: team for team in data["teams"]}
@@ -3717,6 +4563,9 @@ def build_leaderboard(
                 """,
             ).fetchall()
         }
+        stored_points_by_user = (
+            computed_leaderboard_points_by_user(conn) if use_computed_points else {}
+        )
 
     by_user: dict[int, list[Any]] = {}
     for prediction in predictions:
@@ -3741,6 +4590,7 @@ def build_leaderboard(
     leaderboard = []
     for user in users:
         points = 0
+        match_score_points = 0
         exact_scores = 0
         outcomes = 0
         shooting = 0
@@ -3771,6 +4621,7 @@ def build_leaderboard(
                 points += base_points * 2
             else:
                 points += base_points
+            match_score_points += base_points
             if score_kind == "exact":
                 exact_scores += 1
                 scoring_games += 1
@@ -3835,6 +4686,30 @@ def build_leaderboard(
                 continue
             base_points, _ = match_prediction_points(prediction, match)
             leeuwtje_points += base_points
+        stored_user_points = stored_points_by_user.get(user["id"], {})
+        if stored_user_points:
+            merged_points = apply_stored_leaderboard_points(
+                {
+                    "points": points,
+                    "match_score_points": match_score_points,
+                    "group_position_points": group_position_points,
+                    "quiz_points": quiz_points,
+                    "winner_points": winner_points,
+                    "top_scorer_points": top_scorer_points,
+                    "striker_points": striker_points,
+                    "leeuwtje_points": leeuwtje_points,
+                },
+                stored_user_points,
+            )
+            points = merged_points["points"]
+            match_score_points = merged_points["match_score_points"]
+            group_position_points = merged_points["group_position_points"]
+            quiz_points = merged_points["quiz_points"]
+            winner_points = merged_points["winner_points"]
+            top_scorer_points = merged_points["top_scorer_points"]
+            striker_points = merged_points["striker_points"]
+            scorer_points = top_scorer_points + striker_points
+            leeuwtje_points = merged_points["leeuwtje_points"]
         champ_days = champ_days_by_user[user["id"]]
         badges = badge_list(
             data,
@@ -3862,6 +4737,7 @@ def build_leaderboard(
                 "outcomes": outcomes,
                 "quiz_points": quiz_points,
                 "quiz_answers": quiz_answer_count,
+                "match_score_points": match_score_points,
                 "group_position_points": group_position_points,
                 "group_positions_correct": correct_group_positions,
                 "leeuwtjes_used": len(user_leeuwtjes),
@@ -4004,15 +4880,22 @@ def missing_action_items(
                     "target_kind": "prediction",
                 }
             )
-        if match.get("quiz") and not quiz_complete(
-            match["quiz"], quiz_predictions.get(match["id"])
-        ):
+        quiz = match.get("quiz")
+        quiz_prediction = quiz_predictions.get(match["id"])
+        if quiz and not quiz_complete(quiz, quiz_prediction):
+            quiz_answer = quiz_prediction["answer"] if quiz_prediction else ""
+            has_quiz_answer = bool(clean_text(quiz_answer))
+            missing_viewership = bool(quiz.get("viewership") and has_quiz_answer)
             items.append(
                 {
                     **base_item,
                     "kind": "quiz",
-                    "title": "Quizvraag open",
-                    "body": f"{base_item['label']} mist nog een quizantwoord.",
+                    "title": "Kijkers open" if missing_viewership else "Quizvraag open",
+                    "body": (
+                        f"{base_item['label']} mist nog een kijkersvoorspelling."
+                        if missing_viewership
+                        else f"{base_item['label']} mist nog een quizantwoord."
+                    ),
                     "target_kind": "quiz",
                 }
             )
@@ -4049,6 +4932,31 @@ def active_broadcast_notifications() -> list[dict[str, Any]]:
             "created_at": row["created_at"],
             "starts_at": row["starts_at"],
             "expires_at": row["expires_at"],
+        }
+        for row in rows
+    ]
+
+
+def active_admin_sync_issue_notifications(user: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not user or not user.get("is_admin"):
+        return []
+    try:
+        with get_db() as conn:
+            rows = active_admin_sync_notifications(conn)
+    except Exception:
+        logger.exception("Could not load admin sync notifications")
+        return []
+    return [
+        {
+            "type": "sync_issue",
+            "id": row["id"],
+            "count": 1,
+            "target_type": row["target_type"],
+            "target_id": row["target_id"],
+            "title": row["title"],
+            "body": row["body"],
+            "severity": row["severity"],
+            "created_at": row["created_at"],
         }
         for row in rows
     ]
@@ -4573,7 +5481,10 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         "leaderboard": leaderboard,
         "wall_of_shame": build_wall_of_shame(data, now),
         "badge_catalog": badge_catalog(),
-        "notifications": build_notifications(data, predictions, quiz_predictions, now),
+        "notifications": (
+            active_admin_sync_issue_notifications(user)
+            + build_notifications(data, predictions, quiz_predictions, now)
+        ),
         "matchday": build_matchday_summary(data, user["id"] if user else None, now),
         "daily_recap": build_daily_recap(
             data, now, leaderboard, viewer_user_id=user["id"] if user else None
@@ -4725,7 +5636,14 @@ def label_audit(
     match_id: str,
     before: Any,
     after: Any,
+    *,
+    source: str = "manual",
+    reason: str | None = None,
 ) -> None:
+    before_payload = {"value": json_ready(before), "source": source}
+    after_payload = {"value": json_ready(after), "source": source}
+    if reason:
+        after_payload["reason"] = reason
     execute(
         conn,
         """
@@ -4738,8 +5656,8 @@ def label_audit(
             admin_user_id,
             label_type,
             match_id,
-            json.dumps(json_ready(before), sort_keys=True),
-            json.dumps(json_ready(after), sort_keys=True),
+            json.dumps(before_payload, sort_keys=True),
+            json.dumps(after_payload, sort_keys=True),
         ),
     )
 
@@ -5298,6 +6216,40 @@ def admin_update_result_label(match_id: str):
     if match_by_id(data, match_id) is None:
         return jsonify({"error": "Match not found."}), 404
     payload = request.get_json(silent=True) or {}
+    reason = clean_optional_payload_text(payload, "reason", 240)
+    if payload.get("clear_override"):
+        with get_db() as conn:
+            before = execute(
+                conn,
+                "SELECT * FROM match_results WHERE match_id = ?",
+                (match_id,),
+            ).fetchone()
+            restored = restore_provider_facts_from_latest_snapshot(
+                conn, match_id=match_id, data=data, clear_result=True
+            )
+            after = execute(
+                conn,
+                "SELECT * FROM match_results WHERE match_id = ?",
+                (match_id,),
+            ).fetchone()
+            label_audit(
+                conn,
+                admin["id"],
+                "result_revert",
+                match_id,
+                before,
+                after,
+                source="reverted",
+                reason=reason,
+            )
+        updated_data = load_world_cup_data()
+        recompute_all_computed_points(updated_data)
+        return jsonify(
+            {
+                **admin_labels_payload(updated_data),
+                "restored_provider_snapshot": restored,
+            }
+        )
     try:
         home_score = int_payload_value(payload, "home_score", required=True)
         away_score = int_payload_value(payload, "away_score", required=True)
@@ -5341,8 +6293,10 @@ def admin_update_result_label(match_id: str):
             "SELECT * FROM match_results WHERE match_id = ?",
             (match_id,),
         ).fetchone()
-        label_audit(conn, admin["id"], "result", match_id, before, after)
-    return jsonify(admin_labels_payload(load_world_cup_data()))
+        label_audit(conn, admin["id"], "result", match_id, before, after, reason=reason)
+    updated_data = load_world_cup_data()
+    recompute_all_computed_points(updated_data)
+    return jsonify(admin_labels_payload(updated_data))
 
 
 @app.patch("/api/admin/labels/<match_id>/quiz")
@@ -5358,6 +6312,7 @@ def admin_update_quiz_label(match_id: str):
     if not match.get("quiz"):
         return jsonify({"error": "This match has no quiz label."}), 400
     payload = request.get_json(silent=True) or {}
+    reason = clean_optional_payload_text(payload, "reason", 240)
 
     with get_db() as conn:
         before = execute(
@@ -5402,9 +6357,10 @@ def admin_update_quiz_label(match_id: str):
                     if normalize_answer(answer) not in choice_set
                 ]
                 if unknown_answers:
-                    return jsonify(
-                        {"error": "Correct answers must match one of the answer options."}
-                    ), 400
+                    return (
+                        jsonify({"error": "Correct answers must match one of the answer options."}),
+                        400,
+                    )
             try:
                 viewership_answer = int_payload_value(payload, "viewership_answer")
             except ValueError as error:
@@ -5441,8 +6397,21 @@ def admin_update_quiz_label(match_id: str):
                 "SELECT * FROM quiz_label_overrides WHERE match_id = ?",
                 (match_id,),
             ).fetchone()
-        label_audit(conn, admin["id"], "quiz", match_id, before, after)
-    return jsonify(admin_labels_payload(load_world_cup_data()))
+        audit_type = "quiz_revert" if payload.get("clear_override") else "quiz"
+        audit_source = "reverted" if payload.get("clear_override") else "manual"
+        label_audit(
+            conn,
+            admin["id"],
+            audit_type,
+            match_id,
+            before,
+            after,
+            source=audit_source,
+            reason=reason,
+        )
+    updated_data = load_world_cup_data()
+    recompute_all_computed_points(updated_data)
+    return jsonify(admin_labels_payload(updated_data))
 
 
 @app.put("/api/admin/labels/<match_id>/events")
@@ -5455,6 +6424,40 @@ def admin_update_event_labels(match_id: str):
     if match_by_id(data, match_id) is None:
         return jsonify({"error": "Match not found."}), 404
     payload = request.get_json(silent=True) or {}
+    reason = clean_optional_payload_text(payload, "reason", 240)
+    if payload.get("clear_override"):
+        with get_db() as conn:
+            before = execute(
+                conn,
+                "SELECT * FROM match_events WHERE match_id = ?",
+                (match_id,),
+            ).fetchall()
+            restored = restore_provider_facts_from_latest_snapshot(
+                conn, match_id=match_id, data=data, clear_events=True
+            )
+            after = execute(
+                conn,
+                "SELECT * FROM match_events WHERE match_id = ?",
+                (match_id,),
+            ).fetchall()
+            label_audit(
+                conn,
+                admin["id"],
+                "events_revert",
+                match_id,
+                before,
+                after,
+                source="reverted",
+                reason=reason,
+            )
+        updated_data = load_world_cup_data()
+        recompute_all_computed_points(updated_data)
+        return jsonify(
+            {
+                **admin_labels_payload(updated_data),
+                "restored_provider_snapshot": restored,
+            }
+        )
     events = payload.get("events")
     if not isinstance(events, list):
         return jsonify({"error": "events must be a list."}), 400
@@ -5524,8 +6527,10 @@ def admin_update_event_labels(match_id: str):
             "SELECT * FROM match_events WHERE match_id = ?",
             (match_id,),
         ).fetchall()
-        label_audit(conn, admin["id"], "events", match_id, before, after)
-    return jsonify(admin_labels_payload(load_world_cup_data()))
+        label_audit(conn, admin["id"], "events", match_id, before, after, reason=reason)
+    updated_data = load_world_cup_data()
+    recompute_all_computed_points(updated_data)
+    return jsonify(admin_labels_payload(updated_data))
 
 
 @app.put("/api/admin/labels/<match_id>/player-stats")
@@ -5538,6 +6543,40 @@ def admin_update_player_stat_labels(match_id: str):
     if match_by_id(data, match_id) is None:
         return jsonify({"error": "Match not found."}), 404
     payload = request.get_json(silent=True) or {}
+    reason = clean_optional_payload_text(payload, "reason", 240)
+    if payload.get("clear_override"):
+        with get_db() as conn:
+            before = execute(
+                conn,
+                "SELECT * FROM player_match_stats WHERE match_id = ?",
+                (match_id,),
+            ).fetchall()
+            restored = restore_provider_facts_from_latest_snapshot(
+                conn, match_id=match_id, data=data, clear_stats=True
+            )
+            after = execute(
+                conn,
+                "SELECT * FROM player_match_stats WHERE match_id = ?",
+                (match_id,),
+            ).fetchall()
+            label_audit(
+                conn,
+                admin["id"],
+                "player_stats_revert",
+                match_id,
+                before,
+                after,
+                source="reverted",
+                reason=reason,
+            )
+        updated_data = load_world_cup_data()
+        recompute_all_computed_points(updated_data)
+        return jsonify(
+            {
+                **admin_labels_payload(updated_data),
+                "restored_provider_snapshot": restored,
+            }
+        )
     stats = payload.get("player_stats")
     if not isinstance(stats, list):
         return jsonify({"error": "player_stats must be a list."}), 400
@@ -5610,7 +6649,7 @@ def admin_update_player_stat_labels(match_id: str):
             "SELECT * FROM player_match_stats WHERE match_id = ?",
             (match_id,),
         ).fetchall()
-        label_audit(conn, admin["id"], "player_stats", match_id, before, after)
+        label_audit(conn, admin["id"], "player_stats", match_id, before, after, reason=reason)
     return jsonify(admin_labels_payload(load_world_cup_data()))
 
 
@@ -5731,6 +6770,7 @@ def api_football_admin_sync():
     if token_error:
         return token_error
     payload = request.get_json(silent=True) or {}
+    match_id = clean_text(payload.get("match_id"))
     data = load_world_cup_data()
     try:
         result = run_api_football_completed_sync(
@@ -5738,6 +6778,7 @@ def api_football_admin_sync():
             force=bool(payload.get("force", False)),
             dry_run=bool(payload.get("dry_run", False)),
             limit=int(payload.get("limit", API_FOOTBALL_MAX_BATCH_SIZE)),
+            match_id=match_id or None,
         )
     except Exception as error:
         logger.exception("API-Football manual sync failed")
@@ -5923,10 +6964,21 @@ def profile_predictions(profile_user_id: int):
     data = load_world_cup_data()
     now = utc_now()
     include_unplayed = profile_user_id == user["id"]
+    leaderboard_row = next(
+        (
+            row
+            for row in build_leaderboard(
+                data, viewer_user_id=user["id"], now=now, use_computed_points=True
+            )
+            if row["user_id"] == profile_user_id
+        ),
+        None,
+    )
     return jsonify(
         {
             "user_id": profile_user_id,
             "name": profile["name"],
+            "leaderboard_entry": leaderboard_row,
             "limited_to_completed_matches": False,
             "limited_to_locked_matches": not include_unplayed,
             "groups": user_prediction_groups(profile_user_id, data, include_unplayed, now),

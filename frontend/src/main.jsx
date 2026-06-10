@@ -891,7 +891,12 @@ function draftPredictions(draft) {
 function quizAnswerComplete(quiz, prediction) {
   if (!quiz) return true;
   const answer = String(prediction?.answer ?? "").trim();
-  return Boolean(answer);
+  if (!answer) return false;
+  if (quiz.viewership) {
+    const viewership = prediction?.viewership_prediction;
+    return viewership !== undefined && viewership !== null && viewership !== "";
+  }
+  return true;
 }
 
 function quizDraftHasValue(prediction) {
@@ -1062,7 +1067,14 @@ function MatchPredictionEditor({
   );
 }
 
-function MatchQuizEditor({ match, teams, prediction, locked, onAnswer }) {
+function MatchQuizEditor({
+  match,
+  teams,
+  prediction,
+  locked,
+  onAnswer,
+  onViewership,
+}) {
   const quiz = match.quiz;
   if (!quiz) return null;
   const answer = prediction?.answer ?? "";
@@ -1079,8 +1091,15 @@ function MatchQuizEditor({ match, teams, prediction, locked, onAnswer }) {
           <strong>{quiz.question}</strong>
         </div>
       </div>
-      <div className="fixture-quiz-inputs">
+      <div
+        className={
+          quiz.viewership
+            ? "fixture-quiz-inputs has-viewership"
+            : "fixture-quiz-inputs"
+        }
+      >
         <label>
+          Antwoord
           {choices.length ? (
             <select
               aria-label="Antwoord"
@@ -1117,6 +1136,26 @@ function MatchQuizEditor({ match, teams, prediction, locked, onAnswer }) {
             />
           )}
         </label>
+        {quiz.viewership && (
+          <label>
+            Kijkers
+            <input
+              aria-label="Kijkers"
+              value={prediction?.viewership_prediction ?? ""}
+              disabled={locked}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={12}
+              placeholder="Aantal kijkers"
+              onChange={(event) =>
+                onViewership?.(
+                  match.id,
+                  event.target.value.replace(/\D/g, "").slice(0, 12),
+                )
+              }
+            />
+          </label>
+        )}
       </div>
     </section>
   );
@@ -2478,6 +2517,25 @@ function AdminLabelsPage({ teams }) {
     }
   }
 
+  async function clearResultOverride() {
+    setSaving("result");
+    setError("");
+    setSuccess("");
+    try {
+      const result = await apiJson(`/api/admin/labels/${selectedMatchId}/result`, {
+        method: "PATCH",
+        body: JSON.stringify({ clear_override: true }),
+      });
+      setLabels(result);
+      setSuccess("Result override reverted.");
+      await loadLabels(selectedMatchId);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving("");
+    }
+  }
+
   async function saveQuiz(clear = false) {
     setSaving("quiz");
     setError("");
@@ -2514,13 +2572,13 @@ function AdminLabelsPage({ teams }) {
     }
   }
 
-  async function saveJsonLabel(type) {
+  async function saveJsonLabel(type, clear = false) {
     setSaving(type);
     setError("");
     setSuccess("");
     try {
       const key = type === "events" ? "events_json" : "player_stats_json";
-      const parsed = JSON.parse(draft[key] || "[]");
+      const parsed = clear ? [] : JSON.parse(draft[key] || "[]");
       const endpoint =
         type === "events"
           ? `/api/admin/labels/${selectedMatchId}/events`
@@ -2528,11 +2586,23 @@ function AdminLabelsPage({ teams }) {
       const result = await apiJson(endpoint, {
         method: "PUT",
         body: JSON.stringify(
-          type === "events" ? { events: parsed } : { player_stats: parsed },
+          clear
+            ? { clear_override: true }
+            : type === "events"
+              ? { events: parsed }
+              : { player_stats: parsed },
         ),
       });
       setLabels(result);
-      setSuccess(type === "events" ? "Goal labels saved." : "Player stat labels saved.");
+      setSuccess(
+        clear
+          ? type === "events"
+            ? "Goal labels reverted."
+            : "Player stats reverted."
+          : type === "events"
+            ? "Goal labels saved."
+            : "Player stat labels saved.",
+      );
       await loadLabels(selectedMatchId);
     } catch (err) {
       setError(err.message);
@@ -2727,14 +2797,24 @@ function AdminLabelsPage({ teams }) {
                               />
                             </label>
                           </div>
-                          <button
-                            className="primary-button"
-                            type="button"
-                            disabled={saving === "result"}
-                            onClick={saveResult}
-                          >
-                            {saving === "result" ? "Saving..." : "Save result"}
-                          </button>
+                          <div className="admin-label-actions">
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={saving === "result"}
+                              onClick={saveResult}
+                            >
+                              {saving === "result" ? "Saving..." : "Save result"}
+                            </button>
+                            <button
+                              className="text-button"
+                              type="button"
+                              disabled={saving === "result"}
+                              onClick={clearResultOverride}
+                            >
+                              Revert override
+                            </button>
+                          </div>
                         </section>
 
                         <section className="admin-label-section">
@@ -2815,14 +2895,24 @@ function AdminLabelsPage({ teams }) {
                               updateDraft("events_json", event.target.value)
                             }
                           />
-                          <button
-                            className="primary-button"
-                            type="button"
-                            disabled={saving === "events"}
-                            onClick={() => saveJsonLabel("events")}
-                          >
-                            {saving === "events" ? "Saving..." : "Save goal labels"}
-                          </button>
+                          <div className="admin-label-actions">
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={saving === "events"}
+                              onClick={() => saveJsonLabel("events")}
+                            >
+                              {saving === "events" ? "Saving..." : "Save goal labels"}
+                            </button>
+                            <button
+                              className="text-button"
+                              type="button"
+                              disabled={saving === "events"}
+                              onClick={() => saveJsonLabel("events", true)}
+                            >
+                              Revert override
+                            </button>
+                          </div>
                         </section>
 
                         <section className="admin-label-section is-wide">
@@ -2834,16 +2924,26 @@ function AdminLabelsPage({ teams }) {
                               updateDraft("player_stats_json", event.target.value)
                             }
                           />
-                          <button
-                            className="primary-button"
-                            type="button"
-                            disabled={saving === "player_stats"}
-                            onClick={() => saveJsonLabel("player_stats")}
-                          >
-                            {saving === "player_stats"
-                              ? "Saving..."
-                              : "Save player stats"}
-                          </button>
+                          <div className="admin-label-actions">
+                            <button
+                              className="primary-button"
+                              type="button"
+                              disabled={saving === "player_stats"}
+                              onClick={() => saveJsonLabel("player_stats")}
+                            >
+                              {saving === "player_stats"
+                                ? "Saving..."
+                                : "Save player stats"}
+                            </button>
+                            <button
+                              className="text-button"
+                              type="button"
+                              disabled={saving === "player_stats"}
+                              onClick={() => saveJsonLabel("player_stats", true)}
+                            >
+                              Revert override
+                            </button>
+                          </div>
                         </section>
                       </div>
                     )}
@@ -3694,7 +3794,7 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
   );
 }
 
-function RankMovement({ movement = 0 }) {
+function RankMovement({ movement = 0, showFlat = true }) {
   if (movement > 0) {
     return (
       <span
@@ -3715,6 +3815,7 @@ function RankMovement({ movement = 0 }) {
       </span>
     );
   }
+  if (!showFlat) return null;
   return (
     <span className="rank-movement is-flat" aria-label="No rank movement">
       -
@@ -3791,26 +3892,27 @@ function Leaderboard({
                           aria-label={`Open ${row.name} profile`}
                         >
                           <ProfileAvatar player={row} size="small" />
-                          <span className="leaderboard-avatar-preview" aria-hidden="true">
-                            <ProfileAvatar player={row} size="large" />
-                          </span>
                           <span className="leaderboard-name">
-                            <strong>{row.name}</strong>
+                            <span className="leaderboard-name-primary">
+                              <strong>{row.name}</strong>
+                              <RankMovement movement={row.rank_movement ?? 0} />
+                            </span>
                             {row.full_name && (
                               <em>{row.full_name}</em>
                             )}
-                            <RankMovement movement={row.rank_movement ?? 0} />
                           </span>
                         </button>
                       ) : (
                         <span className="leaderboard-player-link is-static">
                           <ProfileAvatar player={row} size="small" />
                           <span className="leaderboard-name">
-                            <strong>{row.name}</strong>
+                            <span className="leaderboard-name-primary">
+                              <strong>{row.name}</strong>
+                              <RankMovement movement={row.rank_movement ?? 0} />
+                            </span>
                             {row.full_name && (
                               <em>{row.full_name}</em>
                             )}
-                            <RankMovement movement={row.rank_movement ?? 0} />
                           </span>
                         </span>
                       )}
@@ -3880,7 +3982,9 @@ function WallOfShame({ rows = [], onProfile = () => {} }) {
                   <strong>{row.missing_count} open</strong>
                   {(row.missing_items ?? []).slice(0, 4).map((item) => (
                     <span key={`${item.kind}-${item.match_id}`}>
-                      {item.label} · {item.kind === "quiz" ? "quiz" : "prediction"}
+                      {item.label} ·{" "}
+                      {item.title ??
+                        (item.kind === "quiz" ? "quiz" : "prediction")}
                     </span>
                   ))}
                   {(row.missing_items ?? []).length > 4 && (
@@ -5280,11 +5384,16 @@ function NotificationBell({
             notifications.map((notification) => (
               <article
                 key={`${notification.type}-${notification.id ?? notification.title}`}
-                className={
-                  notification.type === "broadcast"
-                    ? "notification-item is-broadcast"
-                    : "notification-item"
-                }
+                className={[
+                  "notification-item",
+                  notification.type === "broadcast" ? "is-broadcast" : "",
+                  notification.type === "sync_issue" ? "is-sync-issue" : "",
+                  notification.severity
+                    ? `severity-${notification.severity}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
               >
                 <strong>{notification.title}</strong>
                 <p>{notification.body}</p>
@@ -5299,7 +5408,8 @@ function NotificationBell({
                       >
                         <span>{item.label}</span>
                         <em>
-                          {item.kind === "quiz" ? "Quiz" : "Prediction"}
+                          {item.title ??
+                            (item.kind === "quiz" ? "Quiz" : "Prediction")}
                           {item.subtitle ? ` · ${item.subtitle}` : ""}
                         </em>
                       </button>

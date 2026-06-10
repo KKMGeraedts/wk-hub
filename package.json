@@ -3,11 +3,12 @@
     "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "py:format": "python3 -m black backend api",
-    "py:lint": "python3 -m ruff check backend api",
-    "py:typecheck": "python3 -m mypy",
-    "py:check": "python3 -m black --check backend api && python3 -m ruff check backend api && python3 -m mypy",
-    "check": "npm run build && npm run py:check"
+    "py:format": "if test -x .venv/bin/python && command -v python3.13 >/dev/null; then PYTHONPATH=.venv/lib/python3.12/site-packages python3.13 -m black backend api; elif test -x .venv/bin/python; then .venv/bin/python -m black backend api; else python3 -m black backend api; fi",
+    "py:lint": "if test -x .venv/bin/python; then .venv/bin/python -m ruff check backend api; else python3 -m ruff check backend api; fi",
+    "py:typecheck": "if test -x .venv/bin/python; then .venv/bin/python -m mypy; else python3 -m mypy; fi",
+    "py:check": "if test -x .venv/bin/python && command -v python3.13 >/dev/null; then PYTHONPATH=.venv/lib/python3.12/site-packages python3.13 -m black --check backend api && .venv/bin/python -m ruff check backend api && .venv/bin/python -m mypy; elif test -x .venv/bin/python; then .venv/bin/python -m black --check backend api && .venv/bin/python -m ruff check backend api && .venv/bin/python -m mypy; else python3 -m black --check backend api && python3 -m ruff check backend api && python3 -m mypy; fi",
+    "py:test": "if test -x .venv/bin/python; then .venv/bin/python -m unittest discover backend -p '*_test.py'; else python3 -m unittest discover backend -p '*_test.py'; fi",
+    "check": "npm run build && npm run py:check && npm run py:test"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",

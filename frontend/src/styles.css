@@ -261,6 +261,16 @@ textarea {
     background: #fff8f2;
 }
 
+.notification-item.is-sync-issue {
+    border-color: rgba(217, 119, 6, 0.35);
+    background: #fffbeb;
+}
+
+.notification-item.is-sync-issue.severity-error {
+    border-color: rgba(220, 38, 38, 0.35);
+    background: #fef2f2;
+}
+
 .notification-item strong,
 .notification-item p {
     display: block;
@@ -1316,28 +1326,6 @@ tr.highlight td {
     vertical-align: middle;
 }
 
-.leaderboard-avatar-preview {
-    position: absolute;
-    left: 0;
-    top: 50%;
-    z-index: 20;
-    opacity: 0;
-    pointer-events: none;
-    transform: translate(-8px, -50%) scale(0.82);
-    transition: opacity 140ms ease, transform 140ms ease;
-}
-
-.leaderboard-player-link:hover .leaderboard-avatar-preview,
-.leaderboard-player-link:focus-visible .leaderboard-avatar-preview {
-    opacity: 1;
-    transform: translate(-8px, -50%) scale(1);
-}
-
-.leaderboard-avatar-preview .profile-avatar {
-    box-shadow: 0 14px 30px rgba(18, 43, 75, 0.24);
-    outline: 4px solid #ffffff;
-}
-
 .leaderboard-player-link:hover .profile-avatar,
 .leaderboard-player-link:focus-visible .profile-avatar {
     outline: 3px solid rgba(243, 108, 33, 0.28);
@@ -1350,10 +1338,17 @@ tr.highlight td {
 
 .leaderboard-name {
     display: grid;
-    gap: 7px;
+    gap: 3px;
     min-width: 0;
     min-height: 34px;
     vertical-align: middle;
+}
+
+.leaderboard-name-primary {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    min-width: 0;
 }
 
 .leaderboard-name strong {
@@ -1362,7 +1357,7 @@ tr.highlight td {
 
 .leaderboard-name em {
     color: #7b8797;
-    font-size: 12px;
+    font-size: 11px;
     font-style: normal;
     font-weight: 750;
     line-height: 1.15;
@@ -4162,7 +4157,6 @@ tr.highlight td {
     }
     .leaderboard-name {
         align-items: flex-start;
-        flex-direction: column;
         gap: 4px;
     }
     .change-password-form {
