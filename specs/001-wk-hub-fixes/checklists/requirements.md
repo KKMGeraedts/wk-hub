@@ -34,7 +34,8 @@
 - The spec intentionally treats tournament-pick lock and reveal as the same moment.
 - Approved on 2026-06-04: the spec intentionally includes score, quiz, and Leeuwtje values in per-match prediction visibility.
 - Approved on 2026-06-04: the spec intentionally removes top scorer and striker names from leaderboard display while leaving detailed reveal to profile/detail surfaces.
-- Approved on 2026-06-04: no database schema change is planned.
+- Superseded on 2026-06-10: the original privacy/navigation/scorer-picker scope did not need database schema changes, but admin broadcast notifications and richer quiz overrides may require DB-backed storage.
 - Approved on 2026-06-04: privacy must be enforced backend-side, not only hidden in the frontend.
 - Approved on 2026-06-09: account creation is sufficient for full app access and leaderboard inclusion; prediction completion is progress metadata only.
 - Approved on 2026-06-09: admins need an admin-only manual scoring-label editor; label edits may affect scoring but must not mutate participant predictions.
+- Added on 2026-06-10: notification-bell items must identify the missing match/quiz, admins need broadcast messages, leaderboard rows show nickname plus derived real name, account creation requires `firstname.lastname@talpanetwork.com`, and the app needs a wall of shame for currently open missing actions.

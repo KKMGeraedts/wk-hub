@@ -135,6 +135,12 @@ check_feature_branch() {
         return 0
     fi
 
+    # This project intentionally allows running Spec Kit workflows directly on
+    # the primary branch when .specify/feature.json identifies the active spec.
+    if [[ "$raw" == "main" || "$raw" == "master" ]]; then
+        return 0
+    fi
+
     local branch
     branch=$(spec_kit_effective_branch_name "$raw")
 
@@ -642,4 +648,3 @@ except Exception:
     printf '%s' "$content"
     return 0
 }
-

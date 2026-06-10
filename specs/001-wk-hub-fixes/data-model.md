@@ -350,3 +350,178 @@ Represents traceability for manual scoring-label changes.
 
 - Every manual label update should record who changed it and when.
 - Audit entries must not contain participant prediction edits.
+
+## Actionable Notification
+
+Represents a notification-bell item that points to a specific missing user action.
+
+**Storage involved**:
+
+- Computed from existing match, prediction, quiz, and lock state.
+
+**Fields**:
+
+- `type`
+- `count`
+- `items`
+- `match_id`
+- `title`
+- `body`
+- `action_label`
+- `target_view`
+- `target_match_id`
+- `target_kind`
+- `locked_at`
+
+**Relationships**:
+
+- Belongs to the current viewer's pool state.
+- References one or more matches.
+- May reference quiz metadata for quiz-specific actions.
+
+**Validation rules**:
+
+- Only unlocked, currently editable missing items may appear as actionable reminders.
+- Completed items must be removed on refresh.
+- Each item should include enough match/team/date context to identify what is missing.
+- Action targets must not expose other users' private predictions.
+
+## Admin Broadcast Notification
+
+Represents an admin-authored message shown through the notification bell.
+
+**Storage involved**:
+
+- New DB-backed broadcast notification storage.
+
+**Fields**:
+
+- `id`
+- `title`
+- `body`
+- `created_by_user_id`
+- `created_at`
+- `starts_at`
+- `expires_at`
+- `is_active`
+- `deactivated_at`
+
+**Relationships**:
+
+- Created by one admin user.
+- Visible to active, non-archived users while active.
+
+**Validation rules**:
+
+- Only admins may create, update, or deactivate broadcasts.
+- Title and body must be non-empty after trimming.
+- Broadcasts should be included in notification-bell payloads without changing prediction state.
+- Expired or inactive broadcasts must not appear as active notifications.
+
+## Derived Real Name
+
+Represents a display-only identity derived from a user's email.
+
+**Storage involved**:
+
+- Existing `users.email`; no separate editable first/last-name storage is planned.
+
+**Fields**:
+
+- `first_name`
+- `last_name`
+- `full_name`
+- `email`
+
+**Validation rules**:
+
+- Email must match `firstname.lastname@talpanetwork.com` for newly created accounts.
+- Casing may be normalized for parsing and storage.
+- The nickname in `users.name` remains independently editable and primary.
+- Derived name fields are display metadata and must not be used as authentication credentials.
+
+## Talpa Email Identity
+
+Represents the account creation eligibility rule for user emails.
+
+**Storage involved**:
+
+- Existing `users.email`.
+
+**Accepted format**:
+
+- `firstname.lastname@talpanetwork.com`
+
+**Validation rules**:
+
+- Domain must be exactly `talpanetwork.com` after normalization.
+- Local part must contain a first-name segment and a last-name segment separated by a single derivable dot structure.
+- Empty segments, missing dot, missing domain, alternate domains, and plus-addressed variants are rejected for account creation.
+- Server-side validation is authoritative; frontend validation is advisory.
+
+## Quiz Metadata Override
+
+Represents admin-authored runtime overrides for quiz content, not participant answers.
+
+**Storage involved**:
+
+- Existing `quiz_label_overrides` may be extended, or a new quiz metadata override table may be added if cleaner during implementation.
+
+**Fields**:
+
+- `match_id`
+- `question`
+- `choices`
+- `correct_answers`
+- `viewership_answer`
+- `source`
+- `updated_by_user_id`
+- `updated_at`
+
+**Relationships**:
+
+- References a match quiz definition.
+- Affects prediction-entry display and scoring.
+- Does not reference participant quiz prediction rows.
+
+**Validation rules**:
+
+- Question text must be non-empty when overridden.
+- Choice-based quizzes must have non-empty answer options.
+- Correct answers should match available choices when choices exist.
+- Existing participant predictions remain unchanged even if option text is corrected.
+- Every save should record admin and timestamp metadata.
+
+## Wall of Shame Entry
+
+Represents an active user's currently open missing prediction actions.
+
+**Storage involved**:
+
+- Computed from `users`, prediction tables, quiz predictions, world cup match data, and lock state.
+
+**Fields**:
+
+- `user_id`
+- `nickname`
+- `first_name`
+- `last_name`
+- `profile_image_url`
+- `missing_count`
+- `missing_items`
+- `match_id`
+- `kind`
+- `match_label`
+- `deadline`
+
+**Relationships**:
+
+- One entry per active user with one or more currently open missing items.
+- Each missing item references a match or quiz action.
+
+**Validation rules**:
+
+- Archived users are excluded.
+- Users with no currently open missing items are excluded.
+- Locked matches and completed predictions/quizzes are excluded.
+- Missing item context may identify the match/action but must not reveal prediction contents.

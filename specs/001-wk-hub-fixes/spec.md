@@ -8,6 +8,12 @@
 
 **Input**: User description: "WK Hub fixes from testing: champion, top scorer, and strikers must remain secret and editable until 1 hour before the first match on 11 June; after that users may see each other's champion, top scorer, and striker picks. Per-match predictions from other users become available once each match can no longer be adjusted, 1 hour before that match. Top scorer selection must not be constrained by selected champion. Top scorer and striker lists must be searchable. Personal profile text/layout needs improvement. Tutorial flow breaks when users leave it; completing tutorial should reach leaderboard; profile should not be clickable in tutorial; Back to leaderboard on profile can be removed. Leaderboard should remove awkward top scorer/striker display; player names should be clickable like profile pictures. People who just created an account do not show up in the leaderboard yet; remove the old tutorial/prediction completion gate so users can join the app, use full functionality, and be included in the leaderboard regardless of which predictions they have filled in. Admins need a manual scoring-label editor as a backup for incomplete API-Football data. Admins should inspect and adjust labels used for scoring predictions, quiz answers, scorer/striker goals, and related scoring facts, but must not be able to adjust participant predictions."
 
+## Clarifications
+
+### Session 2026-06-10
+
+- Q: What time window should the wall of shame use for missing predictions/quizzes? → A: Today and tomorrow only.
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Protect prediction secrecy until lock times (Priority: P1)
@@ -101,6 +107,122 @@ As an admin, I want to inspect and manually adjust the scoring labels used by th
 
 ---
 
+### User Story 6 - Act on clear notification-bell actions (Priority: P1)
+
+As a participant, I want notification-bell reminders to tell me exactly which prediction or quiz is missing and take me directly there, so that I can complete the right item without hunting through the predictions page.
+
+**Why this priority**: The current bell correctly identifies that something is open, but the generic link creates confusion and can leave users unsure which quiz or match they still need to fill in.
+
+**Independent Test**: Can be tested by leaving a specific quiz or match prediction empty, opening the notification bell, confirming the missing match/quiz is named, clicking it, and landing on the prediction interface focused on that item.
+
+**Acceptance Scenarios**:
+
+1. **Given** a participant has one missing quiz for an unlocked match, **When** they open the notification bell, **Then** the notification identifies that match and quiz rather than only saying a quiz is missing.
+2. **Given** a participant clicks a missing quiz notification, **When** the predictions view opens, **Then** the relevant match/quiz is visible and ready to fill in.
+3. **Given** a participant has multiple missing predictions or quizzes, **When** they open the notification bell, **Then** each actionable item is identifiable by match/team/date context.
+4. **Given** a missing item later becomes locked or completed, **When** notifications refresh, **Then** it no longer appears as an open action.
+
+---
+
+### User Story 7 - Admins broadcast messages through the notification bell (Priority: P2)
+
+As an admin, I want to send a notification message to everyone from the admin page, so that important pool updates appear in the same notification bell users already check.
+
+**Why this priority**: Admin communication currently has no in-app broadcast path. Reusing the bell keeps messages visible without adding another communication surface.
+
+**Independent Test**: Can be tested by logging in as an admin, sending a message from the new admin section, logging in as a different user, and confirming the bell shows the broadcast.
+
+**Acceptance Scenarios**:
+
+1. **Given** an admin is on the admin page, **When** they open the admin section selector, **Then** a third "send message" section is available alongside user management and label editing.
+2. **Given** an admin submits a broadcast title and body, **When** users open the app, **Then** the message appears in their notification bell.
+3. **Given** a non-admin attempts to access broadcast APIs or UI, **When** they try to send a message, **Then** access is denied.
+4. **Given** an admin deactivates or expires a broadcast, **When** users refresh notifications, **Then** that broadcast is no longer shown as active.
+
+---
+
+### User Story 8 - Show real names subtly on the leaderboard (Priority: P2)
+
+As a participant, I want leaderboard nicknames to remain prominent while also seeing a person's first and last name as a subtle side note, so that nicknames can be playful without making identity unclear.
+
+**Why this priority**: The current display uses the username as the only visible identity. The organization email format provides reliable first/last names without requiring another profile field.
+
+**Independent Test**: Can be tested by viewing leaderboard rows for users with `firstname.lastname@talpanetwork.com` emails and confirming the nickname is primary while derived first/last name is smaller and lower contrast.
+
+**Acceptance Scenarios**:
+
+1. **Given** a participant has nickname `MVP` and email `jane.doe@talpanetwork.com`, **When** the leaderboard displays their row, **Then** `MVP` is primary and `Jane Doe` is shown smaller and lighter.
+2. **Given** a participant's email is valid Talpa format, **When** leaderboard data is returned, **Then** derived first and last name fields are available for display.
+3. **Given** a leaderboard row is displayed on mobile, **When** nickname and real name are both present, **Then** text remains readable without overlap.
+
+---
+
+### User Story 9 - Preview profile pictures from the leaderboard (Priority: P3)
+
+As a participant, I want to hover or focus a leaderboard profile picture and see it larger, so that I can inspect profile pictures without opening every profile page.
+
+**Why this priority**: The profile page already shows a larger image, but quickly browsing the leaderboard should not require navigation.
+
+**Independent Test**: Can be tested by hovering or keyboard-focusing a leaderboard avatar and confirming a larger preview appears without changing layout or opening the profile.
+
+**Acceptance Scenarios**:
+
+1. **Given** a participant views the leaderboard on desktop, **When** they hover over another user's avatar, **Then** a larger profile image preview appears.
+2. **Given** a participant navigates by keyboard, **When** the avatar/name link receives focus, **Then** the larger image preview is also available.
+3. **Given** the preview appears near screen edges, **When** the leaderboard is displayed on common viewport widths, **Then** the preview does not cover critical controls or overflow incoherently.
+
+---
+
+### User Story 10 - Restrict account emails to Talpa identity format (Priority: P1)
+
+As an admin, I want only `firstname.lastname@talpanetwork.com` email addresses to create accounts, so that the pool is limited to the intended organization and real names can be reliably derived.
+
+**Why this priority**: Email format now drives both access eligibility and first/last-name display. Allowing other domains or structures would break both assumptions.
+
+**Independent Test**: Can be tested by creating accounts with valid and invalid emails and confirming only valid Talpa-format emails are accepted.
+
+**Acceptance Scenarios**:
+
+1. **Given** a new user enters `jane.doe@talpanetwork.com`, **When** they create an account, **Then** the account can be created if all other validation passes.
+2. **Given** a new user enters a non-Talpa domain, **When** they create an account, **Then** account creation is rejected with a clear message.
+3. **Given** a new user enters `jane@talpanetwork.com` or another address without exactly derivable first and last names, **When** they create an account, **Then** account creation is rejected with a clear message.
+
+---
+
+### User Story 11 - Admins fully edit quiz questions and answer options (Priority: P1)
+
+As an admin, I want the label editor to let me select labels/options and adjust quiz question text plus answer options, so that wrong or incomplete quiz data can be corrected without editing code or participant predictions.
+
+**Why this priority**: Some quiz questions and answers are wrong or incomplete. Admins need an operational fix path for both labels and quiz content.
+
+**Independent Test**: Can be tested by editing a quiz question, answer options, and correct answer from the admin page, then verifying prediction entry/scoring uses the corrected data while participant predictions remain unchanged.
+
+**Acceptance Scenarios**:
+
+1. **Given** an admin opens the label editor, **When** a match has many labels/options, **Then** the admin can scroll through and select the needed label or option.
+2. **Given** an admin edits a quiz question, **When** they save, **Then** the corrected question appears in the prediction interface.
+3. **Given** an admin edits quiz answer options, **When** they save, **Then** the corrected options are available for prediction entry and scoring.
+4. **Given** an admin changes correct quiz labels, **When** scoring is recalculated, **Then** quiz points use the updated labels without changing participant prediction rows.
+
+---
+
+### User Story 12 - Show a wall of shame for missing open predictions (Priority: P2)
+
+As a participant, I want to see who still has open predictions to fill in, so that the pool can hold each other accountable before matches lock.
+
+**Why this priority**: The app now allows incomplete predictions, which is good for access, but the group still needs visibility into who has open actionable work.
+
+**Independent Test**: Can be tested by leaving predictions incomplete for one user, completing them for another, and confirming only the user with currently open missing items appears in the wall of shame.
+
+**Acceptance Scenarios**:
+
+1. **Given** a participant has missing predictions for matches that are still editable, **When** the wall of shame is displayed, **Then** that participant appears with missing-action context.
+2. **Given** a participant has completed all currently open required predictions and quizzes, **When** the wall of shame is displayed, **Then** that participant does not appear.
+3. **Given** a missing prediction's match has locked, **When** the wall of shame refreshes, **Then** that locked item no longer counts as an open missing action.
+4. **Given** an account is archived, **When** the wall of shame is displayed, **Then** the archived user is excluded.
+
+---
+
 ### Edge Cases
 
 - Lock-time boundary: exactly at the tournament-pick reveal time, tournament picks become non-editable and visible according to the reveal rules.
@@ -118,6 +240,15 @@ As an admin, I want to inspect and manually adjust the scoring labels used by th
 - A quiz answer label is missing or corrected after participants already entered predictions.
 - An admin saves a manual label and API-Football sync later returns different data.
 - A non-admin attempts to call admin label APIs directly.
+- A notification references a match that locks before the participant clicks it.
+- Multiple missing quiz/prediction notifications exist for the same match.
+- An admin broadcast is active while a user has no personal missing-action notifications.
+- A participant uses a nickname that does not resemble their email-derived name.
+- A user email contains uppercase letters but otherwise matches the required Talpa format.
+- A user email contains plus-addressing, extra dots, missing first name, missing last name, or another domain.
+- A profile image URL is missing or broken when the leaderboard hover preview is shown.
+- An admin edits answer options after participants already selected old answer values.
+- A wall-of-shame row has many missing items and must remain readable on mobile.
 
 ## Requirements *(mandatory)*
 
@@ -163,6 +294,28 @@ As an admin, I want to inspect and manually adjust the scoring labels used by th
 - **FR-038**: The system MUST deny label inspection and label update access to non-admin users.
 - **FR-039**: The system MUST preserve enough audit/source information to identify who manually changed labels and when.
 - **FR-040**: The system MUST continue to use API-Football labels when no manual override exists.
+- **FR-041**: Notification-bell missing-action items MUST identify the specific match and whether the missing item is a score prediction, quiz answer, or other supported prediction action.
+- **FR-042**: Clicking a missing-action notification MUST route the participant to a prediction interface focused on the relevant missing item when that item is still editable.
+- **FR-043**: Notification data MUST remove completed or locked missing-action items on refresh.
+- **FR-044**: The system MUST provide admin-only broadcast-notification creation from the admin page.
+- **FR-045**: Admin broadcast notifications MUST appear in the notification bell for active, non-archived users while the broadcast is active.
+- **FR-046**: Non-admin users MUST NOT be able to create, update, deactivate, or inspect admin broadcast management endpoints.
+- **FR-047**: The admin page MUST include a third section for sending messages in addition to existing user management and label editing sections.
+- **FR-048**: The leaderboard MUST keep the nickname as the primary visible name.
+- **FR-049**: The leaderboard MUST show first and last name derived from `firstname.lastname@talpanetwork.com` as smaller, lighter supporting text.
+- **FR-050**: The system MUST derive first and last name from the user's email using the required Talpa email format rather than adding a separate editable real-name field.
+- **FR-051**: Leaderboard profile avatars MUST show a larger image preview on hover and keyboard focus without requiring navigation to the profile page.
+- **FR-052**: Account creation MUST only allow email addresses matching `firstname.lastname@talpanetwork.com`.
+- **FR-053**: Account creation MUST reject non-Talpa domains and Talpa emails that do not provide both first and last name segments.
+- **FR-054**: Email validation MUST be enforced server-side for all account-creation paths.
+- **FR-055**: The admin label editor MUST allow admins to scroll through and select label/answer options when the option list is longer than the visible area.
+- **FR-056**: The admin label editor MUST allow admins to update quiz question text.
+- **FR-057**: The admin label editor MUST allow admins to update quiz answer options.
+- **FR-058**: Quiz question and option overrides MUST affect prediction entry and scoring without mutating participant quiz prediction records.
+- **FR-059**: Admin quiz question, option, and correct-label edits MUST preserve audit/source metadata.
+- **FR-060**: The system MUST provide a wall of shame listing active users with currently open missing predictions or quizzes for matches scheduled today or tomorrow.
+- **FR-061**: The wall of shame MUST exclude archived users, completed items, items outside the today/tomorrow notification window, and items that are no longer editable because their match is locked.
+- **FR-062**: Wall-of-shame rows MUST show enough context to understand what is missing without exposing private prediction content.
 
 ### Key Entities
 
@@ -177,6 +330,10 @@ As an admin, I want to inspect and manually adjust the scoring labels used by th
 - **Admin User**: An account user with permission to manage accounts and scoring labels.
 - **Scoring Label**: Actual-result data used to score predictions, including match score/result, quiz answer/viewership answer, goal/scorer event labels, and player-stat labels.
 - **Manual Label Override**: An admin-authored correction or fallback label that takes precedence over missing or incorrect API-Football data.
+- **Actionable Notification**: A notification-bell item that identifies a specific missing prediction or quiz and includes a route/focus target.
+- **Admin Broadcast Notification**: An admin-authored message shown through the notification bell to all active users during its active window.
+- **Derived Real Name**: A user's first and last name parsed from the required Talpa email address and displayed as secondary leaderboard identity.
+- **Wall of Shame Entry**: An accountability row for an active user with currently editable missing prediction or quiz actions.
 
 ## Success Criteria *(mandatory)*
 
@@ -199,6 +356,13 @@ As an admin, I want to inspect and manually adjust the scoring labels used by th
 - **SC-015**: After an admin updates a match score/result label, affected match prediction points reflect the new label without changing participant prediction rows.
 - **SC-016**: After an admin updates quiz or scorer/goal labels, affected quiz/top-scorer/striker points reflect the new labels without changing participant prediction rows.
 - **SC-017**: The admin labels page shows source/override status for all editable scoring labels.
+- **SC-018**: 100% of missing quiz notifications identify the affected match and open the relevant prediction/quiz area when clicked.
+- **SC-019**: Admin broadcast messages sent from the admin page appear in another active user's notification bell after refresh.
+- **SC-020**: 100% of tested invalid account emails outside `firstname.lastname@talpanetwork.com` are rejected during account creation.
+- **SC-021**: Leaderboard rows show nickname as primary text and derived first/last name as smaller, lower-emphasis text for users with valid Talpa emails.
+- **SC-022**: Hovering or keyboard-focusing leaderboard avatars shows a larger profile picture preview on desktop without layout shift.
+- **SC-023**: Admin quiz edits to question text and answer options are reflected in prediction entry/scoring without changing participant prediction rows.
+- **SC-024**: Wall-of-shame output includes users with currently open missing items for today or tomorrow and excludes users with no currently open missing items in that window.
 
 ## Assumptions
 
@@ -212,3 +376,7 @@ As an admin, I want to inspect and manually adjust the scoring labels used by th
 - Existing label tables `match_results`, `match_events`, and `player_match_stats` are the scoring-label database for API-Football match scores, events, and player stats.
 - Quiz label overrides require DB-backed storage because quiz labels currently come from static quiz data.
 - Manual labels take precedence over API-Football labels for scoring until edited or cleared by an admin.
+- All valid participant emails follow `firstname.lastname@talpanetwork.com`; casing may be normalized for storage/display.
+- `users.name` remains the nickname field.
+- Admin broadcast dismissal/read-state is not required for the first implementation unless added during task generation; active broadcasts may remain visible until deactivated or expired.
+- The wall of shame is for currently actionable missing predictions/quizzes for today and tomorrow, not for future fixtures outside that window or historical missed locked predictions.

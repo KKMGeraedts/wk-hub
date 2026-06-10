@@ -164,6 +164,7 @@ const NEWS_ARTICLES = [
 
 const PROFILE_IMAGE_MAX_DIMENSION = 512;
 const PROFILE_IMAGE_MAX_UPLOAD_BYTES = 750 * 1024;
+const TALPA_EMAIL_PATTERN = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*@talpanetwork\.com$/i;
 
 function normalizeRoute(pathname) {
   const path = pathname.replace(/\/+$/, "");
@@ -1163,6 +1164,7 @@ function MatchPredictionRow({
   onSubmit,
   compact = false,
   quickEntry = false,
+  focused = false,
 }) {
   const complete = scoreComplete(scores);
   const venue = venues.get(match.venue_id);
@@ -1172,6 +1174,7 @@ function MatchPredictionRow({
       className={[
         "prediction-fixture-row",
         editing && !quickEntry ? "is-active" : "",
+        focused ? "is-focused" : "",
         complete ? "is-complete" : "",
         locked ? "is-locked" : "",
       ]
@@ -1846,6 +1849,10 @@ function LoginPanel({ onLogin }) {
         return;
       }
 
+      if (email && !TALPA_EMAIL_PATTERN.test(email.trim())) {
+        throw new Error("Use firstname.lastname@talpanetwork.com.");
+      }
+
       const result = await apiJson("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
@@ -1880,7 +1887,7 @@ function LoginPanel({ onLogin }) {
               onChange={(event) => setResetEmail(event.target.value)}
               inputMode="email"
               autoComplete="email"
-              placeholder="name@talpa.nl"
+              placeholder="firstname.lastname@talpanetwork.com"
             />
           </label>
         ) : (
@@ -1892,8 +1899,11 @@ function LoginPanel({ onLogin }) {
                 onChange={(event) => setEmail(event.target.value)}
                 inputMode="email"
                 autoComplete="email"
-                placeholder="name@talpa.nl"
+                placeholder="firstname.lastname@talpanetwork.com"
               />
+              <span className="field-help">
+                Use firstname.lastname@talpanetwork.com.
+              </span>
             </label>
             <label>
               Password
@@ -2410,6 +2420,8 @@ function AdminLabelsPage({ teams }) {
           status_short: match.result?.status_short ?? "FT",
           status_long: match.result?.status_long ?? "Manual result",
           elapsed: match.result?.elapsed ?? 90,
+          question: match.quiz?.question ?? "",
+          choices: (match.quiz?.choices ?? []).join("\n"),
           correct_answers: (match.quiz?.correct_answers ?? []).join(", "),
           viewership_answer: match.quiz?.viewership_answer ?? "",
           events_json: labelEventDraft(match.events),
@@ -2475,12 +2487,18 @@ function AdminLabelsPage({ teams }) {
         .split(",")
         .map((answer) => answer.trim())
         .filter(Boolean);
+      const choices = String(draft.choices ?? "")
+        .split("\n")
+        .map((choice) => choice.trim())
+        .filter(Boolean);
       const result = await apiJson(`/api/admin/labels/${selectedMatchId}/quiz`, {
         method: "PATCH",
         body: JSON.stringify(
           clear
             ? { clear_override: true }
             : {
+                question: draft.question,
+                choices,
                 correct_answers: answers,
                 viewership_answer: draft.viewership_answer,
               },
@@ -2724,6 +2742,28 @@ function AdminLabelsPage({ teams }) {
                           {match.quiz ? (
                             <>
                               <label>
+                                Question
+                                <textarea
+                                  rows="3"
+                                  value={draft.question ?? ""}
+                                  onChange={(event) =>
+                                    updateDraft("question", event.target.value)
+                                  }
+                                />
+                              </label>
+                              <label>
+                                Answer options
+                                <textarea
+                                  className="admin-quiz-options"
+                                  rows="5"
+                                  value={draft.choices ?? ""}
+                                  onChange={(event) =>
+                                    updateDraft("choices", event.target.value)
+                                  }
+                                  placeholder="One option per line"
+                                />
+                              </label>
+                              <label>
                                 Correct answers
                                 <input
                                   value={draft.correct_answers ?? ""}
@@ -2831,6 +2871,163 @@ function AdminLabelsPage({ teams }) {
   );
 }
 
+function AdminBroadcastPage() {
+  const [broadcasts, setBroadcasts] = useState([]);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [expiresAt, setExpiresAt] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  async function loadBroadcasts() {
+    setLoading(true);
+    setError("");
+    try {
+      const result = await apiJson("/api/admin/notifications/broadcasts");
+      setBroadcasts(result.broadcasts ?? []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadBroadcasts();
+  }, []);
+
+  async function sendBroadcast(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await apiJson("/api/admin/notifications/broadcasts", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          body,
+          expires_at: expiresAt || null,
+        }),
+      });
+      setBroadcasts(result.broadcasts ?? []);
+      setTitle("");
+      setBody("");
+      setExpiresAt("");
+      setSuccess("Message sent.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deactivateBroadcast(id) {
+    setSaving(true);
+    setError("");
+    setSuccess("");
+    try {
+      const result = await apiJson(
+        `/api/admin/notifications/broadcasts/${id}/deactivate`,
+        { method: "POST", body: "{}" },
+      );
+      setBroadcasts(result.broadcasts ?? []);
+      setSuccess("Message deactivated.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <article className="panel admin-message-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Send message</h3>
+          <p>Send a notification-bell message to everyone.</p>
+        </div>
+        <span className="pill orange">{broadcasts.length} messages</span>
+      </div>
+      <form className="panel-body admin-message-form" onSubmit={sendBroadcast}>
+        {error && <div className="form-error">{error}</div>}
+        {success && <div className="form-success">{success}</div>}
+        <label>
+          Title
+          <input
+            value={title}
+            maxLength="120"
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Deadline reminder"
+          />
+        </label>
+        <label>
+          Message
+          <textarea
+            rows="4"
+            value={body}
+            maxLength="600"
+            onChange={(event) => setBody(event.target.value)}
+            placeholder="Fill in today's predictions before lock."
+          />
+        </label>
+        <label>
+          Expires at (optional)
+          <input
+            value={expiresAt}
+            onChange={(event) => setExpiresAt(event.target.value)}
+            placeholder="2026-06-11T18:00:00Z"
+          />
+        </label>
+        <button className="primary-button" type="submit" disabled={saving}>
+          {saving ? "Sending..." : "Send message"}
+        </button>
+        <div className="admin-broadcast-list">
+          {loading ? (
+            <div className="empty compact">Loading messages...</div>
+          ) : broadcasts.length ? (
+            broadcasts.map((broadcast) => (
+              <article
+                key={broadcast.id}
+                className={
+                  broadcast.is_active
+                    ? "admin-broadcast-row"
+                    : "admin-broadcast-row is-inactive"
+                }
+              >
+                <div>
+                  <strong>{broadcast.title}</strong>
+                  <p>{broadcast.body}</p>
+                  <span>
+                    {broadcast.created_at}
+                    {broadcast.expires_at ? ` · expires ${broadcast.expires_at}` : ""}
+                  </span>
+                </div>
+                {broadcast.is_active ? (
+                  <button
+                    className="text-button"
+                    type="button"
+                    disabled={saving}
+                    onClick={() => deactivateBroadcast(broadcast.id)}
+                  >
+                    Deactivate
+                  </button>
+                ) : (
+                  <span className="pill">Inactive</span>
+                )}
+              </article>
+            ))
+          ) : (
+            <div className="empty compact">No messages sent yet.</div>
+          )}
+        </div>
+      </form>
+    </article>
+  );
+}
+
 function AdminPage({ currentUser, teams }) {
   const [section, setSection] = useState("labels");
 
@@ -2847,12 +3044,15 @@ function AdminPage({ currentUser, teams }) {
             <select value={section} onChange={(event) => setSection(event.target.value)}>
               <option value="users">User management</option>
               <option value="labels">Adjust labels</option>
+              <option value="messages">Send message</option>
             </select>
           </label>
         </div>
       </article>
       {section === "users" ? (
         <AdminUsersPage currentUser={currentUser} />
+      ) : section === "messages" ? (
+        <AdminBroadcastPage />
       ) : (
         <AdminLabelsPage teams={teams} />
       )}
@@ -3591,8 +3791,14 @@ function Leaderboard({
                           aria-label={`Open ${row.name} profile`}
                         >
                           <ProfileAvatar player={row} size="small" />
+                          <span className="leaderboard-avatar-preview" aria-hidden="true">
+                            <ProfileAvatar player={row} size="large" />
+                          </span>
                           <span className="leaderboard-name">
                             <strong>{row.name}</strong>
+                            {row.full_name && (
+                              <em>{row.full_name}</em>
+                            )}
                             <RankMovement movement={row.rank_movement ?? 0} />
                           </span>
                         </button>
@@ -3601,6 +3807,9 @@ function Leaderboard({
                           <ProfileAvatar player={row} size="small" />
                           <span className="leaderboard-name">
                             <strong>{row.name}</strong>
+                            {row.full_name && (
+                              <em>{row.full_name}</em>
+                            )}
                             <RankMovement movement={row.rank_movement ?? 0} />
                           </span>
                         </span>
@@ -3632,6 +3841,58 @@ function Leaderboard({
           <div className="empty">
             No leaderboard entries yet. New accounts will appear here as soon
             as they join.
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function WallOfShame({ rows = [], onProfile = () => {} }) {
+  return (
+    <article className="panel wall-of-shame-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Nog niet ingevuld</h3>
+          <p>Open acties voor vandaag en morgen.</p>
+        </div>
+        <span className={rows.length ? "pill orange" : "pill green"}>
+          {rows.length} spelers
+        </span>
+      </div>
+      <div className="panel-body">
+        {rows.length ? (
+          <div className="wall-of-shame-list">
+            {rows.map((row) => (
+              <article className="wall-of-shame-row" key={row.user_id}>
+                <button
+                  className="leaderboard-player-link"
+                  type="button"
+                  onClick={() => onProfile(row.user_id)}
+                >
+                  <ProfileAvatar player={row} size="small" />
+                  <span className="leaderboard-name">
+                    <strong>{row.name}</strong>
+                    {row.full_name && <em>{row.full_name}</em>}
+                  </span>
+                </button>
+                <div className="wall-of-shame-items">
+                  <strong>{row.missing_count} open</strong>
+                  {(row.missing_items ?? []).slice(0, 4).map((item) => (
+                    <span key={`${item.kind}-${item.match_id}`}>
+                      {item.label} · {item.kind === "quiz" ? "quiz" : "prediction"}
+                    </span>
+                  ))}
+                  {(row.missing_items ?? []).length > 4 && (
+                    <span>+{row.missing_items.length - 4} meer</span>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty compact">
+            Iedereen is bij voor de open wedstrijden van vandaag en morgen.
           </div>
         )}
       </div>
@@ -4541,6 +4802,7 @@ function AdjustPredictionsPanel({
   pool,
   onPoolUpdate,
   onBack,
+  focusTarget,
 }) {
   const groupMatches = useMemo(
     () =>
@@ -4575,6 +4837,7 @@ function AdjustPredictionsPanel({
   const [pendingScoreMatchId, setPendingScoreMatchId] = useState("");
   const editVersionRef = useRef(0);
   const saveSequenceRef = useRef(0);
+  const focusedMatchId = focusTarget?.match_id ?? "";
 
   function markDirty() {
     editVersionRef.current += 1;
@@ -4592,6 +4855,14 @@ function AdjustPredictionsPanel({
   const topScorerSuggestions = useMemo(() => topScorerOptions(data), [data]);
   const leeuwtjeTotal = leeuwtjesTotal(pool);
   const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - leeuwtjeMatchIds.size);
+
+  useEffect(() => {
+    if (!focusedMatchId) return;
+    const match = groupMatches.find((candidate) => candidate.id === focusedMatchId);
+    if (!match?.group) return;
+    setSelectedGroupId(match.group);
+    setEditingMatchId(match.id);
+  }, [focusedMatchId, groupMatches]);
 
   useEffect(() => {
     if (initialized) return;
@@ -4945,6 +5216,7 @@ function AdjustPredictionsPanel({
                         onQuizViewership={setQuizViewership}
                         onToggleLeeuwtje={() => toggleLeeuwtje(match.id)}
                         onSubmit={() => save(true)}
+                        focused={focusedMatchId === match.id}
                         compact
                         quickEntry
                       />
@@ -4965,9 +5237,19 @@ function AdjustPredictionsPanel({
   );
 }
 
-function NotificationBell({ notifications, open, onToggle, onPredictions }) {
+function NotificationBell({
+  notifications,
+  open,
+  onToggle,
+  onPredictions,
+  onNotificationAction,
+}) {
   const count = notifications.reduce(
     (total, notification) => total + notification.count,
+    0,
+  );
+  const actionableCount = notifications.reduce(
+    (total, notification) => total + (notification.items?.length ?? 0),
     0,
   );
   return (
@@ -4992,13 +5274,38 @@ function NotificationBell({ notifications, open, onToggle, onPredictions }) {
         >
           <div className="notification-title">
             <strong>Nog te doen</strong>
-            <span>{notifications.length}/2 meldingen</span>
+            <span>{notifications.length} meldingen</span>
           </div>
           {notifications.length ? (
             notifications.map((notification) => (
-              <article key={notification.type} className="notification-item">
+              <article
+                key={`${notification.type}-${notification.id ?? notification.title}`}
+                className={
+                  notification.type === "broadcast"
+                    ? "notification-item is-broadcast"
+                    : "notification-item"
+                }
+              >
                 <strong>{notification.title}</strong>
                 <p>{notification.body}</p>
+                {notification.items?.length ? (
+                  <div className="notification-actions">
+                    {notification.items.map((item) => (
+                      <button
+                        key={`${item.kind}-${item.match_id}`}
+                        className="notification-action"
+                        type="button"
+                        onClick={() => onNotificationAction?.(item)}
+                      >
+                        <span>{item.label}</span>
+                        <em>
+                          {item.kind === "quiz" ? "Quiz" : "Prediction"}
+                          {item.subtitle ? ` · ${item.subtitle}` : ""}
+                        </em>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </article>
             ))
           ) : (
@@ -5011,7 +5318,7 @@ function NotificationBell({ notifications, open, onToggle, onPredictions }) {
             type="button"
             onClick={onPredictions}
           >
-            Open predictions
+            {actionableCount ? "Open predictions" : "Mijn voorspellingen"}
           </button>
         </div>
       )}
@@ -5078,6 +5385,7 @@ function App() {
   const [now, setNow] = useState(() => new Date());
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
+  const [predictionFocusTarget, setPredictionFocusTarget] = useState(null);
 
   function replacePath(path) {
     if (normalizeRoute(window.location.pathname) !== path) {
@@ -5093,6 +5401,14 @@ function App() {
     if (normalizeRoute(window.location.pathname) !== route) {
       window.history[historyMethod]({}, "", route);
     }
+  }
+
+  function navigateToPredictionTarget(item) {
+    setPredictionFocusTarget({
+      match_id: item?.target_match_id ?? item?.match_id ?? "",
+      kind: item?.target_kind ?? item?.kind ?? "prediction",
+    });
+    navigateToView(item?.target_view === "pool" ? "pool" : "adjust");
   }
 
   function navigateToProfile(userId) {
@@ -5324,6 +5640,7 @@ function App() {
             open={notificationsOpen}
             onToggle={() => setNotificationsOpen((current) => !current)}
             onPredictions={() => navigateToView("adjust")}
+            onNotificationAction={navigateToPredictionTarget}
           />
           <button
             className="my-predictions-button"
@@ -5483,6 +5800,7 @@ function App() {
               pool={pool}
               onPoolUpdate={updatePoolOnly}
               onBack={() => navigateToView("home")}
+              focusTarget={predictionFocusTarget}
             />
           </section>
         )}
@@ -5490,6 +5808,10 @@ function App() {
         {view === "leaderboard" && (
           <section className="view is-active">
             <Leaderboard pool={pool} onProfile={navigateToProfile} />
+            <WallOfShame
+              rows={pool.wall_of_shame ?? []}
+              onProfile={navigateToProfile}
+            />
           </section>
         )}
 

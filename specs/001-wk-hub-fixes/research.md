@@ -109,3 +109,91 @@
 
 - Add admin prediction editing for support use cases: rejected by explicit requirement.
 - Reuse participant prediction save endpoint for admin correction: rejected because it targets prediction tables and current-user ownership semantics.
+
+## Decision 11: Make notification reminders item-specific and route-focused
+
+**Decision**: Keep notification construction server-side, but enrich missing-action notifications with match display context, missing action type, and a target route/focus identifier. The frontend should render each missing match/quiz as an actionable item instead of only showing a generic aggregate count.
+
+**Rationale**: The backend already knows which `match_ids` are missing. Adding display context and focus metadata solves the confusion without making the frontend recompute lock and completion logic.
+
+**Alternatives considered**:
+
+- Keep a single "Open predictions" button: rejected because it is the source of the current confusion.
+- Compute missing items only in the frontend: rejected because it risks drifting from backend lock/completion rules and requires exposing more raw data.
+
+## Decision 12: Store admin broadcasts separately from personal missing-action notifications
+
+**Decision**: Add DB-backed broadcast notification storage with admin author, title/body, active state/window, and audit timestamps. Merge active broadcasts into the notification-bell payload at pool-state load time.
+
+**Rationale**: Broadcasts are authored messages for all users, while missing-action reminders are computed per user. Keeping storage separate avoids mixing admin content with derived prediction state.
+
+**Alternatives considered**:
+
+- Store broadcasts in static JSON: rejected because admins need to send messages in-app without deploys.
+- Reuse newsletter storage: rejected because newsletters and notification-bell broadcasts have different lifecycle, urgency, and UI contracts.
+
+## Decision 13: Add a third admin section for broadcasts
+
+**Decision**: Extend the existing admin section selector with a "Send message" section that lists active/recent broadcasts and provides a title/body form.
+
+**Rationale**: The admin page already centralizes operational controls. A third section matches the user's request and avoids hiding broadcast creation inside unrelated user or label panels.
+
+**Alternatives considered**:
+
+- Place broadcast controls inside user management: rejected because broadcasts are not account management.
+- Place broadcast controls inside label editing: rejected because broadcasts are communication, not scoring data.
+
+## Decision 14: Derive real names from validated Talpa emails and keep nickname primary
+
+**Decision**: Continue using `users.name` as the nickname. Add derived first/last-name fields from `users.email` for leaderboard/profile payloads and display them as smaller, lower-contrast supporting text.
+
+**Rationale**: The user wants usernames to become nicknames while first/last name comes from the organization email structure. This avoids introducing another editable identity field.
+
+**Alternatives considered**:
+
+- Add editable first_name/last_name columns: rejected because the email structure is the requested source of truth and avoids inconsistent self-entered names.
+- Replace nickname with derived full name: rejected because nickname should remain the prominent display name.
+
+## Decision 15: Enforce Talpa email format in backend account creation
+
+**Decision**: Add a single backend validator for account-creation paths requiring `firstname.lastname@talpanetwork.com`, with lowercase-normalized storage and clear errors. Frontend validation mirrors this only as a UX aid.
+
+**Rationale**: Email format now controls access and derived identity. Backend enforcement is required because frontend checks can be bypassed.
+
+**Alternatives considered**:
+
+- Accept any `@talpanetwork.com` email: rejected because first/last name derivation would be unreliable.
+- Validate only on the frontend: rejected because it does not protect backend account creation.
+
+## Decision 16: Use CSS-supported avatar hover/focus preview on leaderboard rows
+
+**Decision**: Add a larger avatar preview anchored to the existing leaderboard avatar/name link, activated on hover and focus. The preview should use existing profile image URLs and fallback initials.
+
+**Rationale**: Users want to inspect images without opening profiles. CSS hover/focus keeps the behavior lightweight and avoids extra API calls.
+
+**Alternatives considered**:
+
+- Open a modal on click: rejected because click already opens the profile.
+- Increase all leaderboard avatars permanently: rejected because it would reduce leaderboard density.
+
+## Decision 17: Expand quiz override storage to cover question text and options
+
+**Decision**: Extend quiz override handling beyond correct answers/viewership to include admin-edited question text and answer options. Apply overrides when loading quiz data for both prediction entry and scoring.
+
+**Rationale**: The current request says some questions are wrong and answer options are incomplete. Correct-answer-only overrides cannot fix what participants see or can choose.
+
+**Alternatives considered**:
+
+- Edit `quiz-2026.json` manually: rejected because runtime admin edits need persistence and auditability.
+- Allow admins to edit participant quiz predictions after changing options: rejected because participant predictions must remain immutable.
+
+## Decision 18: Compute wall of shame from currently actionable missing items
+
+**Decision**: Build wall-of-shame entries from active users plus currently unlocked missing predictions/quizzes, using the same completion and lock rules as notification generation.
+
+**Rationale**: The wall of shame is accountability for actions users can still take. Including locked historical misses would be punitive without being actionable.
+
+**Alternatives considered**:
+
+- Show all historical missed predictions: rejected because users cannot fix locked matches.
+- Include only current viewer's missing items: rejected because the feature is explicitly about group accountability.

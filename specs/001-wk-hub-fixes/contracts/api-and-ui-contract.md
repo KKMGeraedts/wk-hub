@@ -239,3 +239,251 @@ The admin label page must:
 - Show save/error states per match or label group.
 - Include copy or layout that makes clear admins are editing labels/results, not participant predictions.
 - Avoid exposing controls that edit another participant's predictions.
+
+## API/Data Response Contract: Actionable Notifications
+
+Pool state notifications must support specific missing-action items and broadcast messages.
+
+```json
+{
+  "notifications": [
+    {
+      "type": "quiz",
+      "title": "Quizvraag open",
+      "body": "Mexico - South Africa mist nog een quizantwoord.",
+      "count": 1,
+      "items": [
+        {
+          "match_id": "2026-06-11-mex-rsa",
+          "kind": "quiz",
+          "label": "Mexico - South Africa",
+          "subtitle": "2026-06-11 - Group Stage - Group A",
+          "target_view": "predictions",
+          "target_match_id": "2026-06-11-mex-rsa",
+          "target_kind": "quiz"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Rules:
+
+- Missing-action notifications must identify the affected match and action type.
+- Each actionable item must provide a target view and focus metadata.
+- Locked or completed items must be omitted after refresh.
+- The frontend may still render an aggregate title/count, but the user must be able to tell which quiz or prediction is missing before clicking.
+
+## UI Contract: Notification Bell
+
+The notification bell must:
+
+- Show personal missing actions and admin broadcasts in the same popover.
+- Render missing actions as clickable rows or buttons with match/team/date context.
+- Navigate to the prediction entry/adjust surface focused on the selected `target_match_id` and `target_kind`.
+- Keep a generic predictions fallback only for aggregate or future notification types without a specific target.
+- Use active broadcast styling that is visually distinct from missing-action reminders.
+
+## API Contract: Admin Broadcast Notifications
+
+All broadcast management endpoints require an authenticated admin user. Non-admin users receive `403`; anonymous users receive `401`.
+
+### List broadcasts
+
+`GET /api/admin/notifications/broadcasts`
+
+Returns active and recent broadcast notifications for the admin page.
+
+```json
+{
+  "broadcasts": [
+    {
+      "id": 1,
+      "title": "Deadline reminder",
+      "body": "Fill in today's predictions before lock.",
+      "is_active": true,
+      "starts_at": "2026-06-10T10:00:00Z",
+      "expires_at": "2026-06-11T10:00:00Z",
+      "created_by_user_id": 1,
+      "created_at": "2026-06-10T09:55:00Z"
+    }
+  ]
+}
+```
+
+### Create broadcast
+
+`POST /api/admin/notifications/broadcasts`
+
+Allowed fields:
+
+- `title`
+- `body`
+- `starts_at` optional
+- `expires_at` optional
+
+Creates an active broadcast notification shown in users' notification bells while active.
+
+### Deactivate broadcast
+
+`POST /api/admin/notifications/broadcasts/<broadcast_id>/deactivate`
+
+Marks a broadcast inactive so it no longer appears in notification bells.
+
+### Broadcast notification in pool state
+
+Active broadcasts should be included in normal pool state notifications:
+
+```json
+{
+  "type": "broadcast",
+  "id": 1,
+  "title": "Deadline reminder",
+  "body": "Fill in today's predictions before lock.",
+  "created_at": "2026-06-10T09:55:00Z"
+}
+```
+
+## UI Contract: Admin Send Message Section
+
+The admin page must:
+
+- Offer a third section for sending messages, next to user management and scoring-label editing.
+- Provide fields for broadcast title and message body.
+- Show save, success, and error states.
+- Show active/recent broadcasts with deactivate controls.
+- Hide the section entirely from non-admin users.
+
+## API/Data Response Contract: Leaderboard Identity
+
+Leaderboard rows should include nickname and derived real-name metadata.
+
+```json
+{
+  "user_id": 9,
+  "name": "MVP",
+  "email": "jane.doe@talpanetwork.com",
+  "first_name": "Jane",
+  "last_name": "Doe",
+  "full_name": "Jane Doe",
+  "profile_image_url": "https://..."
+}
+```
+
+Rules:
+
+- `name` remains the nickname and primary display label.
+- `first_name`, `last_name`, and `full_name` are derived from the validated email.
+- The frontend should display `full_name` smaller and lower contrast than `name`.
+- Derived names must remain readable on mobile leaderboard rows.
+
+## UI Contract: Leaderboard Avatar Preview
+
+Leaderboard avatar behavior must:
+
+- Keep avatar/name click behavior opening profiles in normal leaderboard context.
+- Show a larger profile picture preview on hover.
+- Show the same preview on keyboard focus.
+- Use initials/fallback avatar if the profile image is missing.
+- Avoid row-height changes and incoherent viewport overflow.
+
+## API/Auth Contract: Talpa Email Validation
+
+Account creation and any login/upsert path that can create a user must enforce:
+
+```text
+firstname.lastname@talpanetwork.com
+```
+
+Rules:
+
+- Domain must be `talpanetwork.com`.
+- Local part must provide first and last name segments separated by dot notation.
+- Invalid examples include `jane@talpanetwork.com`, `jane.doe@gmail.com`, `jane+pool.doe@talpanetwork.com`, `jane.@talpanetwork.com`, and `@talpanetwork.com`.
+- Error responses should be clear enough for the auth UI to tell users to use `firstname.lastname@talpanetwork.com`.
+- Existing users with invalid historical emails need a migration or compatibility decision during implementation, but new account creation must reject invalid emails.
+
+## API Contract: Quiz Metadata Editing
+
+Quiz label update contracts must support question and option overrides in addition to correct labels.
+
+`PATCH /api/admin/labels/<match_id>/quiz`
+
+Allowed fields:
+
+- `question`
+- `choices`
+- `correct_answer`
+- `correct_answers`
+- `viewership_answer`
+- `clear_override`
+
+Rules:
+
+- Question overrides affect the prediction UI.
+- Choice overrides affect prediction UI option lists and scoring validation.
+- Correct-answer overrides affect scoring.
+- Participant `quiz_predictions` rows must not be changed by this endpoint.
+- Source/audit metadata must record the admin and timestamp.
+
+## UI Contract: Admin Quiz/Label Editor Completion
+
+The admin label editor must:
+
+- Let admins scroll through long match lists and long option/label lists.
+- Let admins select existing labels/options rather than typing everything blindly.
+- Let admins edit quiz question text.
+- Let admins edit answer options.
+- Let admins edit correct answers and viewership answers.
+- Keep result labels, quiz labels, goal/scorer labels, and player-stat labels visually distinct.
+- Avoid nested scrolling traps on common desktop and mobile widths.
+
+## API/Data Response Contract: Wall of Shame
+
+Pool state or a dedicated endpoint must expose active users with currently open missing actions.
+
+```json
+{
+  "wall_of_shame": [
+    {
+      "user_id": 9,
+      "name": "MVP",
+      "full_name": "Jane Doe",
+      "profile_image_url": "https://...",
+      "missing_count": 2,
+      "missing_items": [
+        {
+          "match_id": "2026-06-11-mex-rsa",
+          "kind": "prediction",
+          "label": "Mexico - South Africa",
+          "deadline": "2026-06-11T18:00:00Z"
+        },
+        {
+          "match_id": "2026-06-11-mex-rsa",
+          "kind": "quiz",
+          "label": "Mexico - South Africa",
+          "deadline": "2026-06-11T18:00:00Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Rules:
+
+- Archived users are excluded.
+- Users with zero currently open missing actions are excluded.
+- Locked matches are excluded.
+- The payload identifies missing action categories but must not expose prediction contents.
+
+## UI Contract: Wall of Shame
+
+The wall of shame UI must:
+
+- Be visible from a leaderboard-adjacent or otherwise easy-to-find app surface.
+- Show nickname as primary and derived real name as secondary when available.
+- Show missing counts and concise missing match/action context.
+- Stay readable on mobile when a user has many missing items.
+- Avoid implying users can still fix locked historical misses.

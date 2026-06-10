@@ -1,184 +1,150 @@
-# Tasks: WK Hub Fixes
+# Tasks: WK Hub Fixes - Expanded Notification, Identity, Admin, and Accountability Scope
 
 **Input**: Design documents from `specs/001-wk-hub-fixes/`
 
 **Prerequisites**: `plan.md`, `spec.md`, `research.md`, `data-model.md`, `contracts/`, `quickstart.md`
 
-**Tests**: No test-first tasks were explicitly requested in the specification. Validation is via existing project checks and manual review scenarios in `quickstart.md`.
+**Tests**: No test-first tasks were explicitly requested. Validation is via existing project checks and manual review scenarios in `quickstart.md`.
 
-**Organization**: Tasks are grouped by user story to enable independent implementation and testing.
+**Organization**: Prior US1-US5 work is already complete. This task list covers the expanded US6-US12 scope.
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 1: Setup and Guardrails
 
-**Purpose**: Confirm feature context and preserve Spec Kit traceability.
+**Purpose**: Confirm the executable scope and project hygiene before code changes.
 
-- [x] T001 Review approved decisions in `specs/001-wk-hub-fixes/plan.md`
-- [x] T002 Review API/UI contracts in `specs/001-wk-hub-fixes/contracts/api-and-ui-contract.md`
-
----
-
-## Phase 2: Foundational (Blocking Prerequisites)
-
-**Purpose**: Establish shared lock/reveal metadata and privacy helpers required by all stories.
-
-**⚠️ CRITICAL**: No user story work should begin until this phase is complete.
-
-- [x] T003 Add tournament-pick lock/reveal helper aliases in `backend/app.py`
-- [x] T004 Add tournament-pick visibility metadata to pool state in `backend/app.py`
-- [x] T005 Update frontend lock/visibility helper functions in `frontend/src/main.jsx`
-
-**Checkpoint**: Foundation ready - user story implementation can now begin.
+- [x] T001 Review expanded plan, contracts, and clarified wall-of-shame window in `specs/001-wk-hub-fixes/plan.md`
+- [x] T002 Verify Python and Node ignore patterns remain covered in `.gitignore`
 
 ---
 
-## Phase 3: User Story 1 - Protect prediction secrecy until lock times (Priority: P1) 🎯 MVP
+## Phase 2: Foundational Backend Data and Helpers
 
-**Goal**: Tournament picks and match predictions from other participants remain hidden until their approved lock moments, with backend-side privacy enforcement.
+**Purpose**: Add shared backend helpers and storage used by multiple stories.
 
-**Independent Test**: Compare what User A sees for own predictions versus User B's predictions before/after tournament and match lock moments.
+**CRITICAL**: Complete before user-story UI integration.
 
-### Implementation for User Story 1
-
-- [x] T006 [US1] Pass viewer context and current time into leaderboard construction in `backend/app.py`
-- [x] T007 [US1] Mask other users' champion/topscorer/striker fields before tournament reveal in `backend/app.py`
-- [x] T008 [US1] Update tournament-pick edit lock validation to use tournament helper names in `backend/app.py`
-- [x] T009 [US1] Change profile prediction visibility from match-result-complete to match-lock-time in `backend/app.py`
-- [x] T010 [US1] Add frontend profile tournament-pick privacy display using pool visibility metadata in `frontend/src/main.jsx`
-- [x] T011 [US1] Ensure hidden tournament picks are not rendered for other profiles before reveal in `frontend/src/main.jsx`
-
-**Checkpoint**: User Story 1 should be fully functional and testable independently.
+- [x] T003 Add Talpa email parsing and derived real-name helpers in `backend/app.py`
+- [x] T004 Add admin broadcast notification storage and migration setup in `backend/app.py`
+- [x] T005 Extend quiz override storage/loading to support question and choices in `backend/app.py`
+- [x] T006 Add reusable missing-action item builder for today/tomorrow unlocked predictions and quizzes in `backend/app.py`
 
 ---
 
-## Phase 4: User Story 2 - Choose tournament scorers easily and freely (Priority: P2)
+## Phase 3: User Story 6 - Act on clear notification-bell actions (Priority: P1)
 
-**Goal**: Participants can search all available players by player/team name for top scorer and striker picks, independent of champion selection.
+**Goal**: Notification-bell reminders identify the exact missing match/quiz and route users directly there.
 
-**Independent Test**: Choose one champion team, search and save a top scorer from another team, search by team/player, and verify duplicate strikers are prevented.
+**Independent Test**: Leave one unlocked match prediction or quiz empty, open the bell, click the item, and confirm the relevant prediction area is focused.
 
-### Implementation for User Story 2
-
-- [x] T012 [US2] Add reusable searchable player picker components in `frontend/src/main.jsx`
-- [x] T013 [US2] Replace top scorer native select in initial prediction flow in `frontend/src/main.jsx`
-- [x] T014 [US2] Replace striker native selects in initial prediction flow in `frontend/src/main.jsx`
-- [x] T015 [US2] Replace top scorer and striker native selects in adjust prediction flow in `frontend/src/main.jsx`
-- [x] T016 [US2] Preserve/label saved scorer values not present in current option list in `frontend/src/main.jsx`
-- [x] T017 [US2] Add searchable picker styles and locked/empty states in `frontend/src/styles.css`
-
-**Checkpoint**: User Story 2 should be independently usable after User Story 1 foundation.
+- [x] T007 [US6] Enrich notification payloads with actionable item metadata in `backend/app.py`
+- [x] T008 [US6] Add frontend selected-match/selected-kind navigation state for prediction focus in `frontend/src/main.jsx`
+- [x] T009 [US6] Render actionable notification rows and click handlers in `frontend/src/main.jsx`
+- [x] T010 [US6] Add notification item and focus styles in `frontend/src/styles.css`
 
 ---
 
-## Phase 5: User Story 3 - Use leaderboard and profile pages without confusing navigation or layout (Priority: P3)
+## Phase 4: User Story 10 - Restrict account emails to Talpa identity format (Priority: P1)
 
-**Goal**: Tutorial, leaderboard, and profile pages have clear navigation and readable layout.
+**Goal**: New accounts can only be created with `firstname.lastname@talpanetwork.com` emails.
 
-**Independent Test**: Tutorial leaderboard preview has no profile links; completing onboarding reaches leaderboard; normal leaderboard avatar/name opens profile; profile text remains readable.
+**Independent Test**: Account creation accepts a valid Talpa email and rejects invalid formats/domains.
 
-### Implementation for User Story 3
-
-- [x] T018 [US3] Add `profileLinksEnabled` behavior to leaderboard rendering in `frontend/src/main.jsx`
-- [x] T019 [US3] Disable leaderboard profile links in tutorial preview in `frontend/src/main.jsx`
-- [x] T020 [US3] Make avatar and player name a combined profile link in normal leaderboard in `frontend/src/main.jsx`
-- [x] T021 [US3] Remove top scorer and striker name columns from leaderboard in `frontend/src/main.jsx`
-- [x] T022 [US3] Remove profile-specific Back to leaderboard control in `frontend/src/main.jsx`
-- [x] T023 [US3] Ensure onboarding continue flow routes to leaderboard in `frontend/src/main.jsx`
-- [x] T024 [US3] Improve profile and leaderboard link layout styles in `frontend/src/styles.css`
-- [x] T025 [US3] Improve profile text wrapping and responsive layout styles in `frontend/src/styles.css`
-
-**Checkpoint**: User Story 3 should be independently reviewable after implementation.
+- [x] T011 [US10] Enforce Talpa email validation on account creation/login-upsert paths in `backend/app.py`
+- [x] T012 [US10] Add auth-form validation hints and invalid-email messaging in `frontend/src/main.jsx`
 
 ---
 
-## Phase 6: User Story 4 - Join immediately without prediction prerequisites (Priority: P1)
+## Phase 5: User Story 11 - Admins fully edit quiz questions and answer options (Priority: P1)
 
-**Goal**: Newly created accounts can use the app and appear in the leaderboard even with no predictions.
+**Goal**: Admins can edit quiz question text, answer options, and correct labels without mutating participant predictions.
 
-**Independent Test**: Create a new account, save no predictions, and verify the account appears in the leaderboard with zero points and can navigate normal app views.
+**Independent Test**: Edit quiz text/options/correct answer as admin and confirm prediction entry/scoring reflect overrides while `quiz_predictions` stays unchanged.
 
-### Implementation for User Story 4
-
-- [x] T030 [US4] Remove Netherlands group completion filtering from leaderboard construction in `backend/app.py`
-- [x] T031 [US4] Keep leaderboard completion fields as progress-only metadata in `backend/app.py`
-- [x] T032 [US4] Update leaderboard and onboarding copy so prediction completion is not presented as required in `frontend/src/main.jsx`
-- [x] T033 [US4] Allow continuing from prediction entry without completed Netherlands predictions in `frontend/src/main.jsx`
-- [x] T034 [US4] Verify detected ignore-file patterns for Python and Node artifacts in `.gitignore`
-
-**Checkpoint**: User Story 4 should be independently reviewable after implementation.
+- [x] T013 [US11] Include quiz question and choices in admin label payloads in `backend/app.py`
+- [x] T014 [US11] Accept and audit quiz question/choice overrides in admin quiz label API in `backend/app.py`
+- [x] T015 [US11] Add admin quiz question and choice editing controls in `frontend/src/main.jsx`
+- [x] T016 [US11] Add scrollable/selectable quiz option editor styles in `frontend/src/styles.css`
 
 ---
 
-## Phase 7: User Story 5 - Admins manage scoring labels without changing predictions (Priority: P1)
+## Phase 6: User Story 7 - Admins broadcast messages through the notification bell (Priority: P2)
 
-**Goal**: Admins can inspect and manually adjust scoring labels for match results, quiz answers, scorer/goal events, and player stats without mutating participant predictions.
+**Goal**: Admins send active broadcast messages from a third admin section and users see them in the bell.
 
-**Independent Test**: Log in as an admin, inspect labels, save manual labels, verify label source metadata/audit entries, and confirm non-admin access is denied.
+**Independent Test**: Admin creates a broadcast, another user sees it in the bell, then admin deactivates it.
 
-### Implementation for User Story 5
-
-- [x] T035 [US5] Add DB-backed quiz label overrides and label audit storage in `backend/app.py`
-- [x] T036 [US5] Include label override/audit tables in database backup/status inventory in `backend/app.py`
-- [x] T037 [US5] Apply quiz label overrides when loading World Cup data so quiz scoring uses manual labels in `backend/app.py`
-- [x] T038 [US5] Preserve manual result, event, and player-stat labels from later API-Football sync writes in `backend/app.py`
-- [x] T039 [US5] Add admin-only label inspection API with result, quiz, event, player-stat, source, and audit metadata in `backend/app.py`
-- [x] T040 [US5] Add admin-only label update APIs for result, quiz, goal/event, and player-stat labels in `backend/app.py`
-- [x] T041 [US5] Keep admin label APIs scoped to label tables only, with no writes to participant prediction tables in `backend/app.py`
-- [x] T042 [US5] Add admin label editor UI under the existing admin page in `frontend/src/main.jsx`
-- [x] T043 [US5] Add responsive admin label editor styles in `frontend/src/styles.css`
-
-**Checkpoint**: User Story 5 is independently reviewable through the admin page and admin label APIs.
+- [x] T017 [US7] Add admin broadcast list/create/deactivate APIs in `backend/app.py`
+- [x] T018 [US7] Merge active broadcasts into pool-state notifications in `backend/app.py`
+- [x] T019 [US7] Add admin send-message section and broadcast controls in `frontend/src/main.jsx`
+- [x] T020 [US7] Add broadcast notification/admin message styles in `frontend/src/styles.css`
 
 ---
 
-## Phase 8: Polish & Cross-Cutting Concerns
+## Phase 7: User Story 8 - Show real names subtly on the leaderboard (Priority: P2)
 
-**Purpose**: Final validation and traceability cleanup.
+**Goal**: Leaderboard rows show nickname prominently and derived first/last name as subtle supporting text.
 
-- [x] T026 Run frontend build with `npm run build`
-- [x] T027 Run Python quality checks with `npm run py:check`
-- [x] T028 Run combined validation with `npm run check` if prior checks pass
-- [x] T029 Update completed task checkboxes in `specs/001-wk-hub-fixes/tasks.md`
+**Independent Test**: A row for `jane.doe@talpanetwork.com` with nickname `MVP` shows `MVP` primary and `Jane Doe` secondary.
+
+- [x] T021 [US8] Add derived real-name fields to leaderboard/user payloads in `backend/app.py`
+- [x] T022 [US8] Render subtle derived full name in leaderboard rows in `frontend/src/main.jsx`
+- [x] T023 [US8] Add responsive leaderboard real-name styles in `frontend/src/styles.css`
+
+---
+
+## Phase 8: User Story 9 - Preview profile pictures from the leaderboard (Priority: P3)
+
+**Goal**: Users can hover or focus leaderboard avatars to inspect a larger profile picture without navigating.
+
+**Independent Test**: Hover/focus a leaderboard avatar and confirm a larger preview appears without row layout shift.
+
+- [x] T024 [US9] Add leaderboard avatar preview markup in `frontend/src/main.jsx`
+- [x] T025 [US9] Add hover/focus avatar preview styles in `frontend/src/styles.css`
+
+---
+
+## Phase 9: User Story 12 - Show a wall of shame for missing open predictions (Priority: P2)
+
+**Goal**: Show active users with currently open missing predictions/quizzes for today and tomorrow.
+
+**Independent Test**: User A with missing today/tomorrow actions appears; User B with complete actions does not; archived users are excluded.
+
+- [x] T026 [US12] Add wall-of-shame payload using today/tomorrow missing-action helpers in `backend/app.py`
+- [x] T027 [US12] Render wall-of-shame section in leaderboard view in `frontend/src/main.jsx`
+- [x] T028 [US12] Add wall-of-shame responsive styles in `frontend/src/styles.css`
+
+---
+
+## Phase 10: Polish and Validation
+
+**Purpose**: Validate the expanded implementation and update traceability.
+
+- [x] T029 Run frontend build with `npm run build`
+- [ ] T030 Run Python quality checks with `npm run py:check`
+- [ ] T031 Run combined validation with `npm run check` if prior checks pass
+- [x] T032 Update completed task checkboxes in `specs/001-wk-hub-fixes/tasks.md`
 
 ---
 
 ## Dependencies & Execution Order
 
-### Phase Dependencies
-
 - **Setup (Phase 1)**: No dependencies.
-- **Foundational (Phase 2)**: Depends on Setup completion and blocks all stories.
-- **User Story 1 (Phase 3)**: Depends on Foundational; MVP privacy story.
-- **User Story 2 (Phase 4)**: Depends on Foundational; can be worked after or alongside US1 frontend review.
-- **User Story 3 (Phase 5)**: Depends on Foundational; can be worked after or alongside US2 because it is mostly UI cleanup.
-- **User Story 5 (Phase 7)**: Depends on admin auth/account management and existing API-Football label tables.
-- **Polish (Phase 8)**: Depends on all implemented stories.
+- **Foundational (Phase 2)**: Blocks all user stories.
+- **US6, US10, US11**: Highest priority after foundation.
+- **US7 and US12**: Depend on notification/missing-action foundation.
+- **US8 and US9**: Depend on leaderboard payload/rendering surfaces and can be implemented after backend identity helpers.
+- **Polish**: Runs after all implementation phases.
 
-### User Story Dependencies
+## Parallel Opportunities
 
-- **US1**: Required for privacy correctness and MVP.
-- **US2**: Independent of US3, but uses shared tournament lock metadata from foundation.
-- **US3**: Independent of US2, but uses leaderboard/profile surfaces touched by US1.
-- **US4**: Depends on leaderboard construction and onboarding surfaces; can be validated independently by creating or simulating a user with no predictions.
-- **US5**: Depends on admin access control and existing scoring-label tables; label updates are independent of participant prediction save flows.
-
-### Parallel Opportunities
-
-- T006-T009 are backend-only and can be reviewed separately from T010-T011 frontend privacy display.
-- T012-T017 are scorer picker tasks concentrated in `frontend/src/main.jsx` and `frontend/src/styles.css`; avoid concurrent edits to the same file.
-- T024-T025 are CSS-only after JSX structure settles.
+- T012 can be reviewed separately from backend email validation once T011 defines the server error contract.
+- T015-T016 are frontend-only after T013-T014 define payload shape.
+- T022-T025 are CSS/JS leaderboard enhancements and can be reviewed together.
+- T027-T028 are frontend-only after T026 adds the payload.
 
 ## Implementation Strategy
 
-### MVP First
-
-1. Complete T001-T005.
-2. Complete US1 privacy tasks T006-T011.
-3. Validate backend data masking and match-lock visibility manually.
-
-### Incremental Delivery
-
-1. Add searchable scorer picker (US2).
-2. Add leaderboard/tutorial/profile cleanup (US3).
-3. Add immediate account-created leaderboard inclusion (US4).
-4. Add admin scoring-label inspection and manual override flows (US5).
-5. Run automated checks and manual scenarios.
+1. Complete backend foundations T003-T006.
+2. Complete P1 flows T007-T016.
+3. Add admin broadcasts and accountability surfaces T017-T028.
+4. Run validation T029-T031 and mark tasks complete.

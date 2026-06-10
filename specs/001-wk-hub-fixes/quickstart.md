@@ -94,3 +94,52 @@ npm run check
    - Save manual goal/scorer labels for a match.
    - Confirm top scorer and striker points use the updated labels.
    - Confirm `quiz_predictions` and `top_scorer_predictions` are unchanged.
+
+13. Actionable notification clarity:
+   - Leave one unlocked match prediction empty and one unlocked quiz empty.
+   - Open the notification bell.
+   - Confirm each missing item identifies the match and action type.
+   - Click the missing quiz item.
+   - Confirm the predictions view opens with the relevant match/quiz visible and ready to fill in.
+   - Complete the quiz, refresh pool state, and confirm the notification disappears.
+
+14. Admin broadcast notifications:
+   - Log in as an admin.
+   - Open the admin page and confirm a third send-message section exists.
+   - Send a broadcast title and body.
+   - Log in as another active user and confirm the message appears in the notification bell.
+   - Deactivate or expire the broadcast and confirm it no longer appears after refresh.
+   - Confirm a non-admin cannot access broadcast management APIs.
+
+15. Leaderboard nickname and derived real name:
+   - Create or inspect a user with email `jane.doe@talpanetwork.com` and nickname `MVP`.
+   - Confirm the leaderboard shows `MVP` prominently.
+   - Confirm `Jane Doe` appears smaller and lighter as supporting text.
+   - Check the row on mobile width for readable wrapping and no overlap.
+
+16. Leaderboard avatar hover preview:
+   - View the leaderboard with users who have profile images.
+   - Hover over a profile avatar and confirm a larger preview appears without opening the profile.
+   - Keyboard-focus the avatar/name link and confirm the preview is also available.
+   - Confirm rows do not resize or shift when the preview appears.
+
+17. Talpa email validation:
+   - Attempt account creation with `jane.doe@talpanetwork.com` and confirm it passes normal validation.
+   - Attempt account creation with `jane@talpanetwork.com`, `jane.doe@gmail.com`, `jane+pool.doe@talpanetwork.com`, and `jane.@talpanetwork.com`.
+   - Confirm invalid emails are rejected server-side with a clear message.
+
+18. Admin quiz question and option editing:
+   - Open the admin labels page as an admin.
+   - Select a match with a quiz and confirm answer options are scrollable/selectable when needed.
+   - Edit the quiz question text and answer options.
+   - Save, then open prediction entry and confirm the corrected question/options are shown.
+   - Set the correct answer and confirm scoring uses the updated label.
+   - Confirm `quiz_predictions` rows are unchanged.
+
+19. Wall of shame:
+   - Leave unlocked predictions/quizzes missing for User A.
+   - Complete all currently open predictions/quizzes for User B.
+   - Confirm User A appears in the wall of shame with missing-action context.
+   - Confirm User B does not appear.
+   - Lock or simulate locking a match and confirm that locked missing item no longer counts.
+   - Archive a user and confirm they are excluded.
