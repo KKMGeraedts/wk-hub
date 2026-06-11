@@ -16,6 +16,7 @@ Rules:
 - These endpoints do not expose provider request errors.
 - If a due match cannot be retrieved or linked, participant views show blank or pending result state rather than incorrect provider details.
 - Participant prediction rows are never changed by provider sync, manual overrides, or computed scoring updates.
+- Participant payloads may include prize-pot participation state and tournament-pick display metadata; these reads must not trigger provider calls.
 
 ## Result Sync Contract
 
@@ -153,6 +154,165 @@ Rules:
 - Incomplete categories remain pending or absent until enough facts exist.
 - Leaderboard and profile totals must agree because they read the same stored computed rows.
 
+## Account Creation Contract
+
+### Login / implicit account creation
+
+`POST /api/auth/login`
+
+Accepted body:
+
+```json
+{
+  "email": "firstname.lastname@talpastudios.com",
+  "password": "..."
+}
+```
+
+Rules:
+
+- Backend validation accepts new accounts only when the normalized email matches `firstname.lastname@talpastudios.com`.
+- Frontend validation, placeholders, and helper copy use the same Talpa Studios convention.
+- Email normalization trims whitespace and compares case-insensitively.
+- Invalid domains and invalid local-part shapes return a clear validation error.
+- Existing archived-account behavior remains unchanged.
+- Admin defaults should be reviewed when domain constants change.
+
+## Prize Pot Contract
+
+### Pool payload
+
+`GET /api/pool`
+
+Additional current-user shape:
+
+```json
+{
+  "prize_pot": {
+    "status": "undecided",
+    "contribution_amount": 10,
+    "currency": "EUR",
+    "organizer_name": "Olivier Thijsen",
+    "payment_in_app": false
+  },
+  "notifications": [
+    {
+      "type": "prize_pot",
+      "title": "Prize pot",
+      "body": "Join the optional EUR 10 prize pot. The final prize amount is still to be determined. Olivier Thijsen organizes payment outside the app.",
+      "actions": [
+        {"id": "join", "label": "Join"},
+        {"id": "decline", "label": "Decline"}
+      ]
+    }
+  ]
+}
+```
+
+Rules:
+
+- The `prize_pot` notification is included only when the current participant status is `undecided`.
+- Participants remain free to join or decline.
+- The app does not process payment, payment confirmation, or payout allocation.
+
+### Save prize-pot choice
+
+`POST /api/prize-pot/participation`
+
+Accepted body:
+
+```json
+{
+  "status": "joined"
+}
+```
+
+Rules:
+
+- `status` must be `joined` or `declined`.
+- The authenticated user can save only their own choice.
+- Saving a choice updates persistent participation state and suppresses the future prompt.
+- Response includes the updated status.
+
+Example response:
+
+```json
+{
+  "ok": true,
+  "prize_pot": {
+    "status": "joined",
+    "contribution_amount": 10,
+    "currency": "EUR",
+    "organizer_name": "Olivier Thijsen",
+    "payment_in_app": false
+  }
+}
+```
+
+### Profile payload
+
+`GET /api/profiles/<user_id>/predictions`
+
+Additional profile shape:
+
+```json
+{
+  "user_id": 12,
+  "name": "First Last",
+  "prize_pot_status": "joined"
+}
+```
+
+Rules:
+
+- Profile views show whether the participant joined, declined, or has not answered.
+- Payment status is not shown because it is outside app scope.
+
+## Tournament Pick UI Contract
+
+Affected surfaces:
+
+- Prediction entry view
+- Prediction adjust view
+- Profile pick panel
+- Leaderboard/profile summaries where tournament picks are shown
+
+View-mode rules:
+
+- The champion pick displays team name plus flag.
+- The top-scorer pick displays full player name plus country flag/country when metadata exists.
+- Each striker pick displays full player name plus country flag/country when metadata exists.
+- If player metadata is missing, show the stored plain name without an incorrect flag.
+- Clicking the component in view mode does not change predictions.
+
+Edit-mode rules:
+
+- An explicit edit button switches the component into editable controls.
+- Edit mode is available only while tournament picks are unlocked.
+- Existing lock validation in `POST /api/predictions` remains authoritative.
+- Saving uses the existing prediction save contract with `winner_team_id`, `top_scorer_name`, and `striker_names`.
+
+Example tournament pick summary:
+
+```json
+{
+  "winner_pick": "NED",
+  "winner_pick_name": "Netherlands",
+  "winner_pick_flag": "🇳🇱",
+  "top_scorer_pick": {
+    "name": "Cody Gakpo",
+    "country": "Netherlands",
+    "flag": "🇳🇱"
+  },
+  "striker_picks": [
+    {"name": "Kylian Mbappe", "country": "France", "flag": "🇫🇷"},
+    {"name": "Harry Kane", "country": "England", "flag": "🏴"}
+  ],
+  "tournament_picks_locked": false,
+  "tournament_picks_editable": true
+}
+```
+
 ## Validation Contract
 
 Implementation must support the following checks:
@@ -163,3 +323,7 @@ Implementation must support the following checks:
 - Manual override wins over provider update.
 - Manual override reversal restores provider-backed fact.
 - Stored computed points update after fact changes and are read by both leaderboard and profile flows.
+- Talpa Studios account validation accepts only the requested email convention for new accounts.
+- Undecided participants receive and can answer the prize-pot notification.
+- Saved prize-pot participation appears on profiles.
+- Tournament pick view mode is read-only and shows flags/country context where available.

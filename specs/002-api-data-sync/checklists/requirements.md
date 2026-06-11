@@ -32,3 +32,4 @@
 ## Notes
 
 - Created from user-provided preferences on 2026-06-10.
+- Rechecked after 2026-06-11 scope expansion for Talpa Studios account creation, prize-pot participation choice, and tournament pick display/edit behavior.

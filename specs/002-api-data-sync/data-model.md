@@ -234,6 +234,145 @@ Validation:
 - Normal participants must not receive provider failure details.
 - Duplicate active notifications should be avoided for the same target and failure type.
 
+### Talpa Studios Account
+
+Represents a participant account created through login.
+
+Current storage: `users`
+
+Fields:
+
+- `id`
+- `name`
+- `email`
+- `password_hash`
+- `profile_image_url`
+- `is_admin`
+- `archived_at`
+- `created_at`
+
+Validation:
+
+- Newly created participant accounts must use normalized emails matching `firstname.lastname@talpastudios.com`.
+- Email lookup remains case-insensitive and trims whitespace.
+- The local part must contain exactly one first-name segment and one last-name segment separated by a dot.
+- Frontend validation copy and backend validation copy must use the same convention.
+- Existing archived-account and admin-account rules still apply.
+
+### Prize Pot Participation
+
+Represents a participant's answer to the optional prize-pot question.
+
+Recommended storage: extend `users` or add a focused `prize_pot_participation` table.
+
+Fields:
+
+- `user_id`
+- `status`: `undecided`, `joined`, or `declined`
+- `answered_at`
+- `updated_at`
+
+Relationships:
+
+- References `users.id`.
+- Profile payloads expose the current status for the profiled user.
+- `/api/pool` exposes the current user's status and an actionable notification when status is `undecided`.
+
+Validation:
+
+- New accounts default to `undecided`.
+- Saving `joined` or `declined` suppresses future prize-pot prompts.
+- The app stores only participation choice, not payment state.
+- Payment copy should mention EUR 10, prize amount still to be determined, and Olivier Thijsen as organizer/payee outside the app.
+
+State transitions:
+
+1. `undecided`
+2. `joined` or `declined`
+
+Future admin changes or user edits can be added later, but are outside this scope.
+
+### Prize Pot Notification
+
+Represents the participant-facing notification item asking for prize-pot participation.
+
+Recommended implementation:
+
+- Generate dynamically in `build_notifications` when the authenticated user is undecided.
+- Include actions for `join` and `decline`.
+- Save through a small authenticated endpoint rather than through generic broadcast notification handling.
+
+Fields:
+
+- `type`: `prize_pot`
+- `title`
+- `body`
+- `actions`: `join`, `decline`
+- `contribution_amount`: `10`
+- `currency`: `EUR`
+- `organizer_name`: `Olivier Thijsen`
+
+Validation:
+
+- Only the current authenticated user can answer their own prompt.
+- A saved answer updates persistent prize-pot participation state.
+- The prompt should reappear on future visits while the state remains `undecided`.
+
+### Tournament Pick Summary
+
+Represents the view-mode display of champion, top-scorer, and striker selections.
+
+Current storage:
+
+- `winner_predictions`
+- `top_scorer_predictions`
+- Static tournament teams and team flags
+- Static/synced team profile squad data where available
+
+Fields:
+
+- `winner_team_id`
+- `winner_team_name`
+- `winner_team_flag`
+- `top_scorer_name`
+- `top_scorer_country`
+- `top_scorer_country_flag`
+- `strikers`: ordered list of player display objects
+- `editable`
+- `locked`
+
+Validation:
+
+- View mode is read-only; clicks do not change predictions.
+- Edit mode is available only through an explicit edit button and only while tournament picks are not locked.
+- Champion view must include the team flag when a champion is selected.
+- Top-scorer and striker views show full name and country flag/country when metadata can be resolved.
+- Plain-name fallback must remain valid for existing predictions and unresolved players.
+
+### Player Pick Metadata
+
+Optional display context for top-scorer and striker picks.
+
+Recommended source:
+
+- Resolve against static/synced team profile squad data first.
+- Preserve the stored plain prediction name as the source of truth when metadata is missing.
+
+Fields:
+
+- `name`
+- `normalized_name`
+- `team_id`
+- `team_name`
+- `country_name`
+- `country_flag`
+
+Validation:
+
+- Name matching should tolerate casing and whitespace differences.
+- If multiple players share a normalized name, include country/team context when available; otherwise fall back to the stored name without assigning an incorrect flag.
+- Existing prediction saves may continue storing plain names unless implementation safely adds optional player IDs.
+
 ## Source Precedence
 
 For any scoring fact:
@@ -251,3 +390,10 @@ Provider updates may update provider-backed facts and raw history, but they must
 - Recalculate affected computed points after manual override save or reversal for a done match.
 - Do not expose scoring changes from manual labels before a match is done.
 - Do not mutate `match_predictions`, `quiz_predictions`, `leeuwtje_predictions`, `winner_predictions`, or `top_scorer_predictions`.
+
+## Participant Notification Rules
+
+- Include a prize-pot notification for authenticated participants whose prize-pot status is `undecided`.
+- Do not include the prize-pot notification after the user saves `joined` or `declined`.
+- Profile payloads show saved prize-pot status for the profiled participant.
+- Notification answering must not change predictions, scoring facts, or payment state.

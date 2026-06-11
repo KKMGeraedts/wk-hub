@@ -164,7 +164,7 @@ const NEWS_ARTICLES = [
 
 const PROFILE_IMAGE_MAX_DIMENSION = 512;
 const PROFILE_IMAGE_MAX_UPLOAD_BYTES = 750 * 1024;
-const TALPA_EMAIL_PATTERN = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*@talpanetwork\.com$/i;
+const TALPA_EMAIL_PATTERN = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*@talpastudios\.com$/i;
 
 function normalizeRoute(pathname) {
   const path = pathname.replace(/\/+$/, "");
@@ -545,6 +545,7 @@ function topScorerOptions(data) {
           label: name,
           teamId: team.id,
           teamName: team.name,
+          country: team.name,
           preferred: isAttacker ? 0 : 1,
         };
       })
@@ -559,11 +560,45 @@ function topScorerOptions(data) {
         label: player.label,
         teamId: player.teamId,
         teamName: player.teamName,
+        country: player.country ?? player.teamName,
         preferred: player.preferred,
       });
     }
   }
   return options;
+}
+
+function normalizedPlayerPickName(value) {
+  return String(value ?? "")
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function playerPickDetails(name, options) {
+  const normalized = normalizedPlayerPickName(name);
+  if (!normalized) return null;
+  const option = options.find(
+    (candidate) => normalizedPlayerPickName(candidate.name) === normalized,
+  );
+  return {
+    name: option?.name ?? String(name).trim(),
+    teamId: option?.teamId ?? "",
+    country: option?.country ?? option?.teamName ?? "",
+  };
+}
+
+function PlayerPickDisplay({ pick, options, fallback = "Niet gekozen" }) {
+  const details = playerPickDetails(pick, options);
+  if (!details) return <span>{fallback}</span>;
+  return (
+    <span className="player-pick-display">
+      {details.teamId && <TeamFlag id={details.teamId} />}
+      <span>
+        <strong>{details.name}</strong>
+        {details.country && <em>{details.country}</em>}
+      </span>
+    </span>
+  );
 }
 
 const QUIZ_TEAM_ALIASES = {
@@ -849,6 +884,67 @@ function PlayerPickSelects({
           idPrefix={idPrefix}
         />
       ))}
+    </div>
+  );
+}
+
+function TournamentPickSummary({
+  winnerTeam,
+  topScorer,
+  strikers,
+  options,
+  locked,
+  editing,
+  onEdit,
+}) {
+  const filledStrikers = strikers.filter(Boolean);
+  return (
+    <div className="tournament-pick-summary">
+      <div className="tournament-pick-summary-header">
+        <span className="game-kicker">View mode</span>
+        {!locked && !editing && (
+          <button className="text-button" type="button" onClick={onEdit}>
+            Edit
+          </button>
+        )}
+      </div>
+      <div className="tournament-pick-summary-grid">
+        <div className="tournament-pick-summary-item">
+          <strong>Kampioen</strong>
+          <span className="winner-team-title">
+            {winnerTeam ? (
+              <>
+                <TeamFlag id={winnerTeam.id} /> {winnerTeam.name}
+              </>
+            ) : (
+              "Niet gekozen"
+            )}
+          </span>
+        </div>
+        <div className="tournament-pick-summary-item">
+          <strong>Topscorer</strong>
+          <PlayerPickDisplay pick={topScorer} options={options} />
+        </div>
+        <div className="tournament-pick-summary-item is-wide">
+          <strong>Spitsen</strong>
+          {filledStrikers.length ? (
+            <div className="tournament-striker-summary-list">
+              {strikers.map((pick, index) => (
+                <span key={`${pick || "empty"}-${index}`}>
+                  <em>{index + 1}</em>
+                  <PlayerPickDisplay
+                    pick={pick}
+                    options={options}
+                    fallback="Niet gekozen"
+                  />
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span>Niet gekozen</span>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1889,7 +1985,7 @@ function LoginPanel({ onLogin }) {
       }
 
       if (email && !TALPA_EMAIL_PATTERN.test(email.trim())) {
-        throw new Error("Use firstname.lastname@talpanetwork.com.");
+        throw new Error("Use firstname.lastname@talpastudios.com.");
       }
 
       const result = await apiJson("/api/auth/login", {
@@ -1926,7 +2022,7 @@ function LoginPanel({ onLogin }) {
               onChange={(event) => setResetEmail(event.target.value)}
               inputMode="email"
               autoComplete="email"
-              placeholder="firstname.lastname@talpanetwork.com"
+              placeholder="firstname.lastname@talpastudios.com"
             />
           </label>
         ) : (
@@ -1938,10 +2034,10 @@ function LoginPanel({ onLogin }) {
                 onChange={(event) => setEmail(event.target.value)}
                 inputMode="email"
                 autoComplete="email"
-                placeholder="firstname.lastname@talpanetwork.com"
+                placeholder="firstname.lastname@talpastudios.com"
               />
               <span className="field-help">
-                Use firstname.lastname@talpanetwork.com.
+                Use firstname.lastname@talpastudios.com.
               </span>
             </label>
             <label>
@@ -4118,11 +4214,14 @@ function PlayerProfile({
   isSelf,
   viewerIsAdmin,
   badgeCatalog,
+  data,
   tournamentPicksVisible,
   onUpdateName,
   onUpdateImage,
   onAdmin,
 }) {
+  const playerOptions = useMemo(() => topScorerOptions(data), [data]);
+
   if (!player) {
     return (
       <article className="panel">
@@ -4147,6 +4246,13 @@ function PlayerProfile({
   const canViewPredictions = true;
   const canViewTournamentPicks = isSelf || tournamentPicksVisible;
   const rankLabel = rank ? `Rank #${rank}` : "Nog niet gerankt";
+  const teams = new Map((data?.teams ?? []).map((team) => [team.id, team]));
+  const prizePotLabel =
+    player.prize_pot_status === "joined"
+      ? "Doet mee aan de prijspot"
+      : player.prize_pot_status === "declined"
+        ? "Doet niet mee aan de prijspot"
+        : "Prijspot nog niet gekozen";
 
   function pickClassName(impossible) {
     return impossible ? "profile-pick-row is-impossible" : "profile-pick-row";
@@ -4181,6 +4287,9 @@ function PlayerProfile({
             {player.email && (
               <span className="profile-email">{player.email}</span>
             )}
+            <span className={`profile-prize-pot ${player.prize_pot_status ?? "undecided"}`}>
+              {prizePotLabel}
+            </span>
             {viewerIsAdmin && player.is_admin && (
               <button className="text-button profile-admin-link" type="button" onClick={onAdmin}>
                 Admin
@@ -4223,14 +4332,28 @@ function PlayerProfile({
               <div className={pickClassName(player.winner_impossible)}>
                 <div>
                   <strong>WK winnaar</strong>
-                  <span>{player.winner_pick_name ?? "Niet gekozen"}</span>
+                  <span className="winner-team-title">
+                    {player.winner_pick ? (
+                      <>
+                        <TeamFlag id={player.winner_pick} />{" "}
+                        {teams.get(player.winner_pick)?.name ??
+                          player.winner_pick_name ??
+                          "Niet gekozen"}
+                      </>
+                    ) : (
+                      "Niet gekozen"
+                    )}
+                  </span>
                 </div>
                 <b>{pointsLabel(player.winner_points)}</b>
               </div>
               <div className={pickClassName(player.top_scorer_impossible)}>
                 <div>
                   <strong>Topscorer</strong>
-                  <span>{player.top_scorer_pick ?? "Niet gekozen"}</span>
+                  <PlayerPickDisplay
+                    pick={player.top_scorer_pick}
+                    options={playerOptions}
+                  />
                 </div>
                 <b>{pointsLabel(player.top_scorer_points)}</b>
               </div>
@@ -4246,7 +4369,7 @@ function PlayerProfile({
                   >
                     <div>
                       <strong>{`Spits ${index + 1}`}</strong>
-                      <span>{pick.name}</span>
+                      <PlayerPickDisplay pick={pick.name} options={playerOptions} />
                     </div>
                     <b>{pointsLabel(pick.points)}</b>
                   </div>
@@ -4432,6 +4555,7 @@ function PredictionPanel({
   const [topScorer, setTopScorer] = useState(() => topScorerPickFromPool(pool));
   const [strikers, setStrikers] = useState(() => strikerPicksFromPool(pool));
   const [tournamentPicksDirty, setTournamentPicksDirty] = useState(false);
+  const [tournamentPicksEditing, setTournamentPicksEditing] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -4485,6 +4609,10 @@ function PredictionPanel({
     pool.top_scorer_picks,
     tournamentPicksDirty,
   ]);
+
+  useEffect(() => {
+    if (lockedWinner) setTournamentPicksEditing(false);
+  }, [lockedWinner]);
 
   function hasPrediction(match) {
     return scoreComplete(draft[match.id]);
@@ -4600,6 +4728,7 @@ function PredictionPanel({
       onPoolUpdate(updated);
       setWinnerDirty(false);
       setTournamentPicksDirty(false);
+      setTournamentPicksEditing(false);
       if (closeEditor) setEditingMatchId("");
       return updated;
     } catch (err) {
@@ -4669,42 +4798,54 @@ function PredictionPanel({
                 tournament starts.
               </p>
             </div>
-            <div className="tournament-pick-controls">
-              <label className="winner-select winner-select-inline">
-                Kampioen
-                <select
-                  value={winner}
-                  onChange={(event) => chooseWinner(event.target.value)}
-                  disabled={lockedWinner}
-                >
-                  <option value="">Kies kampioen</option>
-                  {data.teams
-                    .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {teamOptionLabel(team)}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <PlayerSearchSelect
-                label="Topscorer"
-                value={topScorer}
+            {tournamentPicksEditing ? (
+              <div className="tournament-pick-controls">
+                <label className="winner-select winner-select-inline">
+                  Kampioen
+                  <select
+                    value={winner}
+                    onChange={(event) => chooseWinner(event.target.value)}
+                    disabled={lockedWinner}
+                  >
+                    <option value="">Kies kampioen</option>
+                    {data.teams
+                      .slice()
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {teamOptionLabel(team)}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <PlayerSearchSelect
+                  label="Topscorer"
+                  value={topScorer}
+                  options={topScorerSuggestions}
+                  locked={lockedWinner}
+                  onChange={chooseTopScorer}
+                  idPrefix="top-scorer"
+                />
+                <PlayerPickSelects
+                  label="Spits"
+                  picks={strikers}
+                  options={topScorerSuggestions}
+                  locked={lockedWinner}
+                  onChange={chooseStriker}
+                  idPrefix="striker"
+                />
+              </div>
+            ) : (
+              <TournamentPickSummary
+                winnerTeam={winnerTeam}
+                topScorer={topScorer}
+                strikers={strikers}
                 options={topScorerSuggestions}
                 locked={lockedWinner}
-                onChange={chooseTopScorer}
-                idPrefix="top-scorer"
+                editing={tournamentPicksEditing}
+                onEdit={() => setTournamentPicksEditing(true)}
               />
-              <PlayerPickSelects
-                label="Spits"
-                picks={strikers}
-                options={topScorerSuggestions}
-                locked={lockedWinner}
-                onChange={chooseStriker}
-                idPrefix="striker"
-              />
-            </div>
+            )}
           </section>
 
           <section
@@ -4917,6 +5058,7 @@ function AdjustPredictionsPanel({
   const [winner, setWinner] = useState(pool.winner_pick ?? "");
   const [topScorer, setTopScorer] = useState(() => topScorerPickFromPool(pool));
   const [strikers, setStrikers] = useState(() => strikerPicksFromPool(pool));
+  const [tournamentPicksEditing, setTournamentPicksEditing] = useState(false);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [initialized, setInitialized] = useState(false);
@@ -4942,6 +5084,10 @@ function AdjustPredictionsPanel({
   const topScorerSuggestions = useMemo(() => topScorerOptions(data), [data]);
   const leeuwtjeTotal = leeuwtjesTotal(pool);
   const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - leeuwtjeMatchIds.size);
+
+  useEffect(() => {
+    if (lockedWinner) setTournamentPicksEditing(false);
+  }, [lockedWinner]);
 
   useEffect(() => {
     if (!focusedMatchId) return;
@@ -5060,6 +5206,7 @@ function AdjustPredictionsPanel({
       }
       setDirty(false);
       setPendingScoreMatchId("");
+      setTournamentPicksEditing(false);
       onPoolUpdate(updated);
       if (closeEditor) setEditingMatchId("");
       return updated;
@@ -5154,42 +5301,54 @@ function AdjustPredictionsPanel({
                 hour before the tournament opener.
               </p>
             </div>
-            <div className="tournament-pick-controls">
-              <label className="winner-select winner-select-inline">
-                Kampioen
-                <select
-                  value={winner}
-                  onChange={(event) => chooseWinner(event.target.value)}
-                  disabled={lockedWinner}
-                >
-                  <option value="">Kies kampioen</option>
-                  {data.teams
-                    .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {teamOptionLabel(team)}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <PlayerSearchSelect
-                label="Topscorer"
-                value={topScorer}
+            {tournamentPicksEditing ? (
+              <div className="tournament-pick-controls">
+                <label className="winner-select winner-select-inline">
+                  Kampioen
+                  <select
+                    value={winner}
+                    onChange={(event) => chooseWinner(event.target.value)}
+                    disabled={lockedWinner}
+                  >
+                    <option value="">Kies kampioen</option>
+                    {data.teams
+                      .slice()
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((team) => (
+                        <option key={team.id} value={team.id}>
+                          {teamOptionLabel(team)}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <PlayerSearchSelect
+                  label="Topscorer"
+                  value={topScorer}
+                  options={topScorerSuggestions}
+                  locked={lockedWinner}
+                  onChange={chooseTopScorer}
+                  idPrefix="adjust-top-scorer"
+                />
+                <PlayerPickSelects
+                  label="Spits"
+                  picks={strikers}
+                  options={topScorerSuggestions}
+                  locked={lockedWinner}
+                  onChange={chooseStriker}
+                  idPrefix="adjust-striker"
+                />
+              </div>
+            ) : (
+              <TournamentPickSummary
+                winnerTeam={winnerTeam}
+                topScorer={topScorer}
+                strikers={strikers}
                 options={topScorerSuggestions}
                 locked={lockedWinner}
-                onChange={chooseTopScorer}
-                idPrefix="adjust-top-scorer"
+                editing={tournamentPicksEditing}
+                onEdit={() => setTournamentPicksEditing(true)}
               />
-              <PlayerPickSelects
-                label="Spits"
-                picks={strikers}
-                options={topScorerSuggestions}
-                locked={lockedWinner}
-                onChange={chooseStriker}
-                idPrefix="adjust-striker"
-              />
-            </div>
+            )}
             <LockPill lock={{ locked: lockedWinner }} />
           </section>
 
@@ -5389,6 +5548,25 @@ function NotificationBell({
                     ))}
                   </div>
                 ) : null}
+                {notification.actions?.length ? (
+                  <div className="notification-actions is-inline">
+                    {notification.actions.map((action) => (
+                      <button
+                        key={`${notification.type}-${action.id}`}
+                        className="notification-action"
+                        type="button"
+                        onClick={() =>
+                          onNotificationAction?.({
+                            notification_type: notification.type,
+                            action: action.id,
+                          })
+                        }
+                      >
+                        <span>{action.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
               </article>
             ))
           ) : (
@@ -5417,6 +5595,8 @@ function fallbackProfile(pool) {
     user_id: user.id,
     name: user.name,
     email: user.email,
+    prize_pot_status: user.prize_pot_status ?? "undecided",
+    prize_pot: user.prize_pot,
     points: 0,
     precision: 0,
     shooting: 0,
@@ -5492,6 +5672,37 @@ function App() {
       kind: item?.target_kind ?? item?.kind ?? "prediction",
     });
     navigateToView(item?.target_view === "pool" ? "pool" : "adjust");
+  }
+
+  async function handleNotificationAction(item) {
+    if (item?.notification_type === "prize_pot") {
+      const updated = await apiJson("/api/prize-pot/participation", {
+        method: "POST",
+        body: JSON.stringify({ status: item.action }),
+      });
+      if (updated.user) {
+        setPool((current) => ({
+          ...current,
+          me: updated.user,
+          prize_pot: updated.prize_pot,
+          notifications: (current?.notifications ?? []).filter(
+            (notification) => notification.type !== "prize_pot",
+          ),
+          leaderboard: (current?.leaderboard ?? []).map((row) =>
+            row.user_id === updated.user.id
+              ? {
+                  ...row,
+                  prize_pot_status: updated.user.prize_pot_status,
+                  prize_pot: updated.user.prize_pot,
+                }
+              : row,
+          ),
+        }));
+      }
+      setNotificationsOpen(false);
+      return;
+    }
+    navigateToPredictionTarget(item);
   }
 
   function navigateToProfile(userId) {
@@ -5723,7 +5934,7 @@ function App() {
             open={notificationsOpen}
             onToggle={() => setNotificationsOpen((current) => !current)}
             onPredictions={() => navigateToView("adjust")}
-            onNotificationAction={navigateToPredictionTarget}
+            onNotificationAction={handleNotificationAction}
           />
           <button
             className="my-predictions-button"
@@ -5912,6 +6123,7 @@ function App() {
               isSelf={selectedProfile?.user_id === pool.me?.id}
               viewerIsAdmin={Boolean(pool.me?.is_admin)}
               badgeCatalog={pool.badge_catalog ?? []}
+              data={data}
               tournamentPicksVisible={tournamentPicksRevealed(pool)}
               onUpdateName={updateUserName}
               onUpdateImage={updateUserImage}

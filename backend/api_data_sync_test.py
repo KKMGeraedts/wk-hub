@@ -59,6 +59,85 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
     def test_timedelta_import_available_for_sync_windows(self) -> None:
         self.assertEqual(timedelta(minutes=15).total_seconds(), 900)
 
+    def test_talpa_studios_email_validation_for_new_accounts(self) -> None:
+        self.assertEqual(
+            wk_app.validate_talpa_account_email(" First.Last@TalpaStudios.com "),
+            "first.last@talpastudios.com",
+        )
+
+        with self.assertRaises(ValueError):
+            wk_app.validate_talpa_account_email("first.last@talpanetwork.com")
+        with self.assertRaises(ValueError):
+            wk_app.validate_talpa_account_email("first.middle.last@talpastudios.com")
+
+    def test_login_creates_only_talpa_studios_accounts(self) -> None:
+        def scenario(_conn):
+            client = wk_app.app.test_client()
+            invalid = client.post(
+                "/api/auth/login",
+                json={
+                    "email": "first.last@talpanetwork.com",
+                    "password": "valid-password",
+                },
+            )
+            valid = client.post(
+                "/api/auth/login",
+                json={
+                    "email": " First.Last@TalpaStudios.com ",
+                    "password": "valid-password",
+                },
+            )
+            with wk_app.get_db() as check_conn:
+                row = wk_app.execute(
+                    check_conn,
+                    """
+                    SELECT email, prize_pot_status
+                    FROM users
+                    WHERE LOWER(TRIM(email)) = ?
+                    """,
+                    ("first.last@talpastudios.com",),
+                ).fetchone()
+            return invalid, valid, row
+
+        invalid_response, valid_response, row = self.run_with_temp_db(scenario)
+
+        self.assertEqual(invalid_response.status_code, 400)
+        self.assertEqual(valid_response.status_code, 200)
+        self.assertIsNotNone(row)
+        self.assertEqual(row["email"], "first.last@talpastudios.com")
+        self.assertEqual(row["prize_pot_status"], wk_app.PRIZE_POT_UNDECIDED)
+
+    def test_prize_pot_participation_endpoint_updates_current_user(self) -> None:
+        def scenario(_conn):
+            client = wk_app.app.test_client()
+            login_response = client.post(
+                "/api/auth/login",
+                json={
+                    "email": "pool.player@talpastudios.com",
+                    "password": "valid-password",
+                },
+            )
+            update_response = client.post(
+                "/api/prize-pot/participation",
+                json={"status": wk_app.PRIZE_POT_JOINED},
+            )
+            with wk_app.get_db() as check_conn:
+                row = wk_app.execute(
+                    check_conn,
+                    "SELECT prize_pot_status FROM users WHERE email = ?",
+                    ("pool.player@talpastudios.com",),
+                ).fetchone()
+            return login_response, update_response, row
+
+        login_response, update_response, row = self.run_with_temp_db(scenario)
+
+        self.assertEqual(login_response.status_code, 200)
+        self.assertEqual(update_response.status_code, 200)
+        payload = update_response.get_json()
+        self.assertEqual(payload["prize_pot"]["status"], wk_app.PRIZE_POT_JOINED)
+        self.assertEqual(row["prize_pot_status"], wk_app.PRIZE_POT_JOINED)
+        self.assertEqual(wk_app.prize_pot_notification(wk_app.PRIZE_POT_JOINED), [])
+
     def test_first_post_match_attempt_is_due_after_first_window(self) -> None:
         kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
         match = make_match("m001", kickoff)

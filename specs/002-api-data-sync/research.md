@@ -81,3 +81,50 @@
 
 - Keep current app daily request cap as a primary scheduling control: rejected because schedule discipline should determine when requests happen.
 - Admin-adjustable request limits: rejected as unnecessary for the requested behavior.
+
+## Decision: Enforce Talpa Studios account emails as the account boundary
+
+**Rationale**: The user explicitly requested account creation for Talpa Studios participants and an exact email convention. The existing login flow already creates missing accounts and validates a first.last Talpa email format, so the least risky change is to update that validation to `firstname.lastname@talpastudios.com` in both backend and frontend and keep normalized email lookup case-insensitive.
+
+**Alternatives considered**:
+
+- Accept multiple Talpa domains: rejected because the request specifies the Talpa Studios convention.
+- Let users enter names separately and construct email addresses: rejected because email remains the account identifier and should be validated directly.
+- Only validate on the frontend: rejected because backend validation is required for security and API consistency.
+
+## Decision: Model prize-pot participation as persistent user state
+
+**Rationale**: The prize-pot prompt must be asked until each participant chooses, and other users should see participation on profiles. A persistent per-user state supports `undecided`, `joined`, and `declined` without handling payment in the app.
+
+**Alternatives considered**:
+
+- Use a one-time notification dismissal: rejected because dismissing is not the same as choosing join or decline.
+- Track actual payment status: rejected because payment to Olivier Thijsen is explicitly outside the app.
+- Store participation only in notification payloads: rejected because profiles need durable status.
+
+## Decision: Use the existing notification bell for prize-pot prompts
+
+**Rationale**: The app already has participant notification infrastructure for missing predictions and broadcasts. Extending that payload with a `prize_pot` action keeps the prompt visible on login/return without adding a new modal-only system.
+
+**Alternatives considered**:
+
+- Force a blocking modal on every login: rejected because the user asked for a notification and participants should remain free to decide.
+- Put the question only on the profile page: rejected because users may not visit profile before making predictions.
+
+## Decision: Make tournament picks view-first with explicit edit mode
+
+**Rationale**: The user wants to inspect the entire pick component without accidental changes. View mode should render champion, top scorer, and strikers as readable summaries with flags/country context; edit mode should be entered only through an edit button and should obey existing lock rules.
+
+**Alternatives considered**:
+
+- Keep always-editable selects: rejected because clicks in the component can accidentally change values and the current striker purpose is unclear.
+- Split champion/top-scorer/strikers into unrelated panels: rejected because they are a single tournament-pick workflow and should remain understandable as a component.
+
+## Decision: Preserve plain-name player picks while enriching display with metadata
+
+**Rationale**: Existing `top_scorer_predictions` rows store plain names. Backwards compatibility is required, while better display can be achieved by resolving names against static/synced squad/team data where available and falling back to the stored plain name.
+
+**Alternatives considered**:
+
+- Require player IDs for all existing picks immediately: rejected because it would require migrating or invalidating existing predictions.
+- Show flags only for champion teams: rejected because the requested improvement specifically includes strikers and top scorer names with flags/country.

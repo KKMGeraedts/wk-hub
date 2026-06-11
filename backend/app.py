@@ -47,19 +47,26 @@ DATA_PATH = ROOT / "backend" / "worldcup-2026.json"
 QUIZ_PATH = ROOT / "backend" / "quiz-2026.json"
 TEAM_PROFILES_PATH = ROOT / "backend" / "team-profiles-2026.json"
 DB_PATH = Path(os.environ.get("WK_HUB_SQLITE_PATH", ROOT / "backend" / "pool.db"))
-DB_SCHEMA_VERSION = 6
+DB_SCHEMA_VERSION = 7
 PROFILE_IMAGE_MAX_BYTES = 750 * 1024
 PROFILE_IMAGE_DATA_URL_PATTERN = re.compile(
     r"^data:image/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=\s]+)$"
 )
-TALPA_EMAIL_PATTERN = re.compile(r"^[a-z][a-z0-9-]*\.[a-z][a-z0-9.-]*@talpanetwork\.com$")
+TALPA_EMAIL_PATTERN = re.compile(r"^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*@talpastudios\.com$")
 PASSWORD_MIN_LENGTH = 8
 DEFAULT_PASSWORD = "default-password"
 DEFAULT_ADMIN_EMAILS = {
-    "karel.geraedts@talpanetwork.com",
-    "olivier.thijsen@talpanetwork.com",
-    "sem.aslier@talpanetwork.com",
+    "karel.geraedts@talpastudios.com",
+    "olivier.thijsen@talpastudios.com",
+    "sem.aslier@talpastudios.com",
 }
+PRIZE_POT_UNDECIDED = "undecided"
+PRIZE_POT_JOINED = "joined"
+PRIZE_POT_DECLINED = "declined"
+PRIZE_POT_STATUSES = {PRIZE_POT_UNDECIDED, PRIZE_POT_JOINED, PRIZE_POT_DECLINED}
+PRIZE_POT_CONTRIBUTION_AMOUNT = 10
+PRIZE_POT_CURRENCY = "EUR"
+PRIZE_POT_ORGANIZER_NAME = "Olivier Thijsen"
 ADMIN_EMAILS = DEFAULT_ADMIN_EMAILS | {
     email.strip().casefold()
     for email in os.environ.get("WK_HUB_ADMIN_EMAILS", "").split(",")
@@ -1120,6 +1127,7 @@ def init_db() -> None:
             email TEXT NOT NULL UNIQUE,
             profile_image_url TEXT,
             password_hash TEXT,
+            prize_pot_status TEXT NOT NULL DEFAULT 'undecided',
             is_admin INTEGER NOT NULL DEFAULT 0,
             archived_at TEXT,
             created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1479,6 +1487,7 @@ def init_db() -> None:
             email TEXT NOT NULL UNIQUE,
             profile_image_url TEXT,
             password_hash TEXT,
+            prize_pot_status TEXT NOT NULL DEFAULT 'undecided',
             is_admin INTEGER NOT NULL DEFAULT 0,
             archived_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -1867,6 +1876,19 @@ def init_db() -> None:
             ).fetchone()
             if user_password_column is None:
                 conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            user_prize_pot_column = conn.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                  AND column_name = 'prize_pot_status'
+                """
+            ).fetchone()
+            if user_prize_pot_column is None:
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN prize_pot_status "
+                    "TEXT NOT NULL DEFAULT 'undecided'"
+                )
             user_admin_column = conn.execute(
                 """
                 SELECT 1
@@ -1949,6 +1971,11 @@ def init_db() -> None:
                 conn.execute("ALTER TABLE users ADD COLUMN profile_image_url TEXT")
             if not any(row["name"] == "password_hash" for row in user_columns):
                 conn.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
+            if not any(row["name"] == "prize_pot_status" for row in user_columns):
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN prize_pot_status "
+                    "TEXT NOT NULL DEFAULT 'undecided'"
+                )
             if not any(row["name"] == "is_admin" for row in user_columns):
                 conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
             if not any(row["name"] == "archived_at" for row in user_columns):
@@ -2037,10 +2064,51 @@ def is_admin_email(email: Any) -> bool:
     return normalize_email(email) in ADMIN_EMAILS
 
 
+def normalize_prize_pot_status(value: Any) -> str:
+    status = clean_text(value).casefold()
+    if status in PRIZE_POT_STATUSES:
+        return status
+    return PRIZE_POT_UNDECIDED
+
+
+def prize_pot_payload(status: Any = PRIZE_POT_UNDECIDED) -> dict[str, Any]:
+    return {
+        "status": normalize_prize_pot_status(status),
+        "contribution_amount": PRIZE_POT_CONTRIBUTION_AMOUNT,
+        "currency": PRIZE_POT_CURRENCY,
+        "organizer_name": PRIZE_POT_ORGANIZER_NAME,
+        "payment_in_app": False,
+    }
+
+
+def prize_pot_notification(status: Any) -> list[dict[str, Any]]:
+    if normalize_prize_pot_status(status) != PRIZE_POT_UNDECIDED:
+        return []
+    return [
+        {
+            "type": "prize_pot",
+            "id": "prize-pot",
+            "count": 1,
+            "title": "Prijspot",
+            "body": (
+                "Wil je meedoen aan de optionele prijspot van EUR 10? "
+                "De uiteindelijke pot wordt nog bepaald. "
+                "Olivier Thijsen organiseert de betaling buiten de app."
+            ),
+            "actions": [
+                {"id": PRIZE_POT_JOINED, "label": "Ik doe mee"},
+                {"id": PRIZE_POT_DECLINED, "label": "Ik sla over"},
+            ],
+            **prize_pot_payload(status),
+        }
+    ]
+
+
 def row_to_user(row: Any) -> dict[str, Any] | None:
     if row is None:
         return None
     real_name = derived_real_name(row["email"])
+    prize_pot_status = normalize_prize_pot_status(row_value(row, "prize_pot_status"))
     return {
         "id": row["id"],
         "name": row["name"],
@@ -2049,6 +2117,8 @@ def row_to_user(row: Any) -> dict[str, Any] | None:
         "is_admin": bool(row["is_admin"]) or is_admin_email(row["email"]),
         "archived_at": row["archived_at"],
         "profile_picture": user_profile_picture(row),
+        "prize_pot_status": prize_pot_status,
+        "prize_pot": prize_pot_payload(prize_pot_status),
     }
 
 
@@ -2060,7 +2130,7 @@ def current_user() -> dict[str, Any] | None:
         row = execute(
             conn,
             """
-            SELECT id, name, email, profile_image_url, is_admin, archived_at
+            SELECT id, name, email, profile_image_url, prize_pot_status, is_admin, archived_at
             FROM users
             WHERE id = ? AND archived_at IS NULL
             """,
@@ -2169,7 +2239,7 @@ def derived_real_name(email: Any) -> dict[str, str | None]:
 def validate_talpa_account_email(email: Any) -> str:
     normalized = normalize_email(email)
     if not talpa_email_name_parts(normalized):
-        raise ValueError("Use firstname.lastname@talpanetwork.com.")
+        raise ValueError("Use firstname.lastname@talpastudios.com.")
     return normalized
 
 
@@ -4506,7 +4576,7 @@ def build_leaderboard(
         users = execute(
             conn,
             """
-            SELECT id, name, email, profile_image_url, is_admin
+            SELECT id, name, email, profile_image_url, prize_pot_status, is_admin
             FROM users
             WHERE archived_at IS NULL
             ORDER BY name
@@ -4696,6 +4766,8 @@ def build_leaderboard(
                 **real_name,
                 "is_admin": bool(user["is_admin"]) or is_admin_email(user["email"]),
                 "profile_picture": user_profile_picture(user),
+                "prize_pot_status": normalize_prize_pot_status(row_value(user, "prize_pot_status")),
+                "prize_pot": prize_pot_payload(row_value(user, "prize_pot_status")),
                 "points": points,
                 "exact_scores": exact_scores,
                 "precision": exact_scores,
@@ -5444,8 +5516,10 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         "badge_catalog": badge_catalog(),
         "notifications": (
             active_admin_sync_issue_notifications(user)
+            + prize_pot_notification(user.get("prize_pot_status") if user else None)
             + build_notifications(data, predictions, quiz_predictions, now)
         ),
+        "prize_pot": prize_pot_payload(user.get("prize_pot_status") if user else None),
         "matchday": build_matchday_summary(data, user["id"] if user else None, now),
         "daily_recap": build_daily_recap(
             data, now, leaderboard, viewer_user_id=user["id"] if user else None
@@ -5810,7 +5884,8 @@ def login():
         row = execute(
             conn,
             """
-            SELECT id, name, email, profile_image_url, password_hash, is_admin, archived_at
+            SELECT id, name, email, profile_image_url, password_hash,
+                   prize_pot_status, is_admin, archived_at
             FROM users
             WHERE LOWER(TRIM(email)) = ?
             ORDER BY id
@@ -5843,7 +5918,8 @@ def login():
             row = execute(
                 conn,
                 """
-                SELECT id, name, email, profile_image_url, password_hash, is_admin, archived_at
+                SELECT id, name, email, profile_image_url, password_hash,
+                       prize_pot_status, is_admin, archived_at
                 FROM users
                 WHERE email = ?
                 """,
@@ -5862,7 +5938,8 @@ def login():
             row = execute(
                 conn,
                 """
-                SELECT id, name, email, profile_image_url, password_hash, is_admin, archived_at
+                SELECT id, name, email, profile_image_url, password_hash,
+                       prize_pot_status, is_admin, archived_at
                 FROM users
                 WHERE id = ?
                 """,
@@ -5877,7 +5954,8 @@ def login():
             row = execute(
                 conn,
                 """
-                SELECT id, name, email, profile_image_url, password_hash, is_admin, archived_at
+                SELECT id, name, email, profile_image_url, password_hash,
+                       prize_pot_status, is_admin, archived_at
                 FROM users
                 WHERE id = ?
                 """,
@@ -5926,6 +6004,34 @@ def forgot_password():
             "message": "If that email belongs to an account, the password is now default-password.",
         }
     )
+
+
+@app.post("/api/prize-pot/participation")
+def save_prize_pot_participation():
+    user, error_response = require_current_user("Log in before choosing prize pot participation.")
+    if error_response:
+        return error_response
+    assert user is not None
+
+    payload = request.get_json(silent=True) or {}
+    status = normalize_prize_pot_status(payload.get("status"))
+    if status == PRIZE_POT_UNDECIDED:
+        return jsonify({"error": "Choose joined or declined."}), 400
+
+    with get_db() as conn:
+        execute(
+            conn,
+            """
+            UPDATE users
+            SET prize_pot_status = ?
+            WHERE id = ?
+            """,
+            (status, user["id"]),
+        )
+
+    user["prize_pot_status"] = status
+    user["prize_pot"] = prize_pot_payload(status)
+    return jsonify({"ok": True, "prize_pot": prize_pot_payload(status), "user": user})
 
 
 @app.patch("/api/me/password")
@@ -6013,7 +6119,7 @@ def update_me():
         row = execute(
             conn,
             """
-            SELECT id, name, email, profile_image_url, is_admin, archived_at
+            SELECT id, name, email, profile_image_url, prize_pot_status, is_admin, archived_at
             FROM users
             WHERE id = ? AND archived_at IS NULL
             """,
@@ -6052,7 +6158,8 @@ def admin_users():
         rows = execute(
             conn,
             """
-            SELECT id, name, email, profile_image_url, is_admin, archived_at, created_at
+            SELECT id, name, email, profile_image_url, prize_pot_status,
+                   is_admin, archived_at, created_at
             FROM users
             ORDER BY archived_at IS NOT NULL, name
             """,
@@ -6915,7 +7022,11 @@ def profile_predictions(profile_user_id: int):
     with get_db() as conn:
         profile = execute(
             conn,
-            "SELECT id, name FROM users WHERE id = ? AND archived_at IS NULL",
+            """
+            SELECT id, name, prize_pot_status
+            FROM users
+            WHERE id = ? AND archived_at IS NULL
+            """,
             (profile_user_id,),
         ).fetchone()
     if profile is None:
@@ -6938,6 +7049,8 @@ def profile_predictions(profile_user_id: int):
         {
             "user_id": profile_user_id,
             "name": profile["name"],
+            "prize_pot_status": normalize_prize_pot_status(profile["prize_pot_status"]),
+            "prize_pot": prize_pot_payload(profile["prize_pot_status"]),
             "leaderboard_entry": leaderboard_row,
             "limited_to_completed_matches": False,
             "limited_to_locked_matches": not include_unplayed,
