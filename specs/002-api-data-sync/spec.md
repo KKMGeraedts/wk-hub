@@ -94,19 +94,19 @@ As an admin, I want to know when a scheduled post-match sync cannot retrieve or 
 
 ---
 
-### User Story 6 - Create Talpa Studios accounts with strict email convention (Priority: P1)
+### User Story 6 - Create Talpa accounts with strict email convention (Priority: P1)
 
-As a Talpa Studios participant, I want to create or access my account with my company email, so that only eligible participants can join the pool.
+As a Talpa participant, I want to create or access my account with my company email, so that only eligible participants can join the pool.
 
 **Why this priority**: Account access is the entry point for all pool behavior. The requested domain and naming convention should be enforced consistently in frontend and backend validation.
 
-**Independent Test**: Can be tested by attempting login/account creation with valid and invalid email addresses and confirming only `firstname.lastname@talpastudios.com` accounts are accepted.
+**Independent Test**: Can be tested by attempting login/account creation with valid and invalid email addresses and confirming only `firstname.lastname@talpanetwork.com` and `firstname.lastname@talpastudios.com` accounts are accepted.
 
 **Acceptance Scenarios**:
 
-1. **Given** a new participant enters `firstname.lastname@talpastudios.com`, **When** they log in with a valid password flow, **Then** the system creates or accesses that account.
-2. **Given** an email is outside the `talpastudios.com` domain, **When** the user attempts account creation or login for a missing account, **Then** the system rejects the email.
-3. **Given** an email does not follow `firstname.lastname@talpastudios.com`, **When** account creation is attempted, **Then** the system rejects it with a clear validation message.
+1. **Given** a new participant enters `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com`, **When** they log in with a valid password flow, **Then** the system creates or accesses that account.
+2. **Given** an email is outside the `talpanetwork.com` and `talpastudios.com` domains, **When** the user attempts account creation or login for a missing account, **Then** the system rejects the email.
+3. **Given** an email does not follow the `firstname.lastname` local-part convention on an allowed Talpa domain, **When** account creation is attempted, **Then** the system rejects it with a clear validation message.
 4. **Given** an existing eligible participant returns, **When** they log in, **Then** email normalization remains case-insensitive and does not create duplicate accounts.
 
 ---
@@ -159,7 +159,7 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - A provider request fails, times out, or returns malformed data for a due match.
 - Squad data changes unexpectedly after the tournament starts.
 - Computed scoring updates partially because some scoring categories have complete labels and others do not.
-- A participant uses uppercase letters or leading/trailing spaces in an otherwise valid Talpa Studios email.
+- A participant uses uppercase letters or leading/trailing spaces in an otherwise valid Talpa email.
 - A participant has an old account from the previous email convention.
 - A participant dismisses or ignores the prize-pot notification without choosing join or decline.
 - Prize-pot payment is made outside the app but the participant has not updated their app choice.
@@ -196,9 +196,9 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - **FR-023**: The system MUST avoid a separate app-managed API request limit for result sync beyond provider/account constraints and the configured per-match sync schedule.
 - **FR-024**: The system MUST keep existing participant prediction data unchanged when provider data, manual labels, or computed scoring records are updated.
 - **FR-025**: The system MUST treat manual override and provider data source labels consistently so scoring can identify whether a fact came from a provider, admin override, or future source.
-- **FR-026**: The system MUST allow eligible participants to create accounts during login only when their email follows `firstname.lastname@talpastudios.com`.
+- **FR-026**: The system MUST allow eligible participants to create accounts during login only when their email follows `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com`.
 - **FR-027**: Account email validation MUST be enforced on both the backend and frontend and MUST be case-insensitive after trimming whitespace.
-- **FR-028**: The system MUST reject account creation or missing-account login attempts for emails outside `talpastudios.com` or without exactly one first-name and one last-name segment before the domain.
+- **FR-028**: The system MUST reject account creation or missing-account login attempts for emails outside `talpanetwork.com` and `talpastudios.com` or without exactly one first-name and one last-name segment before the domain.
 - **FR-029**: Existing account lookup MUST avoid duplicate users when the same eligible email is entered with different casing.
 - **FR-030**: The system MUST ask every participant with no prize-pot answer whether they want to join the optional prize pot when they log in or return to the website.
 - **FR-031**: The prize-pot notification MUST allow a participant to choose join or decline and MUST clearly state the EUR 10 contribution, that the prize amount is not yet final, and that Olivier Thijsen organizes payment outside the app.
@@ -223,7 +223,7 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - **Manual Override**: Admin-authored replacement for a scoring fact, with audit metadata and reversible status.
 - **Computed Points**: Stored participant scoring output for a scored category, derived from predictions plus current eligible scoring facts.
 - **Admin Notification**: Internal notice that a sync could not retrieve, link, or normalize required data.
-- **Talpa Studios Account**: User account identified by a normalized `firstname.lastname@talpastudios.com` email address.
+- **Talpa Account**: User account identified by a normalized `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com` email address.
 - **Prize Pot Participation**: Per-user opt-in state for the optional EUR 10 prize pot, with states `undecided`, `joined`, and `declined`.
 - **Prize Pot Notification**: Participant-facing notification that asks undecided users whether to join or decline the prize pot.
 - **Tournament Pick Summary**: View-mode presentation of champion, top-scorer, and striker picks with flags/country metadata and an explicit edit affordance.
@@ -240,7 +240,7 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - **SC-005**: 100% of raw provider payloads received through sync attempts remain retrievable for audit.
 - **SC-006**: Leaderboard and profile point totals match the same stored computed point records after a scoring recalculation.
 - **SC-007**: When a provider fixture link is missing for a due match, normal participant views show no incorrect result and admins receive a notification.
-- **SC-008**: 100% of newly created accounts use emails matching `firstname.lastname@talpastudios.com`.
+- **SC-008**: 100% of newly created accounts use emails matching `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com`.
 - **SC-009**: An undecided participant receives the prize-pot notification on login/return and no longer receives it after choosing join or decline.
 - **SC-010**: Profile views show each participant's saved prize-pot participation state.
 - **SC-011**: In tournament pick view mode, champion, top-scorer, and striker summaries can be inspected without changing stored predictions.
@@ -254,7 +254,7 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - "Match is done" means the app has enough trusted status information to consider result/label scoring eligible for participant-visible scoring.
 - This spec does not add a user-facing freshness display, public scoring-source labels, user reports for incorrect labels, or a full admin sync dashboard unless later planning includes them as implementation details for admin notification.
 - This spec does not remove the existing manual label editor goal from the current fixes work; it refines how provider-backed and manual scoring facts should interact.
-- Talpa Studios is the required account domain for newly created participant accounts.
-- Existing accounts from a previous Talpa email convention may require migration or compatibility handling during implementation.
+- Talpa Network and Talpa Studios are the required account domains for newly created participant accounts.
+- Existing accounts from previous Talpa email conventions may require migration or compatibility handling during implementation.
 - Prize-pot payment collection and reconciliation happen outside the app with Olivier Thijsen and are intentionally not modeled as payment state.
 - Player country metadata should come from existing static/synced team profile or squad data where possible, with plain-name fallback when unavailable.

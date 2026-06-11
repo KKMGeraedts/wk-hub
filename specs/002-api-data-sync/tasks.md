@@ -192,9 +192,9 @@
 
 ## Phase 9: Participant Experience Scope Expansion
 
-**Purpose**: Implement the 2026-06-11 additions for Talpa Studios account validation, prize-pot participation, and view-first tournament pick display.
+**Purpose**: Implement the 2026-06-11 additions for Talpa account validation, prize-pot participation, and view-first tournament pick display.
 
-- [X] T078 [US6] Update backend and frontend email validation/copy for `firstname.lastname@talpastudios.com` account creation in `backend/app.py` and `frontend/src/main.jsx`
+- [X] T078 [US6] Update backend and frontend email validation/copy for `firstname.lastname@talpanetwork.com` and `firstname.lastname@talpastudios.com` account creation in `backend/app.py` and `frontend/src/main.jsx`
 - [X] T079 [US7] Add persistent prize-pot participation state, authenticated save endpoint, pool notification, and profile payload support in `backend/app.py`
 - [X] T080 [US7] Add prize-pot notification actions and profile status rendering in `frontend/src/main.jsx` and `frontend/src/styles.css`
 - [X] T081 [US8] Add view-first tournament pick summary with explicit edit mode for prediction entry and adjustment in `frontend/src/main.jsx`

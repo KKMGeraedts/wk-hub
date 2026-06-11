@@ -53,7 +53,7 @@ npm run check
 - Participant app reads enter through `/api/world-cup`, `/api/pool`, and `/api/profiles/<user_id>/predictions`.
 - Scored leaderboard categories are stored in `computed_points` after provider-backed or manual fact changes. Leaderboard and profile payloads read those stored rows when present.
 - Admin-only sync issues are stored in `admin_sync_notifications` and surfaced through the existing notification bell.
-- Account creation enters through `/api/auth/login` and must validate `firstname.lastname@talpastudios.com`.
+- Account creation enters through `/api/auth/login` and must validate `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com`.
 - Prize-pot participation is surfaced through `/api/pool` notifications and saved through an authenticated participant action.
 - Tournament pick UI surfaces include prediction entry, prediction adjustment, and profile pick panels.
 
@@ -128,18 +128,19 @@ Expected result: retrieval failures are admin-visible and participant-safe.
 
 Expected result: leaderboard and profile scoring agree after recalculation.
 
-### Scenario 8: Talpa Studios account creation
+### Scenario 8: Talpa account creation
 
 1. Open the login page.
-2. Try `first.last@talpastudios.com` with a valid password flow.
+2. Try `first.last@talpanetwork.com` with a valid password flow.
 3. Confirm the account is created or loaded.
-4. Try `first.last@talpanetwork.com`.
+4. Try `first.last@talpastudios.com` with a valid password flow.
 5. Try `first@talpastudios.com`.
 6. Try `first.middle.last@talpastudios.com`.
-7. Confirm invalid emails are rejected by frontend validation and backend validation.
-8. Try uppercase and whitespace around a valid Talpa Studios email.
+7. Try `first.last@example.com`.
+8. Confirm invalid emails are rejected by frontend validation and backend validation.
+9. Try uppercase and whitespace around a valid Talpa email.
 
-Expected result: only normalized `firstname.lastname@talpastudios.com` accounts are accepted, and casing/whitespace do not create duplicates.
+Expected result: only normalized `firstname.lastname@talpanetwork.com` and `firstname.lastname@talpastudios.com` accounts are accepted, and casing/whitespace do not create duplicates.
 
 ### Scenario 9: Prize-pot notification and profile status
 
@@ -186,4 +187,4 @@ Expected result: existing plain-name predictions remain valid even when player m
 - Result sync fetches only the relevant due match fixtures. Squad sync remains a separate rare job.
 - Provider errors should be logged and surfaced to admins, not normal participants.
 - Prize-pot payment collection remains outside the app; the app stores only join/decline state.
-- Talpa Studios email validation should be reviewed carefully before deploy because changing the accepted domain can affect existing users.
+- Talpa email validation should be reviewed carefully before deploy because changing accepted domains can affect existing users.

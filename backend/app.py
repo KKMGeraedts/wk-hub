@@ -52,10 +52,15 @@ PROFILE_IMAGE_MAX_BYTES = 750 * 1024
 PROFILE_IMAGE_DATA_URL_PATTERN = re.compile(
     r"^data:image/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=\s]+)$"
 )
-TALPA_EMAIL_PATTERN = re.compile(r"^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*@talpastudios\.com$")
+TALPA_EMAIL_PATTERN = re.compile(
+    r"^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*@talpa(?:network|studios)\.com$"
+)
 PASSWORD_MIN_LENGTH = 8
 DEFAULT_PASSWORD = "default-password"
 DEFAULT_ADMIN_EMAILS = {
+    "karel.geraedts@talpanetwork.com",
+    "olivier.thijsen@talpanetwork.com",
+    "sem.aslier@talpanetwork.com",
     "karel.geraedts@talpastudios.com",
     "olivier.thijsen@talpastudios.com",
     "sem.aslier@talpastudios.com",
@@ -2081,6 +2086,34 @@ def prize_pot_payload(status: Any = PRIZE_POT_UNDECIDED) -> dict[str, Any]:
     }
 
 
+def prize_pot_joined_count(conn: Any | None = None) -> int:
+    def count_with_connection(active_conn: Any) -> int:
+        row = execute(
+            active_conn,
+            """
+            SELECT COUNT(*) AS count
+            FROM users
+            WHERE archived_at IS NULL AND prize_pot_status = ?
+            """,
+            (PRIZE_POT_JOINED,),
+        ).fetchone()
+        return int(row["count"] if row is not None else 0)
+
+    if conn is not None:
+        return count_with_connection(conn)
+    with get_db() as active_conn:
+        return count_with_connection(active_conn)
+
+
+def prize_pot_payload_for_user(status: Any, participant_count: int | None = None) -> dict[str, Any]:
+    payload = prize_pot_payload(status)
+    if normalize_prize_pot_status(status) == PRIZE_POT_JOINED:
+        payload["participant_count"] = (
+            prize_pot_joined_count() if participant_count is None else participant_count
+        )
+    return payload
+
+
 def prize_pot_notification(status: Any) -> list[dict[str, Any]]:
     if normalize_prize_pot_status(status) != PRIZE_POT_UNDECIDED:
         return []
@@ -2239,7 +2272,10 @@ def derived_real_name(email: Any) -> dict[str, str | None]:
 def validate_talpa_account_email(email: Any) -> str:
     normalized = normalize_email(email)
     if not talpa_email_name_parts(normalized):
-        raise ValueError("Use firstname.lastname@talpastudios.com.")
+        message = (
+            "Use firstname.lastname@talpanetwork.com or " "firstname.lastname@talpastudios.com."
+        )
+        raise ValueError(message)
     return normalized
 
 
@@ -4552,6 +4588,7 @@ def user_prediction_groups(
 def build_leaderboard(
     data: dict[str, Any],
     viewer_user_id: int | None = None,
+    viewer_is_admin: bool = False,
     now: datetime | None = None,
     use_computed_points: bool = True,
 ) -> list[dict[str, Any]]:
@@ -4757,6 +4794,8 @@ def build_leaderboard(
         )
 
         show_tournament_picks = tournament_picks_revealed or user["id"] == viewer_user_id
+        show_prize_pot = viewer_is_admin or user["id"] == viewer_user_id
+        prize_pot_status = normalize_prize_pot_status(row_value(user, "prize_pot_status"))
         real_name = derived_real_name(user["email"])
         leaderboard.append(
             {
@@ -4766,8 +4805,8 @@ def build_leaderboard(
                 **real_name,
                 "is_admin": bool(user["is_admin"]) or is_admin_email(user["email"]),
                 "profile_picture": user_profile_picture(user),
-                "prize_pot_status": normalize_prize_pot_status(row_value(user, "prize_pot_status")),
-                "prize_pot": prize_pot_payload(row_value(user, "prize_pot_status")),
+                "prize_pot_status": prize_pot_status if show_prize_pot else None,
+                "prize_pot": prize_pot_payload(prize_pot_status) if show_prize_pot else None,
                 "points": points,
                 "exact_scores": exact_scores,
                 "precision": exact_scores,
@@ -5500,7 +5539,14 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
     tournament_picks_reveal_at = tournament_picks_lock_time(data)
     tournament_picks_locked = are_tournament_picks_locked(data, now)
     tournament_picks_revealed = are_tournament_picks_revealed(data, now)
-    leaderboard = build_leaderboard(data, viewer_user_id=user["id"] if user else None, now=now)
+    leaderboard = build_leaderboard(
+        data,
+        viewer_user_id=user["id"] if user else None,
+        viewer_is_admin=bool(user and user.get("is_admin")),
+        now=now,
+    )
+    prize_pot_status = user.get("prize_pot_status") if user else None
+    prize_pot_count = prize_pot_joined_count() if user else 0
 
     return {
         "me": user,
@@ -5519,7 +5565,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             + prize_pot_notification(user.get("prize_pot_status") if user else None)
             + build_notifications(data, predictions, quiz_predictions, now)
         ),
-        "prize_pot": prize_pot_payload(user.get("prize_pot_status") if user else None),
+        "prize_pot": prize_pot_payload_for_user(prize_pot_status, prize_pot_count),
         "matchday": build_matchday_summary(data, user["id"] if user else None, now),
         "daily_recap": build_daily_recap(
             data, now, leaderboard, viewer_user_id=user["id"] if user else None
@@ -6017,6 +6063,9 @@ def save_prize_pot_participation():
     status = normalize_prize_pot_status(payload.get("status"))
     if status == PRIZE_POT_UNDECIDED:
         return jsonify({"error": "Choose joined or declined."}), 400
+    current_status = normalize_prize_pot_status(user.get("prize_pot_status"))
+    if current_status == PRIZE_POT_JOINED and status == PRIZE_POT_DECLINED:
+        return jsonify({"error": "You cannot opt out after joining the prize pot."}), 400
 
     with get_db() as conn:
         execute(
@@ -6028,10 +6077,11 @@ def save_prize_pot_participation():
             """,
             (status, user["id"]),
         )
+        participant_count = prize_pot_joined_count(conn)
 
     user["prize_pot_status"] = status
-    user["prize_pot"] = prize_pot_payload(status)
-    return jsonify({"ok": True, "prize_pot": prize_pot_payload(status), "user": user})
+    user["prize_pot"] = prize_pot_payload_for_user(status, participant_count)
+    return jsonify({"ok": True, "prize_pot": user["prize_pot"], "user": user})
 
 
 @app.patch("/api/me/password")
@@ -7039,22 +7089,186 @@ def profile_predictions(profile_user_id: int):
         (
             row
             for row in build_leaderboard(
-                data, viewer_user_id=user["id"], now=now, use_computed_points=True
+                data,
+                viewer_user_id=user["id"],
+                viewer_is_admin=bool(user.get("is_admin")),
+                now=now,
+                use_computed_points=True,
             )
             if row["user_id"] == profile_user_id
         ),
         None,
     )
+    show_prize_pot = bool(user.get("is_admin")) or profile_user_id == user["id"]
+    prize_pot_status = normalize_prize_pot_status(profile["prize_pot_status"])
     return jsonify(
         {
             "user_id": profile_user_id,
             "name": profile["name"],
-            "prize_pot_status": normalize_prize_pot_status(profile["prize_pot_status"]),
-            "prize_pot": prize_pot_payload(profile["prize_pot_status"]),
+            "prize_pot_status": prize_pot_status if show_prize_pot else None,
+            "prize_pot": prize_pot_payload(prize_pot_status) if show_prize_pot else None,
             "leaderboard_entry": leaderboard_row,
             "limited_to_completed_matches": False,
             "limited_to_locked_matches": not include_unplayed,
             "groups": user_prediction_groups(profile_user_id, data, include_unplayed, now),
+        }
+    )
+
+
+@app.post("/api/predictions/<match_id>")
+def save_single_match_prediction(match_id: str):
+    user, error_response = require_current_user("Log in before saving predictions.")
+    if error_response:
+        logger.warning("Rejected single prediction save without authenticated session")
+        return error_response
+    assert user is not None
+
+    data = load_world_cup_data()
+    matches = {match["id"]: match for match in data["matches"]}
+    match = matches.get(match_id)
+    allowed_match_ids = {
+        candidate["id"]
+        for candidate in data["matches"]
+        if candidate["round"] == "Group Stage"
+        or (candidate.get("home_team_id") and candidate.get("away_team_id"))
+    }
+    if match is None or match_id not in allowed_match_ids:
+        return jsonify({"error": f"Match {match_id} is not open for predictions."}), 400
+    if is_prediction_locked(match, utc_now()):
+        return jsonify({"error": f"Predictions for match {match_id} are closed."}), 400
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        raw_home_score = payload["home_score"]
+        raw_away_score = payload["away_score"]
+        home_score = int(raw_home_score)
+        away_score = int(raw_away_score)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Scores must be whole numbers."}), 400
+    except KeyError:
+        return jsonify({"error": "Scores must be whole numbers."}), 400
+    if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
+        return jsonify({"error": "Scores must be between 0 and 30."}), 400
+
+    quiz_answer: str | None = None
+    if match.get("quiz"):
+        quiz_answer = clean_text(payload.get("quiz_answer", ""))
+        if len(quiz_answer) > 160:
+            return jsonify({"error": "Quiz answers can be at most 160 characters."}), 400
+        choices = {normalize_answer(choice) for choice in match["quiz"].get("choices", [])}
+        if quiz_answer and choices and normalize_answer(quiz_answer) not in choices:
+            return jsonify({"error": f"Choose a valid quiz answer for match {match_id}."}), 400
+
+    leeuwtje_submitted = "leeuwtje" in payload
+    leeuwtje_active = bool(payload.get("leeuwtje"))
+    with get_db() as conn:
+        existing_leeuwtjes = {
+            row["match_id"]
+            for row in execute(
+                conn,
+                "SELECT match_id FROM leeuwtje_predictions WHERE user_id = ?",
+                (user["id"],),
+            ).fetchall()
+        }
+        next_leeuwtjes = set(existing_leeuwtjes)
+        if leeuwtje_submitted:
+            if leeuwtje_active:
+                next_leeuwtjes.add(match_id)
+            else:
+                next_leeuwtjes.discard(match_id)
+            if len(next_leeuwtjes) > LEEUWTJES_LIMIT:
+                return jsonify({"error": f"You can use at most {LEEUWTJES_LIMIT} Leeuwtjes."}), 400
+
+        audit_payload = {
+            "match_id": match_id,
+            "home_score": home_score,
+            "away_score": away_score,
+            "quiz_answer": quiz_answer,
+            "leeuwtje": leeuwtje_active if leeuwtje_submitted else None,
+        }
+        execute(
+            conn,
+            """
+            INSERT INTO prediction_audit_log (user_id, action, payload_json, created_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                user["id"],
+                "save_single_match_prediction",
+                json.dumps(audit_payload, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+        execute(
+            conn,
+            """
+            INSERT INTO match_predictions (
+                user_id, match_id, home_score, away_score, updated_at
+            )
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id, match_id)
+            DO UPDATE SET home_score = excluded.home_score,
+                          away_score = excluded.away_score,
+                          updated_at = CURRENT_TIMESTAMP
+            """,
+            (user["id"], match_id, home_score, away_score),
+        )
+        if match.get("quiz"):
+            if quiz_answer:
+                execute(
+                    conn,
+                    """
+                    INSERT INTO quiz_predictions (
+                        user_id, match_id, answer, viewership_prediction, updated_at
+                    )
+                    VALUES (?, ?, ?, NULL, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id, match_id)
+                    DO UPDATE SET answer = excluded.answer,
+                                  viewership_prediction = NULL,
+                                  updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (user["id"], match_id, quiz_answer),
+                )
+            else:
+                execute(
+                    conn,
+                    "DELETE FROM quiz_predictions WHERE user_id = ? AND match_id = ?",
+                    (user["id"], match_id),
+                )
+        if leeuwtje_submitted:
+            if leeuwtje_active:
+                execute(
+                    conn,
+                    """
+                    INSERT INTO leeuwtje_predictions (user_id, match_id, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id, match_id)
+                    DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (user["id"], match_id),
+                )
+            else:
+                execute(
+                    conn,
+                    "DELETE FROM leeuwtje_predictions WHERE user_id = ? AND match_id = ?",
+                    (user["id"], match_id),
+                )
+
+    logger.info("Saved single match prediction %s for user %s", match_id, user["id"])
+    return jsonify(
+        {
+            "ok": True,
+            "match_id": match_id,
+            "prediction": {"home_score": home_score, "away_score": away_score},
+            "quiz_prediction": (
+                {"answer": quiz_answer or "", "viewership_prediction": None}
+                if match.get("quiz")
+                else None
+            ),
+            "leeuwtjes_match_ids": sorted(next_leeuwtjes),
+            "progress": {
+                "leeuwtjes_used": len(next_leeuwtjes),
+                "leeuwtjes_total": LEEUWTJES_LIMIT,
+            },
         }
     )
 

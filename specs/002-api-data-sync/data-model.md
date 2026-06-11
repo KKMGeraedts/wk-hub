@@ -234,7 +234,7 @@ Validation:
 - Normal participants must not receive provider failure details.
 - Duplicate active notifications should be avoided for the same target and failure type.
 
-### Talpa Studios Account
+### Talpa Account
 
 Represents a participant account created through login.
 
@@ -253,10 +253,10 @@ Fields:
 
 Validation:
 
-- Newly created participant accounts must use normalized emails matching `firstname.lastname@talpastudios.com`.
+- Newly created participant accounts must use normalized emails matching `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com`.
 - Email lookup remains case-insensitive and trims whitespace.
 - The local part must contain exactly one first-name segment and one last-name segment separated by a dot.
-- Frontend validation copy and backend validation copy must use the same convention.
+- Frontend validation copy and backend validation copy must use the same allowed-domain convention.
 - Existing archived-account and admin-account rules still apply.
 
 ### Prize Pot Participation

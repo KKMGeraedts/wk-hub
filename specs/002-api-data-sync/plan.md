@@ -2,13 +2,13 @@
 
 **Branch**: `main` | **Date**: 2026-06-11 | **Spec**: `specs/002-api-data-sync/spec.md`
 
-**Input**: Feature specification from `specs/002-api-data-sync/spec.md`, plus scope expansion requested on 2026-06-11 for Talpa Studios account creation, prize-pot participation choice, and clearer prediction pick display/edit behavior.
+**Input**: Feature specification from `specs/002-api-data-sync/spec.md`, plus scope expansion requested on 2026-06-11 for Talpa account creation, prize-pot participation choice, and clearer prediction pick display/edit behavior.
 
 **Note**: This plan stops before implementation. Generate and review `tasks.md` before running implementation.
 
 ## Summary
 
-Keep the API data sync architecture from the original feature while adding three participant-facing updates in the same Flask/Vite application: account creation must accept only `firstname.lastname@talpastudios.com` addresses, every logged-in participant must be asked through notifications whether they join the optional EUR 10 prize pot, and the prediction pick component must separate view mode from edit mode while showing richer player/team context with flags.
+Keep the API data sync architecture from the original feature while adding three participant-facing updates in the same Flask/Vite application: account creation must accept only `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com` addresses, every logged-in participant must be asked through notifications whether they join the optional EUR 10 prize pot, and the prediction pick component must separate view mode from edit mode while showing richer player/team context with flags.
 
 ## Technical Context
 
@@ -18,7 +18,7 @@ Keep the API data sync architecture from the original feature while adding three
 
 **Storage**: Existing SQLite local / Postgres production tables. Existing tables include `users`, prediction tables, notification tables, `api_football_*`, `match_results`, `match_events`, `match_clean_sheets`, `player_match_stats`, `quiz_label_overrides`, and `label_audit_log`. New or extended storage is planned for provider-agnostic sync attempts, admin sync notifications, stored computed points, prize-pot participation choices, and richer top-scorer/striker pick metadata where needed.
 
-**Testing**: Existing checks via `npm run build`, `npm run py:check`, and `npm run check`; targeted Python unit/integration coverage should be added for sync candidate selection, manual-override precedence, computed point persistence, Talpa Studios email validation, prize-pot notification state, and prediction pick save/view behavior.
+**Testing**: Existing checks via `npm run build`, `npm run py:check`, and `npm run check`; targeted Python unit/integration coverage should be added for sync candidate selection, manual-override precedence, computed point persistence, Talpa email validation, prize-pot notification state, and prediction pick save/view behavior.
 
 **Target Platform**: Web app running locally via Flask/Vite and production via Vercel serverless Python plus Vite static frontend
 
@@ -26,7 +26,7 @@ Keep the API data sync architecture from the original feature while adding three
 
 **Performance Goals**: Result sync requests only due matches and never re-fetches unrelated history; leaderboard/profile reads should use stored computed points; prize-pot notifications and profile badges should add no noticeable overhead to `/api/pool` or profile payloads.
 
-**Constraints**: Preserve participant prediction data; keep provider calls out of normal participant views; preserve permanent raw provider history; manual overrides must not be overwritten by provider updates; account creation must enforce the exact Talpa Studios email convention; prize-pot payment is outside the app; avoid new dependencies unless clearly justified.
+**Constraints**: Preserve participant prediction data; keep provider calls out of normal participant views; preserve permanent raw provider history; manual overrides must not be overwritten by provider updates; account creation must enforce the exact Talpa Network or Talpa Studios email convention; prize-pot payment is outside the app; avoid new dependencies unless clearly justified.
 
 **Scale/Scope**: Existing 2026 World Cup tournament data, post-match result sync, rare squad sync, admin label/editor flows, scoring labels, leaderboard/profile scoring output, admin and participant notification-bell infrastructure, login/account creation, public profiles, and prediction pick components.
 
@@ -42,7 +42,7 @@ The current constitution file is still a placeholder and defines no enforceable 
 - No known privacy/security violation introduced by design: PASS
 - Provider data and manual override updates are explicitly barred from mutating participant prediction rows: PASS
 - Prize-pot participation is an explicit opt-in/opt-out user choice and does not handle payment in app: PASS
-- Email account creation is constrained to the requested Talpa Studios convention: PASS
+- Email account creation is constrained to the requested Talpa Network or Talpa Studios convention: PASS
 
 Post-design re-check:
 
@@ -118,7 +118,7 @@ Key decisions:
 - Represent manual overrides as source-prioritized current facts with audit history and reversal.
 - Store computed points for scored categories and recompute only affected users/categories when facts change.
 - Notify admins through existing notification-bell infrastructure when sync cannot retrieve or link data.
-- Enforce `firstname.lastname@talpastudios.com` for account creation and login normalization.
+- Enforce `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com` for account creation and login normalization.
 - Use the existing notification bell to ask each participant whether they join the optional EUR 10 prize pot until they answer.
 - Store prize-pot choice on the user/profile domain and expose it on profiles.
 - Make tournament pick components view-first, with explicit edit actions before selections become adjustable.
@@ -137,7 +137,7 @@ Design notes:
 - `match_results`, `match_events`, `match_clean_sheets`, `player_match_stats`, and `quiz_label_overrides` continue as current facts, with source metadata strengthened where needed.
 - New sync attempt records track due windows, attempt status, provider, target type, match/team id, and failure reason.
 - Computed point records store category-level scoring output with source fact revision metadata.
-- Account creation should update `TALPA_EMAIL_PATTERN`, backend validation copy, frontend validation copy, placeholders, and admin defaults away from the previous Talpa Network domain where applicable.
+- Account creation should update `TALPA_EMAIL_PATTERN`, backend validation copy, frontend validation copy, placeholders, and admin defaults to accept only the Talpa Network and Talpa Studios domains.
 - Prize-pot participation should be modeled as a persistent per-user choice with `undecided`, `joined`, and `declined` states. Olivier Thijsen is the organizer/payee context, but payment remains outside the app.
 - Profile payloads should expose whether a participant joined the prize pot.
 - Prediction pick view mode should show champion flag, top scorer name with flag/country, and each striker's full name with flag/country. Clicks in view mode should not modify picks; an edit button switches to editable controls subject to lock rules.

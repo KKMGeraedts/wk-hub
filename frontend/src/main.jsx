@@ -165,7 +165,8 @@ const NEWS_ARTICLES = [
 
 const PROFILE_IMAGE_MAX_DIMENSION = 512;
 const PROFILE_IMAGE_MAX_UPLOAD_BYTES = 750 * 1024;
-const TALPA_EMAIL_PATTERN = /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*@talpastudios\.com$/i;
+const TALPA_EMAIL_PATTERN =
+  /^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*@talpa(?:network|studios)\.com$/i;
 
 function normalizeRoute(pathname) {
   const path = pathname.replace(/\/+$/, "");
@@ -1445,6 +1446,50 @@ function Schedule({ matches, teams, venues, pool, onPoolUpdate }) {
   );
 }
 
+function patchPoolAfterMatchPrediction(pool, matchId, result) {
+  const nextNotifications = (pool.notifications ?? [])
+    .map((notification) => {
+      if (!notification.items?.length) return notification;
+      const items = notification.items.filter((item) => item.match_id !== matchId);
+      return {
+        ...notification,
+        items,
+        count: items.length,
+        match_ids: (notification.match_ids ?? []).filter((id) => id !== matchId),
+      };
+    })
+    .filter((notification) => !notification.items || notification.items.length);
+  return {
+    ...pool,
+    predictions: {
+      ...(pool.predictions ?? {}),
+      [matchId]: result.prediction,
+    },
+    quiz_predictions: result.quiz_prediction
+      ? {
+          ...(pool.quiz_predictions ?? {}),
+          [matchId]: result.quiz_prediction,
+        }
+      : pool.quiz_predictions,
+    leeuwtjes_match_ids: result.leeuwtjes_match_ids ?? pool.leeuwtjes_match_ids,
+    notifications: nextNotifications,
+    progress: {
+      ...(pool.progress ?? {}),
+      ...(result.progress ?? {}),
+    },
+    matchday: pool.matchday
+      ? {
+          ...pool.matchday,
+          matches: (pool.matchday.matches ?? []).map((match) =>
+            (match.id ?? match.match_id) === matchId
+              ? { ...match, has_my_prediction: true }
+              : match,
+          ),
+        }
+      : pool.matchday,
+  };
+}
+
 function TeamDirectoryPage({ data, teams, onTeam }) {
   const groupedTeams = data.groups.map((group) => ({
     ...group,
@@ -1987,7 +2032,9 @@ function LoginPanel({ onLogin }) {
       }
 
       if (email && !TALPA_EMAIL_PATTERN.test(email.trim())) {
-        throw new Error("Use firstname.lastname@talpastudios.com.");
+        throw new Error(
+          "Use firstname.lastname@talpanetwork.com or firstname.lastname@talpastudios.com.",
+        );
       }
 
       const result = await apiJson("/api/auth/login", {
@@ -2024,7 +2071,7 @@ function LoginPanel({ onLogin }) {
               onChange={(event) => setResetEmail(event.target.value)}
               inputMode="email"
               autoComplete="email"
-              placeholder="firstname.lastname@talpastudios.com"
+              placeholder="firstname.lastname@talpanetwork.com"
             />
           </label>
         ) : (
@@ -2036,10 +2083,10 @@ function LoginPanel({ onLogin }) {
                 onChange={(event) => setEmail(event.target.value)}
                 inputMode="email"
                 autoComplete="email"
-                placeholder="firstname.lastname@talpastudios.com"
+                placeholder="firstname.lastname@talpanetwork.com"
               />
               <span className="field-help">
-                Use firstname.lastname@talpastudios.com.
+                Use firstname.lastname@talpanetwork.com or firstname.lastname@talpastudios.com.
               </span>
             </label>
             <label>
@@ -2353,11 +2400,30 @@ function ChangePasswordModal({ onClose, onChangePassword }) {
   );
 }
 
+function prizePotAdminLabel(status) {
+  if (status === "joined") return "Joined prize pot";
+  if (status === "declined") return "Declined prize pot";
+  return "Not answered";
+}
+
 function AdminUsersPage({ currentUser }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyUserId, setBusyUserId] = useState(null);
+  const prizePotCounts = useMemo(
+    () =>
+      users.reduce(
+        (counts, user) => {
+          const status = user.prize_pot_status ?? "undecided";
+          counts[status] = (counts[status] ?? 0) + 1;
+          return counts;
+        },
+        { joined: 0, declined: 0, undecided: 0 },
+      ),
+    [users],
+  );
+  const joinedPrizePotUsers = users.filter((user) => user.prize_pot_status === "joined");
 
   async function loadUsers() {
     setLoading(true);
@@ -2401,7 +2467,7 @@ function AdminUsersPage({ currentUser }) {
       <div className="panel-header">
         <div>
           <h3>Admin users</h3>
-          <p>Archive accounts, restore accounts, and manage admin access.</p>
+          <p>Archive accounts, restore accounts, manage admin access, and track the prize pot.</p>
         </div>
         <span className="pill orange">{users.length} accounts</span>
       </div>
@@ -2410,66 +2476,93 @@ function AdminUsersPage({ currentUser }) {
         {loading ? (
           <div className="empty">Loading accounts...</div>
         ) : (
-          <div className="admin-user-list">
-            {users.map((user) => {
-              const archived = Boolean(user.archived_at);
-              const isSelf = user.id === currentUser?.id;
-              const busy = busyUserId === user.id;
-              return (
-                <div
-                  className={archived ? "admin-user-row is-archived" : "admin-user-row"}
-                  key={user.id}
-                >
-                  <div>
-                    <strong>{user.name}</strong>
-                    <span>{user.email}</span>
-                    <em>
-                      {archived
-                        ? `Archived ${user.archived_at}`
-                        : user.is_admin
-                          ? "Admin"
-                          : "Participant"}
-                    </em>
+          <>
+            <section className="admin-prize-pot-summary" aria-label="Prize pot participation">
+              <div>
+                <span>Prize pot</span>
+                <strong>{prizePotCounts.joined} joining</strong>
+              </div>
+              <div>
+                <span>Not joining</span>
+                <strong>{prizePotCounts.declined}</strong>
+              </div>
+              <div>
+                <span>Not answered</span>
+                <strong>{prizePotCounts.undecided}</strong>
+              </div>
+              <p>
+                {joinedPrizePotUsers.length
+                  ? joinedPrizePotUsers.map((user) => user.name).join(", ")
+                  : "Nobody has joined the prize pot yet."}
+              </p>
+            </section>
+            <div className="admin-user-list">
+              {users.map((user) => {
+                const archived = Boolean(user.archived_at);
+                const isSelf = user.id === currentUser?.id;
+                const busy = busyUserId === user.id;
+                const prizePotStatus = user.prize_pot_status ?? "undecided";
+                return (
+                  <div
+                    className={archived ? "admin-user-row is-archived" : "admin-user-row"}
+                    key={user.id}
+                  >
+                    <div>
+                      <strong>{user.name}</strong>
+                      <span>{user.email}</span>
+                      <div className="admin-user-meta">
+                        <em>
+                          {archived
+                            ? `Archived ${user.archived_at}`
+                            : user.is_admin
+                              ? "Admin"
+                              : "Participant"}
+                        </em>
+                        <b className={`admin-prize-pot-status ${prizePotStatus}`}>
+                          {prizePotAdminLabel(prizePotStatus)}
+                        </b>
+                      </div>
+                    </div>
+                    <div className="admin-user-actions">
+                      {!archived && (
+                        <button
+                          className="text-button"
+                          type="button"
+                          disabled={busy || (isSelf && user.is_admin)}
+                          onClick={() =>
+                            updateUser(user.id, "admin", {
+                              is_admin: !user.is_admin,
+                            })
+                          }
+                        >
+                          {user.is_admin ? "Remove admin" : "Make admin"}
+                        </button>
+                      )}
+                      {archived ? (
+                        <button
+                          className="text-button"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => updateUser(user.id, "restore")}
+                        >
+                          Restore
+                        </button>
+                      ) : (
+                        <button
+                          className="text-button"
+                          type="button"
+                          disabled={busy || isSelf}
+                          onClick={() => updateUser(user.id, "archive")}
+                        >
+                          Archive
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  <div className="admin-user-actions">
-                    {!archived && (
-                      <button
-                        className="text-button"
-                        type="button"
-                        disabled={busy || (isSelf && user.is_admin)}
-                        onClick={() =>
-                          updateUser(user.id, "admin", {
-                            is_admin: !user.is_admin,
-                          })
-                        }
-                      >
-                        {user.is_admin ? "Remove admin" : "Make admin"}
-                      </button>
-                    )}
-                    {archived ? (
-                      <button
-                        className="text-button"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => updateUser(user.id, "restore")}
-                      >
-                        Restore
-                      </button>
-                    ) : (
-                      <button
-                        className="text-button"
-                        type="button"
-                        disabled={busy || isSelf}
-                        onClick={() => updateUser(user.id, "archive")}
-                      >
-                        Archive
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          </>
         )}
       </div>
     </article>
@@ -3727,6 +3820,7 @@ function MatchdayPredictionModal({
     if (!match) return;
     const existingPrediction = poolPredictions(pool)[match.id] ?? {};
     const existingQuiz = poolQuizPredictions(pool)[match.id] ?? {};
+    const currentLeeuwtjes = new Set(poolLeeuwtjeMatchIds(pool));
     setScores({
       home_score: existingPrediction.home_score ?? "",
       away_score: existingPrediction.away_score ?? "",
@@ -3734,7 +3828,7 @@ function MatchdayPredictionModal({
     setQuizDraft({
       answer: existingQuiz.answer ?? "",
     });
-    setLeeuwtjeActive(false);
+    setLeeuwtjeActive(currentLeeuwtjes.has(match.id));
     setError("");
   }, [match?.id, pool]);
 
@@ -3764,32 +3858,20 @@ function MatchdayPredictionModal({
     setSaving(true);
     setError("");
     const body = {
-      predictions: [
-        {
-          match_id: match.id,
-          home_score: Number(scores.home_score),
-          away_score: Number(scores.away_score),
-        },
-      ],
+      home_score: Number(scores.home_score),
+      away_score: Number(scores.away_score),
+      leeuwtje: leeuwtjeActive,
     };
     if (match.quiz) {
-      body.quiz_predictions = [
-        {
-          match_id: match.id,
-          answer: String(quizDraft.answer ?? "").trim(),
-        },
-      ];
-    }
-    if (leeuwtjeActive && !currentLeeuwtjes.has(match.id)) {
-      body.leeuwtjes_match_ids = [...new Set([...currentLeeuwtjes, match.id])];
+      body.quiz_answer = String(quizDraft.answer ?? "").trim();
     }
 
     try {
-      const updated = await apiJson("/api/predictions", {
+      const result = await apiJson(`/api/predictions/${match.id}`, {
         method: "POST",
         body: JSON.stringify(body),
       });
-      onPoolUpdate(updated);
+      onPoolUpdate(patchPoolAfterMatchPrediction(pool, match.id, result));
       onClose();
     } catch (err) {
       setError(err.message);
@@ -4290,14 +4372,18 @@ function PlayerProfile({
   rank,
   isSelf,
   viewerIsAdmin,
+  viewerPrizePot,
   badgeCatalog,
   data,
   tournamentPicksVisible,
   onUpdateName,
   onUpdateImage,
+  onJoinPrizePot,
   onAdmin,
 }) {
   const playerOptions = useMemo(() => topScorerOptions(data), [data]);
+  const [prizePotBusy, setPrizePotBusy] = useState(false);
+  const [prizePotError, setPrizePotError] = useState("");
 
   if (!player) {
     return (
@@ -4330,6 +4416,20 @@ function PlayerProfile({
       : player.prize_pot_status === "declined"
         ? "Doet niet mee aan de prijspot"
         : "Prijspot nog niet gekozen";
+  const joinedPrizePotCount = viewerPrizePot?.participant_count;
+  const canSeePrizePotStatus = isSelf || viewerIsAdmin;
+
+  async function joinPrizePot() {
+    setPrizePotBusy(true);
+    setPrizePotError("");
+    try {
+      await onJoinPrizePot?.();
+    } catch (err) {
+      setPrizePotError(err.message);
+    } finally {
+      setPrizePotBusy(false);
+    }
+  }
 
   function pickClassName(impossible) {
     return impossible ? "profile-pick-row is-impossible" : "profile-pick-row";
@@ -4364,9 +4464,27 @@ function PlayerProfile({
             {player.email && (
               <span className="profile-email">{player.email}</span>
             )}
-            <span className={`profile-prize-pot ${player.prize_pot_status ?? "undecided"}`}>
-              {prizePotLabel}
-            </span>
+            {canSeePrizePotStatus && (
+              <span className={`profile-prize-pot ${player.prize_pot_status ?? "undecided"}`}>
+                {prizePotLabel}
+              </span>
+            )}
+            {isSelf && player.prize_pot_status === "joined" && Number.isFinite(joinedPrizePotCount) && (
+              <span className="profile-prize-pot-count">
+                {joinedPrizePotCount} people are in the prize pot.
+              </span>
+            )}
+            {isSelf && player.prize_pot_status !== "joined" && (
+              <button
+                className="text-button profile-prize-pot-join"
+                type="button"
+                disabled={prizePotBusy}
+                onClick={joinPrizePot}
+              >
+                {prizePotBusy ? "Joining..." : "Join prize pot"}
+              </button>
+            )}
+            {prizePotError && <span className="form-error compact">{prizePotError}</span>}
             {viewerIsAdmin && player.is_admin && (
               <button className="text-button profile-admin-link" type="button" onClick={onAdmin}>
                 Admin
@@ -5753,30 +5871,12 @@ function App() {
 
   async function handleNotificationAction(item) {
     if (item?.notification_type === "prize_pot") {
-      const updated = await apiJson("/api/prize-pot/participation", {
-        method: "POST",
-        body: JSON.stringify({ status: item.action }),
-      });
-      if (updated.user) {
-        setPool((current) => ({
-          ...current,
-          me: updated.user,
-          prize_pot: updated.prize_pot,
-          notifications: (current?.notifications ?? []).filter(
-            (notification) => notification.type !== "prize_pot",
-          ),
-          leaderboard: (current?.leaderboard ?? []).map((row) =>
-            row.user_id === updated.user.id
-              ? {
-                  ...row,
-                  prize_pot_status: updated.user.prize_pot_status,
-                  prize_pot: updated.user.prize_pot,
-                }
-              : row,
-          ),
-        }));
-      }
       setNotificationsOpen(false);
+      try {
+        await savePrizePotParticipation(item.action, { optimistic: true });
+      } catch (err) {
+        setLoadError(err.message);
+      }
       return;
     }
     navigateToPredictionTarget(item);
@@ -5949,6 +6049,65 @@ function App() {
       method: "PATCH",
       body: JSON.stringify(payload),
     });
+  }
+
+  async function savePrizePotParticipation(status, options = {}) {
+    if (options.optimistic) {
+      setPool((current) => {
+        if (!current?.me) return current;
+        const optimisticPrizePot = {
+          ...(current.prize_pot ?? current.me.prize_pot ?? {}),
+          status,
+        };
+        const optimisticUser = {
+          ...current.me,
+          prize_pot_status: status,
+          prize_pot: optimisticPrizePot,
+        };
+        return {
+          ...current,
+          me: optimisticUser,
+          prize_pot: optimisticPrizePot,
+          notifications: (current.notifications ?? []).filter(
+            (notification) => notification.type !== "prize_pot",
+          ),
+          leaderboard: (current.leaderboard ?? []).map((row) =>
+            row.user_id === optimisticUser.id
+              ? {
+                  ...row,
+                  prize_pot_status: status,
+                  prize_pot: optimisticPrizePot,
+                }
+              : row,
+          ),
+        };
+      });
+    }
+
+    const updated = await apiJson("/api/prize-pot/participation", {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    });
+    if (updated.user) {
+      setPool((current) => ({
+        ...current,
+        me: updated.user,
+        prize_pot: updated.prize_pot,
+        notifications: (current?.notifications ?? []).filter(
+          (notification) => notification.type !== "prize_pot",
+        ),
+        leaderboard: (current?.leaderboard ?? []).map((row) =>
+          row.user_id === updated.user.id
+            ? {
+                ...row,
+                prize_pot_status: updated.user.prize_pot_status,
+                prize_pot: updated.user.prize_pot,
+              }
+            : row,
+        ),
+      }));
+    }
+    return updated;
   }
 
   if (!authChecked) {
@@ -6210,11 +6369,13 @@ function App() {
               rank={selectedProfileRank}
               isSelf={selectedProfile?.user_id === pool.me?.id}
               viewerIsAdmin={Boolean(pool.me?.is_admin)}
+              viewerPrizePot={pool.prize_pot}
               badgeCatalog={pool.badge_catalog ?? []}
               data={data}
               tournamentPicksVisible={tournamentPicksRevealed(pool)}
               onUpdateName={updateUserName}
               onUpdateImage={updateUserImage}
+              onJoinPrizePot={() => savePrizePotParticipation("joined")}
               onAdmin={() => navigateToView("admin")}
             />
           </section>

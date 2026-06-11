@@ -164,15 +164,15 @@ Accepted body:
 
 ```json
 {
-  "email": "firstname.lastname@talpastudios.com",
+  "email": "firstname.lastname@talpanetwork.com",
   "password": "..."
 }
 ```
 
 Rules:
 
-- Backend validation accepts new accounts only when the normalized email matches `firstname.lastname@talpastudios.com`.
-- Frontend validation, placeholders, and helper copy use the same Talpa Studios convention.
+- Backend validation accepts new accounts only when the normalized email matches `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com`.
+- Frontend validation, placeholders, and helper copy use the same Talpa Network or Talpa Studios convention.
 - Email normalization trims whitespace and compares case-insensitively.
 - Invalid domains and invalid local-part shapes return a clear validation error.
 - Existing archived-account behavior remains unchanged.
@@ -323,7 +323,7 @@ Implementation must support the following checks:
 - Manual override wins over provider update.
 - Manual override reversal restores provider-backed fact.
 - Stored computed points update after fact changes and are read by both leaderboard and profile flows.
-- Talpa Studios account validation accepts only the requested email convention for new accounts.
+- Talpa account validation accepts only the requested Talpa Network or Talpa Studios email convention for new accounts.
 - Undecided participants receive and can answer the prize-pot notification.
 - Saved prize-pot participation appears on profiles.
 - Tournament pick view mode is read-only and shows flags/country context where available.

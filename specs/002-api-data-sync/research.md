@@ -82,13 +82,13 @@
 - Keep current app daily request cap as a primary scheduling control: rejected because schedule discipline should determine when requests happen.
 - Admin-adjustable request limits: rejected as unnecessary for the requested behavior.
 
-## Decision: Enforce Talpa Studios account emails as the account boundary
+## Decision: Enforce Talpa Network and Talpa Studios account emails as the account boundary
 
-**Rationale**: The user explicitly requested account creation for Talpa Studios participants and an exact email convention. The existing login flow already creates missing accounts and validates a first.last Talpa email format, so the least risky change is to update that validation to `firstname.lastname@talpastudios.com` in both backend and frontend and keep normalized email lookup case-insensitive.
+**Rationale**: The user explicitly requested account creation for Talpa participants using either `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com`. The existing login flow already creates missing accounts and validates a first.last Talpa email format, so the least risky change is to update that validation in both backend and frontend and keep normalized email lookup case-insensitive.
 
 **Alternatives considered**:
 
-- Accept multiple Talpa domains: rejected because the request specifies the Talpa Studios convention.
+- Accept any Talpa-like domain: rejected because the request specifies only Talpa Network and Talpa Studios.
 - Let users enter names separately and construct email addresses: rejected because email remains the account identifier and should be validated directly.
 - Only validate on the frontend: rejected because backend validation is required for security and API consistency.
 
