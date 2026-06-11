@@ -916,6 +916,136 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertNotIn("admin_sync_notifications", json.dumps(payload))
         self.assertNotIn("provider_request_failed", json.dumps(payload))
 
+    def test_admin_reset_password_issues_temporary_and_forces_change(self) -> None:
+        def scenario(_conn):
+            admin = wk_app.app.test_client()
+            player = wk_app.app.test_client()
+            # The first account to log in becomes the admin.
+            admin.post(
+                "/api/auth/login",
+                json={"email": "admin.user@talpanetwork.com", "password": "admin-password"},
+            )
+            player.post(
+                "/api/auth/login",
+                json={"email": "player.user@talpanetwork.com", "password": "player-password"},
+            )
+            with wk_app.get_db() as conn:
+                player_row = wk_app.execute(
+                    conn,
+                    "SELECT id FROM users WHERE email = ?",
+                    ("player.user@talpanetwork.com",),
+                ).fetchone()
+            player_id = player_row["id"]
+
+            reset = admin.post(f"/api/admin/users/{player_id}/reset-password", json={})
+            temp_password = reset.get_json().get("temporary_password", "")
+
+            old_login = wk_app.app.test_client().post(
+                "/api/auth/login",
+                json={"email": "player.user@talpanetwork.com", "password": "player-password"},
+            )
+            temp_client = wk_app.app.test_client()
+            temp_login = temp_client.post(
+                "/api/auth/login",
+                json={"email": "player.user@talpanetwork.com", "password": temp_password},
+            )
+            change = temp_client.patch(
+                "/api/me/password",
+                json={
+                    "current_password": temp_password,
+                    "password": "fresh-password",
+                    "confirm_password": "fresh-password",
+                },
+            )
+            me_after = temp_client.get("/api/me").get_json()
+            new_login = wk_app.app.test_client().post(
+                "/api/auth/login",
+                json={"email": "player.user@talpanetwork.com", "password": "fresh-password"},
+            )
+            return (
+                reset.status_code,
+                temp_password,
+                old_login.status_code,
+                temp_login.status_code,
+                temp_login.get_json(),
+                change.status_code,
+                me_after,
+                new_login.status_code,
+            )
+
+        (
+            reset_status,
+            temp_password,
+            old_login_status,
+            temp_login_status,
+            temp_login_payload,
+            change_status,
+            me_after,
+            new_login_status,
+        ) = self.run_with_temp_db(scenario)
+
+        self.assertEqual(reset_status, 200)
+        self.assertGreaterEqual(len(temp_password), wk_app.PASSWORD_MIN_LENGTH)
+        self.assertEqual(old_login_status, 401)
+        self.assertEqual(temp_login_status, 200)
+        self.assertTrue(temp_login_payload["user"]["must_change_password"])
+        self.assertEqual(change_status, 200)
+        self.assertFalse(me_after["user"]["must_change_password"])
+        self.assertEqual(new_login_status, 200)
+
+    def test_non_admin_cannot_reset_password(self) -> None:
+        def scenario(_conn):
+            admin = wk_app.app.test_client()
+            player = wk_app.app.test_client()
+            admin.post(
+                "/api/auth/login",
+                json={"email": "admin.user@talpanetwork.com", "password": "admin-password"},
+            )
+            player.post(
+                "/api/auth/login",
+                json={"email": "player.user@talpanetwork.com", "password": "player-password"},
+            )
+            with wk_app.get_db() as conn:
+                admin_row = wk_app.execute(
+                    conn,
+                    "SELECT id FROM users WHERE email = ?",
+                    ("admin.user@talpanetwork.com",),
+                ).fetchone()
+            forbidden = player.post(f"/api/admin/users/{admin_row['id']}/reset-password", json={})
+            return forbidden.status_code
+
+        status = self.run_with_temp_db(scenario)
+        self.assertEqual(status, 403)
+
+    def test_forgot_password_no_longer_resets_to_default(self) -> None:
+        def scenario(_conn):
+            client = wk_app.app.test_client()
+            client.post(
+                "/api/auth/login",
+                json={"email": "known.user@talpanetwork.com", "password": "known-password"},
+            )
+            forgot = client.post(
+                "/api/auth/forgot-password",
+                json={"email": "known.user@talpanetwork.com"},
+            )
+            default_attempt = wk_app.app.test_client().post(
+                "/api/auth/login",
+                json={
+                    "email": "known.user@talpanetwork.com",
+                    "password": wk_app.DEFAULT_PASSWORD,
+                },
+            )
+            known_attempt = wk_app.app.test_client().post(
+                "/api/auth/login",
+                json={"email": "known.user@talpanetwork.com", "password": "known-password"},
+            )
+            return forgot.status_code, default_attempt.status_code, known_attempt.status_code
+
+        forgot_status, default_status, known_status = self.run_with_temp_db(scenario)
+        self.assertEqual(forgot_status, 200)
+        self.assertEqual(default_status, 401)
+        self.assertEqual(known_status, 200)
+
 
 if __name__ == "__main__":
     unittest.main()

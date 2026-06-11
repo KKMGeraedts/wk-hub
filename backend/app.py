@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import sqlite3
 import time
 import unicodedata
@@ -57,6 +58,10 @@ TALPA_EMAIL_PATTERN = re.compile(
 )
 PASSWORD_MIN_LENGTH = 8
 DEFAULT_PASSWORD = "default-password"
+# Admin-issued one-time passwords. Length comfortably clears PASSWORD_MIN_LENGTH;
+# the alphabet drops easily confused characters (0/O, 1/l/I) for legibility.
+TEMPORARY_PASSWORD_LENGTH = 12
+TEMPORARY_PASSWORD_ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_ADMIN_EMAILS = {
     "karel.geraedts@talpanetwork.com",
     "olivier.thijsen@talpanetwork.com",
@@ -1132,6 +1137,7 @@ def init_db() -> None:
             email TEXT NOT NULL UNIQUE,
             profile_image_url TEXT,
             password_hash TEXT,
+            must_change_password INTEGER NOT NULL DEFAULT 0,
             prize_pot_status TEXT NOT NULL DEFAULT 'undecided',
             is_admin INTEGER NOT NULL DEFAULT 0,
             archived_at TEXT,
@@ -1492,6 +1498,7 @@ def init_db() -> None:
             email TEXT NOT NULL UNIQUE,
             profile_image_url TEXT,
             password_hash TEXT,
+            must_change_password INTEGER NOT NULL DEFAULT 0,
             prize_pot_status TEXT NOT NULL DEFAULT 'undecided',
             is_admin INTEGER NOT NULL DEFAULT 0,
             archived_at TIMESTAMPTZ,
@@ -1914,11 +1921,27 @@ def init_db() -> None:
             ).fetchone()
             if user_archived_column is None:
                 conn.execute("ALTER TABLE users ADD COLUMN archived_at TIMESTAMPTZ")
+            user_must_change_column = conn.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'users'
+                  AND column_name = 'must_change_password'
+                """
+            ).fetchone()
+            if user_must_change_column is None:
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN must_change_password "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+            # Legacy accounts without a password get a known default; force them
+            # to choose their own on next login so the default can't be used to
+            # sign in as them.
             execute(
                 conn,
                 """
                 UPDATE users
-                SET password_hash = ?
+                SET password_hash = ?, must_change_password = 1
                 WHERE password_hash IS NULL OR password_hash = ''
                 """,
                 (generate_password_hash(DEFAULT_PASSWORD),),
@@ -1985,11 +2008,19 @@ def init_db() -> None:
                 conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
             if not any(row["name"] == "archived_at" for row in user_columns):
                 conn.execute("ALTER TABLE users ADD COLUMN archived_at TEXT")
+            if not any(row["name"] == "must_change_password" for row in user_columns):
+                conn.execute(
+                    "ALTER TABLE users ADD COLUMN must_change_password "
+                    "INTEGER NOT NULL DEFAULT 0"
+                )
+            # Legacy accounts without a password get a known default; force them
+            # to choose their own on next login so the default can't be used to
+            # sign in as them.
             execute(
                 conn,
                 """
                 UPDATE users
-                SET password_hash = ?
+                SET password_hash = ?, must_change_password = 1
                 WHERE password_hash IS NULL OR password_hash = ''
                 """,
                 (generate_password_hash(DEFAULT_PASSWORD),),
@@ -2149,6 +2180,7 @@ def row_to_user(row: Any) -> dict[str, Any] | None:
         **real_name,
         "is_admin": bool(row["is_admin"]) or is_admin_email(row["email"]),
         "archived_at": row["archived_at"],
+        "must_change_password": bool(row_value(row, "must_change_password")),
         "profile_picture": user_profile_picture(row),
         "prize_pot_status": prize_pot_status,
         "prize_pot": prize_pot_payload(prize_pot_status),
@@ -2163,7 +2195,8 @@ def current_user() -> dict[str, Any] | None:
         row = execute(
             conn,
             """
-            SELECT id, name, email, profile_image_url, prize_pot_status, is_admin, archived_at
+            SELECT id, name, email, profile_image_url, prize_pot_status, is_admin,
+                   archived_at, must_change_password
             FROM users
             WHERE id = ? AND archived_at IS NULL
             """,
@@ -2235,6 +2268,12 @@ def validate_password(value: Any) -> str:
     if len(password) > 256:
         raise ValueError("Password must be at most 256 characters.")
     return password
+
+
+def generate_temporary_password() -> str:
+    return "".join(
+        secrets.choice(TEMPORARY_PASSWORD_ALPHABET) for _ in range(TEMPORARY_PASSWORD_LENGTH)
+    )
 
 
 def normalize_identity(value: Any) -> str:
@@ -5931,7 +5970,7 @@ def login():
             conn,
             """
             SELECT id, name, email, profile_image_url, password_hash,
-                   prize_pot_status, is_admin, archived_at
+                   prize_pot_status, is_admin, archived_at, must_change_password
             FROM users
             WHERE LOWER(TRIM(email)) = ?
             ORDER BY id
@@ -6019,35 +6058,16 @@ def login():
 
 @app.post("/api/auth/forgot-password")
 def forgot_password():
-    payload = request.get_json(silent=True) or {}
-    email = normalize_email(payload.get("email", ""))
-    if "@" not in email or "." not in email:
-        return jsonify({"error": "Use a valid email address."}), 400
-
-    with get_db() as conn:
-        row = execute(
-            conn,
-            """
-            SELECT id
-            FROM users
-            WHERE LOWER(TRIM(email)) = ? AND archived_at IS NULL
-            ORDER BY id
-            """,
-            (email,),
-        ).fetchone()
-        if row is not None:
-            execute(
-                conn,
-                "UPDATE users SET password_hash = ? WHERE id = ?",
-                (generate_password_hash(DEFAULT_PASSWORD), row["id"]),
-            )
-
-    if row is not None:
-        logger.info("Password reset to default for user %s", row["id"])
+    # Self-service resets are deliberately disabled: there is no email channel to
+    # verify ownership, so anyone could otherwise hijack an account by email alone.
+    # Password resets are handled by an admin, who issues a one-time password.
     return jsonify(
         {
             "ok": True,
-            "message": "If that email belongs to an account, the password is now default-password.",
+            "message": (
+                "Password resets are handled by a pool admin. Ask an admin to reset "
+                "your password and they will give you a temporary one to log in with."
+            ),
         }
     )
 
@@ -6114,7 +6134,7 @@ def change_password():
             return jsonify({"error": "Current password is incorrect."}), 401
         execute(
             conn,
-            "UPDATE users SET password_hash = ? WHERE id = ?",
+            "UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?",
             (generate_password_hash(validated_password), user["id"]),
         )
 
@@ -6313,6 +6333,49 @@ def admin_restore_user(user_id: int):
         )
     logger.info("Admin %s restored user %s", admin["id"], user_id)
     return admin_users()
+
+
+@app.post("/api/admin/users/<int:user_id>/reset-password")
+def admin_reset_user_password(user_id: int):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+
+    temporary_password = generate_temporary_password()
+    with get_db() as conn:
+        target = execute(
+            conn,
+            "SELECT id, archived_at FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+        if target is None:
+            return jsonify({"error": "Account not found."}), 404
+        if target["archived_at"] is not None:
+            return jsonify({"error": "Restore the account before resetting its password."}), 400
+        execute(
+            conn,
+            "UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?",
+            (generate_password_hash(temporary_password), user_id),
+        )
+        rows = execute(
+            conn,
+            """
+            SELECT id, name, email, profile_image_url, prize_pot_status,
+                   is_admin, archived_at, created_at
+            FROM users
+            ORDER BY archived_at IS NOT NULL, name
+            """,
+        ).fetchall()
+    logger.info("Admin %s reset password for user %s", admin["id"], user_id)
+    return jsonify(
+        {
+            "ok": True,
+            "user_id": user_id,
+            "temporary_password": temporary_password,
+            "users": [json_ready(row) for row in rows],
+        }
+    )
 
 
 @app.get("/api/admin/labels")
