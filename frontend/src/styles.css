@@ -151,6 +151,39 @@ textarea {
     justify-content: flex-end;
 }
 
+.faq-button {
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+    min-height: 42px;
+    border: 1px solid rgba(243, 108, 33, 0.45);
+    border-radius: 999px;
+    background: #fff0e6;
+    color: var(--orange-dark);
+    cursor: pointer;
+    padding: 0 15px;
+    font-size: 13px;
+    font-weight: 900;
+    white-space: nowrap;
+}
+
+.faq-button > span[aria-hidden="true"] {
+    display: inline-grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--orange);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.faq-button:hover {
+    background: #ffe4d0;
+    border-color: rgba(243, 108, 33, 0.72);
+}
+
 .my-predictions-button {
     display: inline-flex;
     gap: 9px;
@@ -799,6 +832,65 @@ tr.highlight td {
 .scoring-rules-grid span {
     color: var(--muted);
     font-size: 13px;
+}
+
+.faq-layout {
+    display: grid;
+    gap: 16px;
+}
+
+.faq-list {
+    display: grid;
+    gap: 10px;
+}
+
+.faq-item {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fbfcfd;
+    overflow: hidden;
+}
+
+.faq-item summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--text);
+    cursor: pointer;
+    list-style: none;
+}
+
+.faq-item summary::-webkit-details-marker {
+    display: none;
+}
+
+.faq-item summary::after {
+    content: "+";
+    flex: none;
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--orange);
+    transition: transform 0.15s ease;
+}
+
+.faq-item[open] summary::after {
+    content: "−";
+}
+
+.faq-item summary:hover {
+    color: var(--orange-dark);
+}
+
+.faq-item > p {
+    margin: 0;
+    padding: 0 14px 14px;
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.55;
 }
 
 .news-grid {
