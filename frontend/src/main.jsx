@@ -117,6 +117,7 @@ const VIEW_ROUTES = {
   teams: "/teams",
   schedule: "/schedule",
   venues: "/venues",
+  faq: "/faq",
   matchday: "/matchday",
   pool: "/predictions",
   adjust: "/predictions/adjust",
@@ -298,6 +299,7 @@ function viewLabel(view) {
     matchday: "Matchday",
     venues: "Venues",
     admin: "Admin",
+    faq: "FAQ",
   };
   return labels[view] ?? view;
 }
@@ -3214,6 +3216,81 @@ function ScoringRulesPanel({ rules }) {
   );
 }
 
+function FaqPage({ rules }) {
+  const groupRule = rules?.match_scores?.["Group Stage"] ?? {};
+  const finalRule = rules?.match_scores?.["Final"] ?? {};
+  const strikerRule = rules?.world_cup_strikers ?? {};
+  const groupExact = groupRule.exact ?? 45;
+  const groupOutcome = groupRule.outcome ?? 30;
+  const finalExact = finalRule.exact ?? 270;
+  const leeuwtjes = rules?.leeuwtjes_total ?? 5;
+  const strikerCount = strikerRule.count ?? 5;
+  const strikerGoal = strikerRule.points_per_goal ?? 10;
+  const topScorer = rules?.world_cup_top_scorer ?? 100;
+  const winner = rules?.world_cup_winner ?? 250;
+  const groupPosition = rules?.group_position ?? 25;
+  const quizYesNo = rules?.quiz_yes_no ?? 15;
+  const quizOpen = rules?.quiz_open ?? 12;
+
+  const faqItems = [
+    {
+      q: "Hoe verdien ik punten met wedstrijden?",
+      a: `Voorspel de uitslag van elke wedstrijd. In de poulefase levert een exact goede uitslag ${groupExact} punten op en de juiste toto (winst, gelijkspel of verlies) ${groupOutcome} punten. In de knock-out lopen de punten per ronde op, tot ${finalExact} punten voor een exact voorspelde finale. Je voorspelling aanpassen kan tot 1 uur voor de aftrap.`,
+    },
+    {
+      q: "Wat doen de Leeuwtjes?",
+      a: `Een Leeuwtje verdubbelt de wedstrijdpunten van die ene voorspelling. Je hebt er ${leeuwtjes} voor het hele toernooi. Zet er een in bij een wedstrijd vóórdat die op slot gaat (1 uur voor de aftrap). Tot dat moment kun je het Leeuwtje ook weer weghalen en op een andere wedstrijd zetten. Tip: bewaar ze voor duels waar je zeker van bent of voor knock-outwedstrijden, waar de punten hoger liggen.`,
+    },
+    {
+      q: "Hoe werken de spitsen?",
+      a: `Je kiest ${strikerCount} spitsen. Elke goal die een van jouw spitsen tijdens het toernooi maakt, levert ${strikerGoal} punten op. Je kiest ze eenmalig vóór de eerste groepswedstrijd; daarna staan ze vast. Kies dus spitsen met veel speeltijd en een grote kans op goals.`,
+    },
+    {
+      q: "Wat levert de topscorer op?",
+      a: `Voorspel wie er aan het einde van het toernooi topscorer wordt. Heb je het goed, dan krijg je ${topScorer} punten. Ook deze keuze leg je vóór de eerste groepswedstrijd vast.`,
+    },
+    {
+      q: "En de wereldkampioen?",
+      a: `Voorspel welk land het WK wint. Goed voorspeld is dat ${winner} punten — de grootste klapper van de pool. Vastleggen kan tot 1 uur voor de eerste groepswedstrijd.`,
+    },
+    {
+      q: "Krijg ik punten voor de eindstand van een poule?",
+      a: `Ja. Zodra alle wedstrijden van een poule gespeeld zijn, vergelijken we jouw voorspelde eindstand met de echte stand. Voor elke ploeg die je op de juiste plek hebt staan, krijg je ${groupPosition} punten. Dit gaat automatisch op basis van je wedstrijdvoorspellingen — je hoeft de stand niet apart in te vullen.`,
+    },
+    {
+      q: "Wat zijn de quizvragen?",
+      a: `Bij sommige wedstrijden hoort een quizvraag. Bij keuzevragen zie je per antwoord hoeveel punten het oplevert. Een ja/nee-vraag is ${quizYesNo} punten en een spelervraag ${quizOpen} punten. Beantwoorden kan tot 1 uur voor de aftrap.`,
+    },
+    {
+      q: "Wanneer gaat alles op slot?",
+      a: `Wedstrijdvoorspellingen, quizantwoorden en Leeuwtjes kun je aanpassen tot 1 uur voor de aftrap van die wedstrijd. Je toernooipicks (wereldkampioen, topscorer en spitsen) liggen vast vanaf 1 uur voor de allereerste groepswedstrijd.`,
+    },
+  ];
+
+  return (
+    <div className="faq-layout">
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <h3>Veelgestelde vragen</h3>
+            <p>Hoe werkt de pool? Alles over voorspellen, Leeuwtjes, spitsen en punten.</p>
+          </div>
+          <span className="pill green">{faqItems.length} vragen</span>
+        </div>
+        <div className="panel-body faq-list">
+          {faqItems.map((item, index) => (
+            <details className="faq-item" key={item.q} open={index === 0}>
+              <summary>{item.q}</summary>
+              <p>{item.a}</p>
+            </details>
+          ))}
+        </div>
+      </article>
+      <ScoringRulesPanel rules={rules} />
+    </div>
+  );
+}
+
 function HomePage({ onSchedule, recap, rules, newsletters = [] }) {
   const articles = newsletters.length ? newsletters : NEWS_ARTICLES;
   return (
@@ -5705,6 +5782,7 @@ function App() {
     "teams",
     "schedule",
     "venues",
+    "faq",
   ].filter(Boolean);
 
   return (
@@ -5725,6 +5803,16 @@ function App() {
             onPredictions={() => navigateToView("adjust")}
             onNotificationAction={navigateToPredictionTarget}
           />
+          <button
+            className="faq-button"
+            type="button"
+            onClick={() => navigateToView("faq")}
+            aria-label="Veelgestelde vragen"
+            title="Veelgestelde vragen"
+          >
+            <span aria-hidden="true">?</span>
+            <span>FAQ</span>
+          </button>
           <button
             className="my-predictions-button"
             type="button"
@@ -5966,6 +6054,12 @@ function App() {
               pool={pool}
               onPoolUpdate={updatePoolOnly}
             />
+          </section>
+        )}
+
+        {view === "faq" && (
+          <section className="view is-active">
+            <FaqPage rules={pool.rules} />
           </section>
         )}
 
