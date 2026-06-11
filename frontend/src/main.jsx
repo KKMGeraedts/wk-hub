@@ -2008,29 +2008,15 @@ function GroupPanel({ group, data, teams }) {
 function LoginPanel({ onLogin }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [resetMode, setResetMode] = useState(false);
-  const [resetEmail, setResetEmail] = useState("");
+  const [showResetHelp, setShowResetHelp] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
   const [saving, setSaving] = useState(false);
 
   async function submit(event) {
     event.preventDefault();
     setSaving(true);
     setError("");
-    setSuccess("");
     try {
-      if (resetMode) {
-        const result = await apiJson("/api/auth/forgot-password", {
-          method: "POST",
-          body: JSON.stringify({ email: resetEmail }),
-        });
-        setSuccess(
-          result.message ?? "Password reset. Use default-password to log in.",
-        );
-        return;
-      }
-
       if (email && !TALPA_EMAIL_PATTERN.test(email.trim())) {
         throw new Error(
           "Use firstname.lastname@talpanetwork.com or firstname.lastname@talpastudios.com.",
@@ -2053,72 +2039,53 @@ function LoginPanel({ onLogin }) {
     <article className="panel pool-login">
       <div className="panel-header">
         <div>
-          <h3>{resetMode ? "Restore password" : "Join the Talpa WK Pool"}</h3>
-          <p>
-            {resetMode
-              ? "Enter your account email and use the default password after reset."
-              : "Log in with your email address and password."}
-          </p>
+          <h3>Join the Talpa WK Pool</h3>
+          <p>Log in with your email address and password.</p>
         </div>
-        <span className="pill orange">{resetMode ? "Reset" : "Login"}</span>
+        <span className="pill orange">Login</span>
       </div>
       <form className="panel-body login-form" onSubmit={submit}>
-        {resetMode ? (
-          <label>
-            Email
-            <input
-              value={resetEmail}
-              onChange={(event) => setResetEmail(event.target.value)}
-              inputMode="email"
-              autoComplete="email"
-              placeholder="firstname.lastname@talpanetwork.com"
-            />
-          </label>
-        ) : (
-          <>
-            <label>
-              Email
-              <input
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                inputMode="email"
-                autoComplete="email"
-                placeholder="firstname.lastname@talpanetwork.com"
-              />
-              <span className="field-help">
-                Use firstname.lastname@talpanetwork.com or firstname.lastname@talpastudios.com.
-              </span>
-            </label>
-            <label>
-              Password
-              <input
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                type="password"
-                autoComplete="current-password"
-                minLength="8"
-                placeholder="at least 8 characters"
-              />
-            </label>
-          </>
-        )}
+        <label>
+          Email
+          <input
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            inputMode="email"
+            autoComplete="email"
+            placeholder="firstname.lastname@talpanetwork.com"
+          />
+          <span className="field-help">
+            Use firstname.lastname@talpanetwork.com or firstname.lastname@talpastudios.com.
+          </span>
+        </label>
+        <label>
+          Password
+          <input
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            type="password"
+            autoComplete="current-password"
+            minLength="8"
+            placeholder="at least 8 characters"
+          />
+        </label>
         {error && <div className="form-error">{error}</div>}
-        {success && <div className="form-success">{success}</div>}
+        {showResetHelp && (
+          <div className="form-help-note">
+            Password resets are handled by a pool admin — ask Sem, Karel or Olivier
+            to reset yours. They will give you a temporary password, and you can set
+            your own again on your next login.
+          </div>
+        )}
         <button className="primary-button" type="submit" disabled={saving}>
-          {saving ? "Saving..." : resetMode ? "Reset password" : "Log in"}
+          {saving ? "Saving..." : "Log in"}
         </button>
         <button
           className="text-button"
           type="button"
-          disabled={saving}
-          onClick={() => {
-            setResetMode((current) => !current);
-            setResetEmail(email);
-            setError("");
-            setSuccess("");
-          }}
+          onClick={() => setShowResetHelp((current) => !current)}
         >
-          {resetMode ? "Back to login" : "Forgot password?"}
+          Forgot password?
         </button>
       </form>
     </article>
@@ -2300,7 +2267,7 @@ function ProfileNameEditor({ player, canEdit, onUpdateName }) {
   );
 }
 
-function ChangePasswordPanel({ onChangePassword }) {
+function ChangePasswordPanel({ onChangePassword, onSuccess, currentPasswordLabel }) {
   const [currentPassword, setCurrentPassword] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -2323,6 +2290,7 @@ function ChangePasswordPanel({ onChangePassword }) {
       setPassword("");
       setConfirmPassword("");
       setSuccess("Password changed.");
+      if (onSuccess) await onSuccess();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -2333,7 +2301,7 @@ function ChangePasswordPanel({ onChangePassword }) {
   return (
     <form className="change-password-form" onSubmit={submit}>
       <label>
-        Current password
+        {currentPasswordLabel ?? "Current password"}
         <input
           value={currentPassword}
           onChange={(event) => setCurrentPassword(event.target.value)}
@@ -2383,10 +2351,7 @@ function ChangePasswordModal({ onClose, onChangePassword }) {
         <div className="prediction-modal-header">
           <div>
             <h3>Change password</h3>
-            <p>
-              Use default-password as current password if your account was
-              migrated.
-            </p>
+            <p>Enter your current password, then choose a new one.</p>
           </div>
           <button className="text-button" type="button" onClick={onClose}>
             Close
@@ -2397,6 +2362,41 @@ function ChangePasswordModal({ onClose, onChangePassword }) {
         </div>
       </article>
     </div>
+  );
+}
+
+function ForcePasswordChangePage({ onChangePassword, onComplete, onLogout }) {
+  return (
+    <main className="login-page">
+      <section className="login-copy" aria-label="Set a new password">
+        <FieldMark />
+        <p className="eyebrow">FIFA World Cup 2026</p>
+        <h1>Set a new password</h1>
+        <p>
+          An admin gave your account a temporary password. Choose your own
+          password now to finish logging in.
+        </p>
+      </section>
+      <article className="panel pool-login">
+        <div className="panel-header">
+          <div>
+            <h3>Choose a new password</h3>
+            <p>Enter the temporary password, then pick a new one of your own.</p>
+          </div>
+          <span className="pill orange">Required</span>
+        </div>
+        <div className="panel-body">
+          <ChangePasswordPanel
+            onChangePassword={onChangePassword}
+            onSuccess={onComplete}
+            currentPasswordLabel="Temporary password"
+          />
+          <button className="text-button" type="button" onClick={onLogout}>
+            Log out instead
+          </button>
+        </div>
+      </article>
+    </main>
   );
 }
 
@@ -2411,6 +2411,7 @@ function AdminUsersPage({ currentUser }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busyUserId, setBusyUserId] = useState(null);
+  const [resetResult, setResetResult] = useState(null);
   const prizePotCounts = useMemo(
     () =>
       users.reduce(
@@ -2462,7 +2463,37 @@ function AdminUsersPage({ currentUser }) {
     }
   }
 
+  async function resetPassword(user) {
+    setBusyUserId(user.id);
+    setError("");
+    setResetResult(null);
+    try {
+      const result = await apiJson(
+        `/api/admin/users/${user.id}/reset-password`,
+        { method: "POST", body: "{}" },
+      );
+      setUsers(result.users ?? []);
+      setResetResult({
+        userId: user.id,
+        name: user.name,
+        email: user.email,
+        password: result.temporary_password,
+      });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusyUserId(null);
+    }
+  }
+
   return (
+    <>
+      {resetResult && (
+        <TemporaryPasswordModal
+          result={resetResult}
+          onClose={() => setResetResult(null)}
+        />
+      )}
     <article className="panel admin-users-panel">
       <div className="panel-header">
         <div>
@@ -2538,6 +2569,16 @@ function AdminUsersPage({ currentUser }) {
                           {user.is_admin ? "Remove admin" : "Make admin"}
                         </button>
                       )}
+                      {!archived && (
+                        <button
+                          className="text-button"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => resetPassword(user)}
+                        >
+                          Reset password
+                        </button>
+                      )}
                       {archived ? (
                         <button
                           className="text-button"
@@ -2566,6 +2607,56 @@ function AdminUsersPage({ currentUser }) {
         )}
       </div>
     </article>
+    </>
+  );
+}
+
+function TemporaryPasswordModal({ result, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyPassword() {
+    try {
+      await navigator.clipboard.writeText(result.password);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <article
+        className="prediction-modal change-password-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Temporary password"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="prediction-modal-header">
+          <div>
+            <h3>Temporary password set</h3>
+            <p>
+              Share this with {result.name} ({result.email}). They will be asked
+              to choose their own password the next time they log in.
+            </p>
+          </div>
+          <button className="text-button" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="prediction-modal-body">
+          <div className="temp-password-display">
+            <code>{result.password}</code>
+            <button className="primary-button" type="button" onClick={copyPassword}>
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <p className="field-help">
+            This password is shown only once. If you lose it, reset it again.
+          </p>
+        </div>
+      </article>
+    </div>
   );
 }
 
@@ -6051,6 +6142,11 @@ function App() {
     });
   }
 
+  async function refreshPoolAfterPasswordChange() {
+    const updatedPool = await apiJson("/api/pool");
+    setPool(updatedPool);
+  }
+
   async function savePrizePotParticipation(status, options = {}) {
     if (options.optimistic) {
       setPool((current) => {
@@ -6126,6 +6222,16 @@ function App() {
 
   if (!pool?.me) {
     return <LoginPage onLogin={handleLogin} />;
+  }
+
+  if (pool.me.must_change_password) {
+    return (
+      <ForcePasswordChangePage
+        onChangePassword={changePassword}
+        onComplete={refreshPoolAfterPasswordChange}
+        onLogout={logout}
+      />
+    );
   }
 
   if (!data) {
