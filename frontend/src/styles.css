@@ -3239,6 +3239,42 @@ tr.highlight td {
     color: var(--green);
 }
 
+.form-help-note {
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: var(--missing-predictions);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+
+.temp-password-display {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.temp-password-display code {
+    flex: 1 1 auto;
+    min-width: 160px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background: var(--surface-alt);
+    border: 1px dashed var(--line);
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: var(--text);
+    user-select: all;
+}
+
+.temp-password-display .primary-button {
+    flex: 0 0 auto;
+}
+
 .pool-layout {
     display: grid;
     gap: 16px;
