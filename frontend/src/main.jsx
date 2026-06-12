@@ -282,6 +282,12 @@ function poolLeeuwtjeMatchIds(pool) {
   return Array.isArray(pool?.leeuwtjes_match_ids) ? pool.leeuwtjes_match_ids : [];
 }
 
+function poolMatchPoints(pool) {
+  return pool?.match_points && typeof pool.match_points === "object"
+    ? pool.match_points
+    : {};
+}
+
 function poolStrikerPicks(pool) {
   return Array.isArray(pool?.striker_picks)
     ? pool.striker_picks
@@ -1337,7 +1343,15 @@ function predictionScoreLabel(prediction) {
   return `${prediction.home_score} - ${prediction.away_score}`;
 }
 
-function MatchCard({ match, teams, venues, prediction, locked, onPrediction }) {
+function MatchCard({
+  match,
+  teams,
+  venues,
+  prediction,
+  points,
+  locked,
+  onPrediction,
+}) {
   const venue = venues.get(match.venue_id);
   const venueLabel =
     match.venue_id === "to_confirm"
@@ -1346,6 +1360,7 @@ function MatchCard({ match, teams, venues, prediction, locked, onPrediction }) {
   const group = match.group ? `Group ${match.group}` : match.round;
   const broadcaster = broadcastInfo(match);
   const live = isMatchLive(match);
+  const completed = match.home_score != null && match.away_score != null;
   return (
     <article className="match-card">
       <div className="match-time">{formatTime(match)}</div>
@@ -1376,6 +1391,19 @@ function MatchCard({ match, teams, venues, prediction, locked, onPrediction }) {
         {match.quiz && (
           <div className="match-quiz-line">Quiz: {match.quiz.question}</div>
         )}
+        {completed && (
+          <div className="match-result-line">
+            <span>
+              Final score: {match.home_score} - {match.away_score}
+            </span>
+            {points && (
+              <span>
+                Your points: {points.total_points ?? 0}
+                {points.leeuwtje_points ? " incl. Leeuwtje" : ""}
+              </span>
+            )}
+          </div>
+        )}
       </div>
       <div className="match-actions">
         {live && (
@@ -1404,6 +1432,7 @@ function Schedule({ matches, teams, venues, pool, onPoolUpdate }) {
   if (!matches.length)
     return <div className="empty">No matches available.</div>;
   const predictions = poolPredictions(pool);
+  const matchPoints = poolMatchPoints(pool);
   const grouped = matches.reduce((days, match) => {
     const key = localDateKey(match);
     if (!days.has(key)) days.set(key, []);
@@ -1427,6 +1456,7 @@ function Schedule({ matches, teams, venues, pool, onPoolUpdate }) {
                   teams={teams}
                   venues={venues}
                   prediction={predictions[match.id]}
+                  points={matchPoints[match.id]}
                   locked={locked}
                   onPrediction={() => setActiveMatch({ ...match, locked })}
                 />
@@ -3410,7 +3440,68 @@ function AdminBroadcastPage() {
   );
 }
 
-function AdminPage({ currentUser, teams }) {
+function AdminDataSyncPage({ onSyncComplete }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+
+  async function syncMissingResults() {
+    setBusy(true);
+    setError("");
+    try {
+      const response = await apiJson("/api/admin/api-football/missing-results/sync", {
+        method: "POST",
+        body: "{}",
+      });
+      setResult(response);
+      if (response.ok && typeof onSyncComplete === "function") {
+        await onSyncComplete();
+      }
+    } catch (syncError) {
+      setError(syncError.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className="panel admin-message-panel">
+      <div className="panel-header">
+        <div>
+          <h3>Data sync</h3>
+          <p>Fetch missing final results for matches that have already started.</p>
+        </div>
+      </div>
+      <div className="panel-body admin-sync-panel">
+        <button
+          className="primary-button"
+          type="button"
+          disabled={busy}
+          onClick={syncMissingResults}
+        >
+          {busy ? "Checking API-Football..." : "Fetch missing match results"}
+        </button>
+        {error && <div className="form-error">{error}</div>}
+        {result && (
+          <div className="admin-sync-result">
+            <strong>{result.ok ? "Sync complete" : "Sync finished with errors"}</strong>
+            <span>{result.match_ids?.length ?? 0} missing matches checked</span>
+            <span>{result.synced?.length ?? 0} matches synced</span>
+            <span>{result.attempts?.length ?? 0} provider attempts</span>
+            <span>{result.skipped?.length ?? 0} skipped</span>
+            <span>
+              API requests today: {result.requests_today ?? "?"}/
+              {result.daily_limit ?? "?"}
+            </span>
+            {result.computed_points_updated && <span>Points recomputed</span>}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function AdminPage({ currentUser, teams, onSyncComplete }) {
   const [section, setSection] = useState("labels");
 
   return (
@@ -3426,6 +3517,7 @@ function AdminPage({ currentUser, teams }) {
             <select value={section} onChange={(event) => setSection(event.target.value)}>
               <option value="users">User management</option>
               <option value="labels">Adjust labels</option>
+              <option value="sync">Data sync</option>
               <option value="messages">Send message</option>
             </select>
           </label>
@@ -3435,6 +3527,8 @@ function AdminPage({ currentUser, teams }) {
         <AdminUsersPage currentUser={currentUser} />
       ) : section === "messages" ? (
         <AdminBroadcastPage />
+      ) : section === "sync" ? (
+        <AdminDataSyncPage onSyncComplete={onSyncComplete} />
       ) : (
         <AdminLabelsPage teams={teams} />
       )}
@@ -6118,6 +6212,12 @@ function App() {
     setPool(updatedPool);
   }
 
+  async function refreshPool() {
+    const updatedPool = await apiJson("/api/pool");
+    setPool(updatedPool);
+    return updatedPool;
+  }
+
   function continueToLeaderboard(updatedPool) {
     if (updatedPool) setPool(updatedPool);
     navigateToView("leaderboard", { replace: true });
@@ -6270,13 +6370,18 @@ function App() {
   return (
     <>
       <header className="app-header">
-        <div className="brand-lockup">
+        <button
+          className="brand-lockup"
+          type="button"
+          onClick={() => navigateToView("home")}
+          aria-label="Go to homepage"
+        >
           <FieldMark />
           <div>
             <p className="eyebrow">FIFA World Cup 2026</p>
             <h1>Talpa WK Pool</h1>
           </div>
-        </div>
+        </button>
         <div className="header-actions">
           <NotificationBell
             notifications={pool.notifications ?? []}
@@ -6470,7 +6575,11 @@ function App() {
 
         {view === "admin" && pool.me?.is_admin && (
           <section className="view is-active">
-            <AdminPage currentUser={pool.me} teams={maps.teams} />
+            <AdminPage
+              currentUser={pool.me}
+              teams={maps.teams}
+              onSyncComplete={refreshPool}
+            />
           </section>
         )}
 

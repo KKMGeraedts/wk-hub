@@ -3041,6 +3041,27 @@ def synced_result_rows() -> dict[str, Any]:
     return {row["match_id"]: row for row in rows}
 
 
+def match_has_final_result(match_id: str, rows: dict[str, Any]) -> bool:
+    row = rows.get(match_id)
+    return bool(row and row["status_short"] in API_FOOTBALL_FINAL_STATUSES)
+
+
+def missing_result_match_ids(
+    data: dict[str, Any],
+    now: datetime | None = None,
+) -> list[str]:
+    current = now or utc_now()
+    result_rows = synced_result_rows()
+    return [
+        match["id"]
+        for match in sorted(data["matches"], key=match_kickoff)
+        if match.get("home_team_id")
+        and match.get("away_team_id")
+        and match_kickoff(match) <= current
+        and not match_has_final_result(match["id"], result_rows)
+    ]
+
+
 def due_api_football_matches(
     data: dict[str, Any],
     force: bool = False,
@@ -4173,6 +4194,41 @@ def quiz_points_for_prediction(
     if not quiz:
         return 0
     return quiz_answer_points(quiz, prediction)
+
+
+def user_match_points_by_match(
+    data: dict[str, Any],
+    predictions: dict[str, dict[str, Any]],
+    quiz_predictions: dict[str, Any],
+    leeuwtje_match_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    viewership_winners = quiz_viewership_winners(data, list(quiz_predictions.values()))
+    leeuwtje_set = set(leeuwtje_match_ids)
+    points_by_match = {}
+    for match in data["matches"]:
+        if match_result(match) is None:
+            continue
+        match_prediction = predictions.get(match["id"])
+        score_points = 0
+        leeuwtje_points = 0
+        score_kind = None
+        if match_prediction:
+            score_points, score_kind = match_prediction_points(match_prediction, match)
+            if match["id"] in leeuwtje_set:
+                leeuwtje_points = score_points
+        quiz_points = quiz_points_for_prediction(
+            match,
+            quiz_predictions.get(match["id"]),
+            viewership_winners,
+        )
+        points_by_match[match["id"]] = {
+            "score_points": score_points,
+            "leeuwtje_points": leeuwtje_points,
+            "quiz_points": quiz_points,
+            "total_points": score_points + leeuwtje_points + quiz_points,
+            "score_kind": score_kind,
+        }
+    return points_by_match
 
 
 def standings_from_scores(
@@ -5726,6 +5782,12 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         for row in quiz_prediction_rows
     }
     leeuwtje_match_ids = [row["match_id"] for row in leeuwtje_rows]
+    match_points = user_match_points_by_match(
+        data,
+        predictions,
+        quiz_predictions,
+        leeuwtje_match_ids,
+    )
     group_stage_ids = {match["id"] for match in data["matches"] if match["round"] == "Group Stage"}
     group_stage_predictions = sum(1 for match_id in predictions if match_id in group_stage_ids)
     group_stage_quiz_total = sum(1 for match in data["matches"] if match.get("quiz"))
@@ -5778,6 +5840,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         "predictions": predictions,
         "quiz_predictions": quiz_predictions,
         "leeuwtjes_match_ids": leeuwtje_match_ids,
+        "match_points": match_points,
         "winner_pick": winner_pick,
         "top_scorer_pick": top_scorer_pick or None,
         "striker_picks": striker_picks,
@@ -7187,6 +7250,57 @@ def api_football_admin_sync():
         result = {
             "ok": False,
             "error": str(error),
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+    status_code = 200 if result.get("ok") else 503
+    return jsonify(result), status_code
+
+
+@app.post("/api/admin/api-football/missing-results/sync")
+def api_football_admin_missing_results_sync():
+    _admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    payload = request.get_json(silent=True) or {}
+    dry_run = bool(payload.get("dry_run", False))
+    data = load_world_cup_data()
+    match_ids = missing_result_match_ids(data)
+    try:
+        results = [
+            run_api_football_completed_sync(
+                data,
+                force=True,
+                dry_run=dry_run,
+                limit=1,
+                match_id=match_id,
+            )
+            for match_id in match_ids
+        ]
+        if not dry_run:
+            recompute_all_computed_points(load_world_cup_data())
+        result = {
+            "ok": all(item.get("ok") for item in results),
+            "dry_run": dry_run,
+            "match_ids": match_ids,
+            "results": results,
+            "synced": [synced_item for item in results for synced_item in item.get("synced", [])],
+            "attempts": [
+                attempt_item for item in results for attempt_item in item.get("attempts", [])
+            ],
+            "skipped": [
+                skipped_item for item in results for skipped_item in item.get("skipped", [])
+            ],
+            "computed_points_updated": not dry_run,
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+    except Exception as error:
+        logger.exception("API-Football missing-result sync failed")
+        result = {
+            "ok": False,
+            "error": str(error),
+            "match_ids": match_ids,
             "requests_today": api_football_request_count_today(),
             "daily_limit": API_FOOTBALL_DAILY_LIMIT,
         }
