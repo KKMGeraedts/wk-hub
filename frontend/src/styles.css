@@ -2320,6 +2320,17 @@ tr.highlight td {
     width: min(760px, 100%);
 }
 
+.profile-help-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
+}
+
+.profile-help-row .profile-help {
+    width: 100%;
+}
+
 .leeuwtjes-info {
     display: grid;
     grid-template-columns: 52px minmax(0, 1fr);
@@ -2372,6 +2383,16 @@ tr.highlight td {
     color: var(--orange-dark);
     font-size: 12px;
     font-weight: 950;
+}
+
+.points-info {
+    border-color: rgba(33, 70, 139, 0.24);
+    background: #f8fbff;
+}
+
+.points-info .leeuwtjes-mark {
+    background: var(--blue);
+    box-shadow: 0 8px 18px rgba(33, 70, 139, 0.2);
 }
 
 .profile-predictions {
@@ -2515,39 +2536,7 @@ tr.highlight td {
 }
 
 .profile-prediction-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 12px;
-    align-items: center;
-    padding: 11px 12px;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    background: #ffffff;
-}
-
-.profile-prediction-row strong,
-.profile-prediction-row span {
-    display: block;
-    min-width: 0;
-}
-
-.profile-prediction-row strong {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.profile-prediction-row span {
-    margin-top: 2px;
-    color: var(--muted);
-    font-size: 12px;
-    font-weight: 800;
-}
-
-.profile-prediction-row b {
-    color: var(--orange-dark);
-    font-size: 20px;
-    white-space: nowrap;
+    width: 100%;
 }
 
 .fifa-stats {
@@ -2655,12 +2644,72 @@ tr.highlight td {
     text-transform: uppercase;
 }
 
+.historic-heading {
+    margin-top: 8px;
+    color: var(--blue);
+}
+
+.historic-match-list {
+    margin-bottom: 20px;
+}
+
 .match-card {
+    position: relative;
     display: grid;
     grid-template-columns: 86px minmax(0, 1fr) auto;
     gap: 14px;
     align-items: center;
     padding: 13px;
+    overflow: visible;
+}
+
+.match-card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 4px;
+    border-radius: 8px 0 0 8px;
+    background: transparent;
+}
+
+.match-card.is-completed {
+    background: #f8fafc;
+}
+
+.match-card.is-completed::before {
+    background: #a8b3c2;
+}
+
+.match-card.is-upcoming::before {
+    background: var(--orange);
+}
+
+.match-card.is-awaiting::before {
+    background: #f0b429;
+}
+
+.match-card.is-live::before {
+    background: var(--green);
+}
+
+.match-card.is-completed .match-time,
+.match-card.is-completed .match-meta,
+.match-card.is-completed .match-quiz-line {
+    color: #7a8796;
+}
+
+.match-card.is-completed .match-teams {
+    color: #2a3442;
+}
+
+.match-card.is-upcoming {
+    background: #ffffff;
+}
+
+.match-card.is-upcoming .match-time {
+    color: var(--orange-dark);
 }
 
 .match-time {
@@ -2736,7 +2785,8 @@ tr.highlight td {
     font-weight: 900;
 }
 
-.match-result-line span {
+.match-result-line span,
+.points-chip {
     display: inline-flex;
     align-items: center;
     min-height: 22px;
@@ -2746,10 +2796,138 @@ tr.highlight td {
     background: #ffffff;
 }
 
+.points-chip {
+    cursor: pointer;
+    color: var(--blue);
+    font: inherit;
+}
+
+.points-chip:hover,
+.points-chip:focus-visible {
+    border-color: var(--orange);
+    color: var(--orange-dark);
+}
+
+.points-popover-anchor {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.point-breakdown {
+    display: grid;
+    gap: 5px;
+    max-width: 360px;
+    margin-top: 8px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: var(--shadow-soft);
+}
+
+.point-breakdown.is-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    z-index: 20;
+    width: 220px;
+    max-width: min(220px, calc(100vw - 32px));
+    margin-top: 0;
+    padding: 10px 11px;
+    transform: translateX(-50%);
+    border-color: rgba(33, 70, 139, 0.18);
+    box-shadow: 0 14px 34px rgba(31, 45, 64, 0.16);
+}
+
+.point-breakdown.is-popover::before {
+    content: "";
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    width: 10px;
+    height: 10px;
+    transform: translateX(-50%) rotate(45deg);
+    border-top: 1px solid rgba(33, 70, 139, 0.18);
+    border-left: 1px solid rgba(33, 70, 139, 0.18);
+    background: #ffffff;
+}
+
+.point-breakdown-total,
+.point-breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: center;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 850;
+}
+
+.point-breakdown-total {
+    color: var(--text);
+    font-size: 13px;
+}
+
+.point-breakdown.is-popover .point-breakdown-total {
+    padding-bottom: 5px;
+    border-bottom: 1px solid var(--line);
+}
+
+.point-breakdown-total b,
+.point-breakdown-row strong {
+    color: var(--orange-dark);
+    white-space: nowrap;
+}
+
+.point-breakdown span,
+.point-breakdown strong,
+.point-breakdown b {
+    display: inline;
+    margin-top: 0;
+    font-size: inherit;
+}
+
+.point-breakdown-note,
+.point-breakdown-empty {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 800;
+}
+
 .match-actions {
     display: grid;
     gap: 8px;
     justify-items: end;
+}
+
+.match-status-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 9px;
+    border-radius: 999px;
+    background: #edf2f7;
+    color: #5f6b7a;
+    font-size: 12px;
+    font-weight: 950;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.match-status-pill.is-completed {
+    background: #eef2f6;
+    color: #657282;
+}
+
+.match-status-pill.is-upcoming {
+    background: #fff1e9;
+    color: var(--orange-dark);
+}
+
+.match-status-pill.is-awaiting {
+    background: #fff7d6;
+    color: #8b6500;
 }
 
 .live-indicator {
@@ -4636,6 +4814,13 @@ tr.highlight td {
     }
     .profile-prediction-row {
         grid-template-columns: 1fr;
+    }
+    .profile-help-row,
+    .profile-prediction-main {
+        grid-template-columns: 1fr;
+    }
+    .profile-prediction-scores {
+        justify-content: flex-start;
     }
     .leeuwtjes-info {
         grid-template-columns: 1fr;

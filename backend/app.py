@@ -4106,6 +4106,20 @@ def local_match_date(match: dict[str, Any]) -> Any:
     return match_kickoff(match).astimezone(AMSTERDAM_TZ).date()
 
 
+def tournament_session_date(match: dict[str, Any]) -> Any:
+    local_kickoff = match_kickoff(match).astimezone(AMSTERDAM_TZ)
+    if local_kickoff.hour < 4:
+        return local_kickoff.date() - timedelta(days=1)
+    return local_kickoff.date()
+
+
+def current_tournament_session_date(current: datetime) -> Any:
+    local_current = current.astimezone(AMSTERDAM_TZ)
+    if local_current.hour < 4:
+        return local_current.date() - timedelta(days=1)
+    return local_current.date()
+
+
 def score_rule_for_match(match: dict[str, Any]) -> dict[str, Any]:
     return MATCH_SCORE_RULES.get(match["round"], MATCH_SCORE_RULES["Group Stage"])
 
@@ -4114,16 +4128,55 @@ def round_match_points(points: float) -> int:
     return int(points + 0.5)
 
 
+def rounded_component_points(components: dict[str, int], multiplier: float) -> dict[str, int]:
+    raw_components = {key: value * multiplier for key, value in components.items() if value > 0}
+    rounded_total = round_match_points(sum(raw_components.values()))
+    floors = {key: int(value) for key, value in raw_components.items()}
+    remainder = rounded_total - sum(floors.values())
+    ordered_keys = sorted(
+        raw_components,
+        key=lambda key: (raw_components[key] - floors[key], raw_components[key]),
+        reverse=True,
+    )
+    allocated = dict(floors)
+    for key in ordered_keys[:remainder]:
+        allocated[key] += 1
+    return {key: allocated.get(key, 0) for key in components}
+
+
 def match_prediction_points(prediction: Any, match: dict[str, Any]) -> tuple[int, str | None]:
+    breakdown = match_prediction_breakdown(prediction, match)
+    if breakdown["total_points"] <= 0:
+        return 0, None
+    return int(breakdown["total_points"]), breakdown["score_kind"]
+
+
+def match_prediction_breakdown(prediction: Any | None, match: dict[str, Any]) -> dict[str, Any]:
+    empty = {
+        "outcome_points": 0,
+        "home_goals_points": 0,
+        "away_goals_points": 0,
+        "exact_bonus_points": 0,
+        "total_points": 0,
+        "score_kind": None,
+        "outcome_correct": False,
+        "home_goals_correct": False,
+        "away_goals_correct": False,
+        "exact_score": False,
+        "multiplier": float(score_rule_for_match(match).get("multiplier", 1.0)),
+    }
+    if prediction is None:
+        return empty
     result = match_result(match)
     if result is None:
-        return 0, None
+        return empty
     rule = score_rule_for_match(match)
     multiplier = float(rule.get("multiplier", 1.0))
+    empty["multiplier"] = multiplier
     home_score = match.get("home_score")
     away_score = match.get("away_score")
     if home_score is None or away_score is None:
-        return 0, None
+        return empty
     actual_home_score = int(home_score)
     actual_away_score = int(away_score)
     predicted_home_score = prediction["home_score"]
@@ -4132,24 +4185,44 @@ def match_prediction_points(prediction: Any, match: dict[str, Any]) -> tuple[int
         predicted_home_score == actual_home_score and predicted_away_score == actual_away_score
     )
     predicted_result = prediction_result(prediction)
-    base_points = 0
+    outcome_correct = predicted_result == result
+    home_goals_correct = predicted_home_score == actual_home_score
+    away_goals_correct = predicted_away_score == actual_away_score
 
-    if predicted_result == result:
-        base_points += BASE_MATCH_SCORE_RULE["outcome"]
-    if predicted_home_score == actual_home_score:
-        base_points += BASE_MATCH_SCORE_RULE["home_goals"]
-    if predicted_away_score == actual_away_score:
-        base_points += BASE_MATCH_SCORE_RULE["away_goals"]
-    if exact_score:
-        base_points += BASE_MATCH_SCORE_RULE["exact_bonus"]
+    outcome_points = BASE_MATCH_SCORE_RULE["outcome"] if outcome_correct else 0
+    home_goals_points = BASE_MATCH_SCORE_RULE["home_goals"] if home_goals_correct else 0
+    away_goals_points = BASE_MATCH_SCORE_RULE["away_goals"] if away_goals_correct else 0
+    exact_bonus_points = BASE_MATCH_SCORE_RULE["exact_bonus"] if exact_score else 0
+    base_points = outcome_points + home_goals_points + away_goals_points + exact_bonus_points
+    total_points = round_match_points(base_points * multiplier)
+    component_points = rounded_component_points(
+        {
+            "outcome_points": outcome_points,
+            "home_goals_points": home_goals_points,
+            "away_goals_points": away_goals_points,
+            "exact_bonus_points": exact_bonus_points,
+        },
+        multiplier,
+    )
 
-    if not base_points:
-        return 0, None
-    if exact_score:
-        return round_match_points(base_points * multiplier), "exact"
-    if predicted_result == result:
-        return round_match_points(base_points * multiplier), "outcome"
-    return round_match_points(base_points * multiplier), "partial"
+    if not total_points:
+        score_kind = None
+    elif exact_score:
+        score_kind = "exact"
+    elif outcome_correct:
+        score_kind = "outcome"
+    else:
+        score_kind = "partial"
+    return {
+        **component_points,
+        "total_points": total_points,
+        "score_kind": score_kind,
+        "outcome_correct": outcome_correct,
+        "home_goals_correct": home_goals_correct,
+        "away_goals_correct": away_goals_correct,
+        "exact_score": exact_score,
+        "multiplier": multiplier,
+    }
 
 
 def quiz_complete(quiz: dict[str, Any] | None, prediction: Any | None) -> bool:
@@ -4209,24 +4282,49 @@ def user_match_points_by_match(
         if match_result(match) is None:
             continue
         match_prediction = predictions.get(match["id"])
-        score_points = 0
+        score_breakdown = match_prediction_breakdown(match_prediction, match)
+        score_points = int(score_breakdown["total_points"])
         leeuwtje_points = 0
-        score_kind = None
-        if match_prediction:
-            score_points, score_kind = match_prediction_points(match_prediction, match)
-            if match["id"] in leeuwtje_set:
-                leeuwtje_points = score_points
+        if match_prediction and match["id"] in leeuwtje_set:
+            leeuwtje_points = score_points
         quiz_points = quiz_points_for_prediction(
             match,
             quiz_predictions.get(match["id"]),
             viewership_winners,
         )
+        quiz = match.get("quiz") or {}
+        quiz_prediction = quiz_predictions.get(match["id"])
         points_by_match[match["id"]] = {
             "score_points": score_points,
+            "score_breakdown": score_breakdown,
             "leeuwtje_points": leeuwtje_points,
             "quiz_points": quiz_points,
             "total_points": score_points + leeuwtje_points + quiz_points,
-            "score_kind": score_kind,
+            "score_kind": score_breakdown["score_kind"],
+            "prediction": (
+                {
+                    "home_score": match_prediction["home_score"],
+                    "away_score": match_prediction["away_score"],
+                }
+                if match_prediction
+                else None
+            ),
+            "result": {
+                "home_score": match.get("home_score"),
+                "away_score": match.get("away_score"),
+            },
+            "quiz": (
+                {
+                    "question": quiz.get("question"),
+                    "answer": quiz_prediction["answer"] if quiz_prediction else None,
+                    "points": quiz_points,
+                    "answered": quiz_prediction is not None,
+                    "correct": quiz_points > 0,
+                }
+                if quiz
+                else None
+            ),
+            "leeuwtje": match["id"] in leeuwtje_set,
         }
     return points_by_match
 
@@ -4600,13 +4698,13 @@ def score_through_date(
     points = 0
     for prediction in user_predictions:
         match = matches.get(prediction["match_id"])
-        if not match or match_result(match) is None or local_match_date(match) > target_date:
+        if not match or match_result(match) is None or tournament_session_date(match) > target_date:
             continue
         base_points, _ = match_prediction_points(prediction, match)
         points += base_points * (2 if prediction["match_id"] in user_leeuwtjes else 1)
 
     for match in data["matches"]:
-        if match_result(match) is None or local_match_date(match) > target_date:
+        if match_result(match) is None or tournament_session_date(match) > target_date:
             continue
         points += quiz_points_for_prediction(
             match, user_quiz_predictions.get(match["id"]), viewership_winners
@@ -4623,7 +4721,11 @@ def champion_day_counts(
     viewership_winners: set[tuple[int, str]],
 ) -> Counter[int]:
     completed_dates = sorted(
-        {local_match_date(match) for match in data["matches"] if match_result(match) is not None}
+        {
+            tournament_session_date(match)
+            for match in data["matches"]
+            if match_result(match) is not None
+        }
     )
     counts: Counter[int] = Counter()
     for completed_date in completed_dates:
@@ -4816,49 +4918,53 @@ def user_prediction_groups(
     by_match = {row["match_id"]: row for row in rows}
     quiz_by_match = {row["match_id"]: row for row in quiz_rows}
     leeuwtjes = {row["match_id"] for row in leeuwtje_rows}
+    match_points = user_match_points_by_match(
+        data,
+        by_match,
+        quiz_by_match,
+        list(leeuwtjes),
+    )
     groups = []
-    for group in data["groups"]:
-        group_predictions = []
-        group_matches = sorted(
-            [
-                match
-                for match in data["matches"]
-                if match["round"] == "Group Stage" and match.get("group") == group["id"]
-            ],
-            key=match_kickoff,
+    predictions_by_date: dict[str, list[dict[str, Any]]] = {}
+    for match in sorted(data["matches"], key=match_kickoff):
+        if not include_unplayed and not is_prediction_locked(match, now):
+            continue
+        prediction = by_match.get(match["id"])
+        if prediction is None:
+            continue
+        quiz_prediction = quiz_by_match.get(match["id"])
+        local_date = match_kickoff(match).astimezone(AMSTERDAM_TZ).date().isoformat()
+        predictions_by_date.setdefault(local_date, []).append(
+            {
+                "match_id": match["id"],
+                "date": match["date"],
+                "time_utc": match["time_utc"],
+                "round": match.get("round"),
+                "group": match.get("group"),
+                "home_team_id": match["home_team_id"],
+                "away_team_id": match["away_team_id"],
+                "home_team_name": teams.get(match["home_team_id"], {}).get(
+                    "name", match["home_team_id"]
+                ),
+                "away_team_name": teams.get(match["away_team_id"], {}).get(
+                    "name", match["away_team_id"]
+                ),
+                "home_score": prediction["home_score"],
+                "away_score": prediction["away_score"],
+                "actual_home_score": match.get("home_score"),
+                "actual_away_score": match.get("away_score"),
+                "completed": match_result(match) is not None,
+                "quiz_question": match.get("quiz", {}).get("question"),
+                "quiz_answer": quiz_prediction["answer"] if quiz_prediction else None,
+                "viewership_prediction": (
+                    quiz_prediction["viewership_prediction"] if quiz_prediction else None
+                ),
+                "leeuwtje": match["id"] in leeuwtjes,
+                "points": match_points.get(match["id"]),
+            }
         )
-        for match in group_matches:
-            if not include_unplayed and not is_prediction_locked(match, now):
-                continue
-            prediction = by_match.get(match["id"])
-            if prediction is None:
-                continue
-            quiz_prediction = quiz_by_match.get(match["id"])
-            group_predictions.append(
-                {
-                    "match_id": match["id"],
-                    "date": match["date"],
-                    "time_utc": match["time_utc"],
-                    "home_team_id": match["home_team_id"],
-                    "away_team_id": match["away_team_id"],
-                    "home_team_name": teams.get(match["home_team_id"], {}).get(
-                        "name", match["home_team_id"]
-                    ),
-                    "away_team_name": teams.get(match["away_team_id"], {}).get(
-                        "name", match["away_team_id"]
-                    ),
-                    "home_score": prediction["home_score"],
-                    "away_score": prediction["away_score"],
-                    "quiz_question": match.get("quiz", {}).get("question"),
-                    "quiz_answer": quiz_prediction["answer"] if quiz_prediction else None,
-                    "viewership_prediction": (
-                        quiz_prediction["viewership_prediction"] if quiz_prediction else None
-                    ),
-                    "leeuwtje": match["id"] in leeuwtjes,
-                }
-            )
-        if group_predictions:
-            groups.append({"group": group["id"], "predictions": group_predictions})
+    for date_key, predictions in predictions_by_date.items():
+        groups.append({"group": date_key, "date": date_key, "predictions": predictions})
     return groups
 
 
@@ -4974,12 +5080,11 @@ def build_leaderboard(
             else:
                 points += base_points
             match_score_points += base_points
-            if score_kind == "exact":
-                exact_scores += 1
-                scoring_games += 1
-            elif score_kind == "outcome":
+            if prediction_result(prediction) == result and base_points > 0:
                 outcomes += 1
                 scoring_games += 1
+            if score_kind == "exact":
+                exact_scores += 1
 
             if result > 0:
                 if prediction["home_score"] == match.get("home_score"):
@@ -5145,7 +5250,11 @@ def build_leaderboard(
 
     ranked = sorted(leaderboard, key=lambda row: (-row["points"], row["name"].lower()))
     completed_dates = sorted(
-        {local_match_date(match) for match in data["matches"] if match_result(match) is not None}
+        {
+            tournament_session_date(match)
+            for match in data["matches"]
+            if match_result(match) is not None
+        }
     )
     previous_rank_by_user: dict[int, int] = {}
     if len(completed_dates) >= 2:
@@ -5621,11 +5730,13 @@ def build_daily_recap(
     viewer_user_id: int | None = None,
 ) -> dict[str, Any]:
     current = now or utc_now()
-    today = current.astimezone(AMSTERDAM_TZ).date()
+    current_session = current_tournament_session_date(current)
     completed_matches = [
         match
         for match in data["matches"]
-        if match_result(match) is not None and local_match_date(match) <= today
+        if match_result(match) is not None
+        and match_kickoff(match) <= current
+        and tournament_session_date(match) <= current_session
     ]
     if not completed_matches:
         return {
@@ -5637,9 +5748,9 @@ def build_daily_recap(
             "top_movers": [],
         }
 
-    target_date = max(local_match_date(match) for match in completed_matches)
+    target_date = max(tournament_session_date(match) for match in completed_matches)
     target_matches = [
-        match for match in completed_matches if local_match_date(match) == target_date
+        match for match in completed_matches if tournament_session_date(match) == target_date
     ]
     target_ids = {match["id"] for match in target_matches}
     teams = {team["id"]: team for team in data["teams"]}

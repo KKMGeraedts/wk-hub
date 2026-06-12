@@ -866,6 +866,53 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual((margin_points, margin_kind), (8, "outcome"))
         self.assertEqual((goal_only_points, goal_only_kind), (2, "partial"))
 
+    def test_exact_score_counts_as_exact_and_outcome_on_leaderboard(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Karel', 'karel@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES (1, 'm001', 2, 1)
+                """,
+            )
+            conn.commit()
+            return wk_app.build_leaderboard(data, use_computed_points=False)[0]
+
+        row = self.run_with_temp_db(scenario)
+
+        self.assertEqual(row["match_score_points"], 12)
+        self.assertEqual(row["exact_scores"], 1)
+        self.assertEqual(row["outcomes"], 1)
+
+    def test_user_match_points_include_component_breakdown(self) -> None:
+        data = self.scoring_data(done=True)
+
+        points_by_match = wk_app.user_match_points_by_match(
+            data,
+            {"m001": {"home_score": 2, "away_score": 1}},
+            {"m001": {"answer": "Netherlands", "viewership_prediction": None}},
+            ["m001"],
+        )
+
+        points = points_by_match["m001"]
+        self.assertEqual(points["score_points"], 12)
+        self.assertEqual(points["leeuwtje_points"], 12)
+        self.assertEqual(points["quiz_points"], 5)
+        self.assertEqual(points["total_points"], 29)
+        self.assertEqual(points["score_breakdown"]["outcome_points"], 6)
+        self.assertEqual(points["score_breakdown"]["home_goals_points"], 2)
+        self.assertEqual(points["score_breakdown"]["away_goals_points"], 2)
+        self.assertEqual(points["score_breakdown"]["exact_bonus_points"], 2)
+
     def test_match_prediction_points_apply_round_multiplier(self) -> None:
         kickoff = datetime.now(UTC) - timedelta(hours=3)
         match = make_match("m001", kickoff)
@@ -914,6 +961,62 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         self.assertEqual(goals, 2)
         self.assertEqual(points, 30)
+
+    def test_tournament_session_date_groups_overnight_matches(self) -> None:
+        evening_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
+        overnight_match = make_match("m002", datetime(2026, 6, 12, 1, 59, tzinfo=UTC))
+        next_evening_match = make_match("m003", datetime(2026, 6, 12, 19, 0, tzinfo=UTC))
+
+        self.assertEqual(
+            wk_app.tournament_session_date(evening_match),
+            wk_app.tournament_session_date(overnight_match),
+        )
+        self.assertNotEqual(
+            wk_app.tournament_session_date(evening_match),
+            wk_app.tournament_session_date(next_evening_match),
+        )
+
+    def test_daily_recap_uses_tournament_session_window(self) -> None:
+        evening_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
+        overnight_match = make_match("m002", datetime(2026, 6, 12, 1, 59, tzinfo=UTC))
+        next_evening_match = make_match("m003", datetime(2026, 6, 12, 19, 0, tzinfo=UTC))
+        for match in (evening_match, overnight_match, next_evening_match):
+            match["status"] = "completed"
+            match["home_score"] = 1
+            match["away_score"] = 0
+        data = {
+            "matches": [evening_match, overnight_match, next_evening_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Karel', 'karel@example.com', 'x', 0)
+                """,
+            )
+            return wk_app.build_daily_recap(
+                data,
+                now=datetime(2026, 6, 12, 4, 30, tzinfo=UTC),
+                leaderboard=[],
+                viewer_user_id=1,
+            )
+
+        recap = self.run_with_temp_db(scenario)
+
+        self.assertEqual(recap["title"], "Recap 2026-06-11")
+        self.assertEqual(
+            [moment["match_id"] for moment in recap["moments"]],
+            ["m001", "m002"],
+        )
 
     def seed_scoring_user(self, conn) -> None:
         wk_app.execute(

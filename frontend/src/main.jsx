@@ -5,6 +5,7 @@ import "./styles.css";
 const AMSTERDAM_TZ = "Europe/Amsterdam";
 const NETHERLANDS_ID = "ned";
 const TROPHY_SRC = "/world-cup-trophy.svg";
+const POINTS_POPOVER_EVENT = "wk-points-popover-open";
 const TEAM_FLAG_CODES = {
   alg: "dz",
   arg: "ar",
@@ -100,6 +101,24 @@ function localDateKey(match) {
     month: "2-digit",
     day: "2-digit",
   }).format(escapeDate(match));
+}
+
+function scheduleGroupedPredictions(groups) {
+  const predictions = (groups ?? [])
+    .flatMap((group) => group.predictions ?? [])
+    .filter((prediction) => prediction?.date && prediction?.time_utc)
+    .sort((left, right) => escapeDate(left) - escapeDate(right));
+  const grouped = new Map();
+  for (const prediction of predictions) {
+    const key = localDateKey(prediction);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(prediction);
+  }
+  return [...grouped.entries()].map(([date, datePredictions]) => ({
+    group: date,
+    date,
+    predictions: datePredictions,
+  }));
 }
 
 function defaultAuthenticatedView() {
@@ -1343,12 +1362,129 @@ function predictionScoreLabel(prediction) {
   return `${prediction.home_score} - ${prediction.away_score}`;
 }
 
+function splitExactScorePoints(total) {
+  const components = [
+    ["Correct outcome", 6],
+    ["Correct home goals", 2],
+    ["Correct away goals", 2],
+    ["Exact score bonus", 2],
+  ];
+  const baseTotal = components.reduce((sum, [, value]) => sum + value, 0);
+  const raw = components.map(([label, value]) => ({
+    label,
+    value: (Number(total) * value) / baseTotal,
+  }));
+  const rows = raw.map((row) => ({
+    label: row.label,
+    value: Math.floor(row.value),
+    remainder: row.value - Math.floor(row.value),
+  }));
+  let remaining = Number(total) - rows.reduce((sum, row) => sum + row.value, 0);
+  [...rows]
+    .sort((left, right) => right.remainder - left.remainder)
+    .slice(0, remaining)
+    .forEach((row) => {
+      row.value += 1;
+      remaining -= 1;
+    });
+  return rows.map((row) => [row.label, row.value]).filter(([, value]) => value > 0);
+}
+
+function pointRows(points) {
+  const breakdown = points?.score_breakdown ?? {};
+  const rows = [
+    ["Correct outcome", breakdown.outcome_points ?? 0],
+    ["Correct home goals", breakdown.home_goals_points ?? 0],
+    ["Correct away goals", breakdown.away_goals_points ?? 0],
+    ["Exact score bonus", breakdown.exact_bonus_points ?? 0],
+    ["Leeuwtje", points?.leeuwtje_points ?? 0],
+    ["Quiz", points?.quiz_points ?? 0],
+  ].filter(([, value]) => Number(value) > 0);
+  if (!rows.length && Number(points?.score_points) > 0) {
+    if (points.score_kind === "exact") {
+      rows.push(...splitExactScorePoints(points.score_points));
+    } else {
+      const label =
+        points.score_kind === "outcome" ? "Correct outcome" : "Score prediction";
+      rows.push([label, Number(points.score_points)]);
+    }
+  }
+  return rows;
+}
+
+function MatchPointBreakdown({ points, compact = false }) {
+  if (!points) return null;
+  const rows = pointRows(points);
+  return (
+    <div className={compact ? "point-breakdown is-popover" : "point-breakdown"}>
+      <div className="point-breakdown-total">
+        <strong>Total</strong>
+        <b>{points.total_points ?? 0} pts</b>
+      </div>
+      {rows.length ? (
+        rows.map(([label, value]) => (
+          <div className="point-breakdown-row" key={label}>
+            <span>{label}</span>
+            <strong>{value} pts</strong>
+          </div>
+        ))
+      ) : Number(points.total_points) > 0 ? (
+        <div className="point-breakdown-row">
+          <span>Awarded points</span>
+          <strong>{points.total_points} pts</strong>
+        </div>
+      ) : (
+        <span className="point-breakdown-empty">No points for this match.</span>
+      )}
+      {points.quiz?.answered && !compact && (
+        <div className="point-breakdown-note">
+          Quiz: {points.quiz.answer || "-"} · {points.quiz.points ?? 0} pts
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PointsPopoverAnchor({ label, points, open, onToggle, onClose }) {
+  const anchorRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function closeOnOutsideClick(event) {
+      if (anchorRef.current?.contains(event.target)) return;
+      onClose();
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick, true);
+    };
+  }, [open, onClose]);
+
+  if (!points) return null;
+  return (
+    <span className="points-popover-anchor" ref={anchorRef}>
+      <button
+        className="points-chip"
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+      >
+        {label}
+      </button>
+      {open && <MatchPointBreakdown points={points} compact />}
+    </span>
+  );
+}
+
 function MatchCard({
   match,
   teams,
   venues,
   prediction,
   points,
+  pointsOpen,
+  onTogglePoints,
+  onClosePoints,
   locked,
   onPrediction,
 }) {
@@ -1361,8 +1497,25 @@ function MatchCard({
   const broadcaster = broadcastInfo(match);
   const live = isMatchLive(match);
   const completed = match.home_score != null && match.away_score != null;
+  const kickoff = escapeDate(match);
+  const alreadyStarted = kickoff <= new Date();
+  const scheduleState = completed
+    ? "completed"
+    : live
+      ? "live"
+      : alreadyStarted
+        ? "awaiting"
+        : "upcoming";
+  const statusLabel =
+    scheduleState === "completed"
+      ? "Played"
+      : scheduleState === "live"
+        ? "Live"
+        : scheduleState === "awaiting"
+          ? "Awaiting result"
+          : "Upcoming";
   return (
-    <article className="match-card">
+    <article className={`match-card is-${scheduleState}`}>
       <div className="match-time">{formatTime(match)}</div>
       <div>
         <div className="match-teams">
@@ -1397,19 +1550,28 @@ function MatchCard({
               Final score: {match.home_score} - {match.away_score}
             </span>
             {points && (
-              <span>
-                Your points: {points.total_points ?? 0}
-                {points.leeuwtje_points ? " incl. Leeuwtje" : ""}
-              </span>
+              <PointsPopoverAnchor
+                label={`Your points: ${points.total_points ?? 0}${
+                  points.leeuwtje_points ? " incl. Leeuwtje" : ""
+                }`}
+                points={points}
+                open={pointsOpen}
+                onToggle={onTogglePoints}
+                onClose={onClosePoints}
+              />
             )}
           </div>
         )}
       </div>
       <div className="match-actions">
-        {live && (
+        {live ? (
           <span className="live-indicator">
             <span aria-hidden="true" />
             Live
+          </span>
+        ) : (
+          <span className={`match-status-pill is-${scheduleState}`}>
+            {statusLabel}
           </span>
         )}
         <span className="pill">{group}</span>
@@ -1429,39 +1591,81 @@ function MatchCard({
 
 function Schedule({ matches, teams, venues, pool, onPoolUpdate }) {
   const [activeMatch, setActiveMatch] = useState(null);
+  const [openPointsId, setOpenPointsId] = useState(null);
+  const popoverScope = useMemo(() => `schedule-${Math.random().toString(36).slice(2)}`, []);
+  useEffect(() => {
+    function closeOtherPopover(event) {
+      if (event.detail?.scope !== popoverScope) setOpenPointsId(null);
+    }
+    window.addEventListener(POINTS_POPOVER_EVENT, closeOtherPopover);
+    return () => {
+      window.removeEventListener(POINTS_POPOVER_EVENT, closeOtherPopover);
+    };
+  }, [popoverScope]);
   if (!matches.length)
     return <div className="empty">No matches available.</div>;
   const predictions = poolPredictions(pool);
   const matchPoints = poolMatchPoints(pool);
-  const grouped = matches.reduce((days, match) => {
+  const now = new Date();
+  const isHistoricMatch = (match) => {
+    const completed = match.home_score != null && match.away_score != null;
+    return completed || (escapeDate(match) < now && !isMatchLive(match, now));
+  };
+  const historicMatches = matches.filter(isHistoricMatch);
+  const activeAndFutureMatches = matches.filter((match) => !isHistoricMatch(match));
+  const grouped = activeAndFutureMatches.reduce((days, match) => {
     const key = localDateKey(match);
     if (!days.has(key)) days.set(key, []);
     days.get(key).push(match);
     return days;
   }, new Map());
+  const renderMatch = (match) => {
+    const lock = matchLock(pool, match.id);
+    const locked = Boolean(lock.locked);
+    return (
+      <MatchCard
+        key={match.id}
+        match={match}
+        teams={teams}
+        venues={venues}
+        prediction={predictions[match.id]}
+        points={matchPoints[match.id]}
+        pointsOpen={openPointsId === match.id}
+        onTogglePoints={() => {
+          setOpenPointsId((current) => {
+            const next = current === match.id ? null : match.id;
+            if (next) {
+              window.dispatchEvent(
+                new CustomEvent(POINTS_POPOVER_EVENT, {
+                  detail: { scope: popoverScope },
+                }),
+              );
+            }
+            return next;
+          });
+        }}
+        onClosePoints={() => setOpenPointsId(null)}
+        locked={locked}
+        onPrediction={() => setActiveMatch({ ...match, locked })}
+      />
+    );
+  };
 
   return (
     <>
+      {historicMatches.length > 0 && (
+        <>
+          <h3 className="date-heading historic-heading">Historic games</h3>
+          <div className="match-list historic-match-list">
+            {historicMatches.map(renderMatch)}
+          </div>
+        </>
+      )}
       {[...grouped.entries()].map(([key, dayMatches]) => (
         <React.Fragment key={key}>
           <h3 className="date-heading">{formatDate(dayMatches[0])}</h3>
           <div className="match-list">
-            {dayMatches.map((match) => {
-              const lock = matchLock(pool, match.id);
-              const locked = Boolean(lock.locked);
-              return (
-                <MatchCard
-                  key={match.id}
-                  match={match}
-                  teams={teams}
-                  venues={venues}
-                  prediction={predictions[match.id]}
-                  points={matchPoints[match.id]}
-                  locked={locked}
-                  onPrediction={() => setActiveMatch({ ...match, locked })}
-                />
-              );
-            })}
+            {dayMatches.map(renderMatch)}
           </div>
         </React.Fragment>
       ))}
@@ -4447,11 +4651,87 @@ function WallOfShame({ rows = [], onProfile = () => {} }) {
   );
 }
 
-function PlayerPredictions({ player, canView }) {
+function ProfilePredictionRow({
+  prediction,
+  teams,
+  pointsOpen,
+  onTogglePoints,
+  onClosePoints,
+}) {
+  const hasResult =
+    prediction.completed &&
+    prediction.actual_home_score != null &&
+    prediction.actual_away_score != null;
+
+  const scheduleState = hasResult ? "completed" : "upcoming";
+  const statusLabel = hasResult ? "Played" : "Prediction";
+
+  return (
+    <article className={`profile-prediction-row match-card is-${scheduleState}`}>
+      <div className="match-time">{formatTime(prediction)}</div>
+      <div>
+        <div className="match-teams">
+          <TeamLabel id={prediction.home_team_id} teams={teams} />{" "}
+          <span className="muted">vs</span>{" "}
+          <TeamLabel id={prediction.away_team_id} teams={teams} />
+          <span className="schedule-prediction-chip has-score">
+            {prediction.home_score} - {prediction.away_score}
+          </span>
+        </div>
+        <div className="match-meta">{formatDate(prediction, true)}</div>
+        {prediction.quiz_answer && (
+          <div className="match-quiz-line">Quiz: {prediction.quiz_answer}</div>
+        )}
+        {prediction.leeuwtje && (
+          <div className="match-quiz-line">Leeuwtje ingezet</div>
+        )}
+        {hasResult && (
+          <div className="match-result-line">
+            <span>
+              Final score: {prediction.actual_home_score} -{" "}
+              {prediction.actual_away_score}
+            </span>
+            {prediction.points && (
+              <PointsPopoverAnchor
+                label={`Points: ${prediction.points.total_points ?? 0}`}
+                points={prediction.points}
+                open={pointsOpen}
+                onToggle={onTogglePoints}
+                onClose={onClosePoints}
+              />
+            )}
+          </div>
+        )}
+      </div>
+      <div className="match-actions">
+        <span className={`match-status-pill is-${scheduleState}`}>
+          {statusLabel}
+        </span>
+      </div>
+    </article>
+  );
+}
+
+function PlayerPredictions({ player, canView, teams }) {
   const [predictionGroups, setPredictionGroups] = useState([]);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [limited, setLimited] = useState(false);
+  const [openPointsId, setOpenPointsId] = useState(null);
+  const popoverScope = useMemo(
+    () => `profile-${Math.random().toString(36).slice(2)}`,
+    [],
+  );
+
+  useEffect(() => {
+    function closeOtherPopover(event) {
+      if (event.detail?.scope !== popoverScope) setOpenPointsId(null);
+    }
+    window.addEventListener(POINTS_POPOVER_EVENT, closeOtherPopover);
+    return () => {
+      window.removeEventListener(POINTS_POPOVER_EVENT, closeOtherPopover);
+    };
+  }, [popoverScope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4459,6 +4739,7 @@ function PlayerPredictions({ player, canView }) {
     setError("");
     setLoaded(false);
     setLimited(false);
+    setOpenPointsId(null);
 
     if (!player || !canView) {
       setLoaded(true);
@@ -4473,7 +4754,7 @@ function PlayerPredictions({ player, canView }) {
           `/api/profiles/${player.user_id}/predictions`,
         );
         if (!cancelled) {
-          setPredictionGroups(result.groups ?? []);
+          setPredictionGroups(scheduleGroupedPredictions(result.groups ?? []));
           setLimited(
             Boolean(
               result.limited_to_locked_matches ??
@@ -4502,7 +4783,7 @@ function PlayerPredictions({ player, canView }) {
           <p>
             {limited
               ? "Andere spelers tonen alleen wedstrijden die al gesloten zijn."
-              : "Grouped by World Cup group."}
+              : "In dezelfde volgorde als het wedstrijdschema."}
           </p>
         </div>
       </div>
@@ -4524,31 +4805,28 @@ function PlayerPredictions({ player, canView }) {
         {canView &&
           predictionGroups.map((group) => (
             <section className="profile-prediction-group" key={group.group}>
-              <h4>Group {group.group}</h4>
+              <h4>{formatDate(group.predictions[0])}</h4>
               <div className="profile-prediction-list">
                 {group.predictions.map((prediction) => (
-                  <article
-                    className="profile-prediction-row"
+                  <ProfilePredictionRow
                     key={prediction.match_id}
-                  >
-                    <div>
-                      <strong>
-                        {prediction.home_team_name} vs{" "}
-                        {prediction.away_team_name}
-                      </strong>
-                      <span>
-                        {formatDate(prediction, true)} ·{" "}
-                        {formatTime(prediction)}
-                      </span>
-                      {prediction.quiz_answer && (
-                        <span>Quiz: {prediction.quiz_answer}</span>
-                      )}
-                      {prediction.leeuwtje && <span>Leeuwtje ingezet</span>}
-                    </div>
-                    <b>
-                      {prediction.home_score} - {prediction.away_score}
-                    </b>
-                  </article>
+                    prediction={prediction}
+                    teams={teams}
+                    pointsOpen={openPointsId === prediction.match_id}
+                    onTogglePoints={() => {
+                      setOpenPointsId((current) =>
+                        current === prediction.match_id ? null : prediction.match_id,
+                      );
+                      if (openPointsId !== prediction.match_id) {
+                        window.dispatchEvent(
+                          new CustomEvent(POINTS_POPOVER_EVENT, {
+                            detail: { scope: popoverScope },
+                          }),
+                        );
+                      }
+                    }}
+                    onClosePoints={() => setOpenPointsId(null)}
+                  />
                 ))}
               </div>
             </section>
@@ -4566,6 +4844,7 @@ function PlayerProfile({
   viewerPrizePot,
   badgeCatalog,
   data,
+  rules,
   tournamentPicksVisible,
   onUpdateName,
   onUpdateImage,
@@ -4774,13 +5053,20 @@ function PlayerProfile({
           )}
         </article>
       </div>
-      <LeeuwtjesHelpToggle used={player.leeuwtjes_used ?? 0} total={5} />
+      <div className="profile-help-row">
+        <LeeuwtjesHelpToggle used={player.leeuwtjes_used ?? 0} total={5} />
+        <PointsHelpToggle rules={rules} />
+      </div>
       <BadgeProgressSection
         player={player}
         badgeCatalog={badgeCatalog}
         canView
       />
-      <PlayerPredictions player={player} canView={canViewPredictions} />
+      <PlayerPredictions
+        player={player}
+        canView={canViewPredictions}
+        teams={teams}
+      />
     </div>
   );
 }
@@ -4835,6 +5121,59 @@ function LeeuwtjesHelpToggle({ used = 0, total = 5 }) {
         {open ? "Leeuwtjes uitleg verbergen" : "Leeuwtjes uitleg"}
       </button>
       {open && <LeeuwtjesInfo used={used} total={total} />}
+    </section>
+  );
+}
+
+function PointsInfo({ rules }) {
+  const groupRule = rules?.match_scores?.["Group Stage"] ?? {};
+  const finalRule = rules?.match_scores?.["Final"] ?? {};
+  const strikerRule = rules?.world_cup_strikers ?? {};
+  const groupOutcome = groupRule.outcome ?? 6;
+  const groupHomeGoals = groupRule.home_goals ?? 2;
+  const groupAwayGoals = groupRule.away_goals ?? 2;
+  const groupExactBonus = groupRule.exact_bonus ?? 2;
+  const groupExact = groupRule.exact ?? 12;
+  const finalExact = finalRule.exact ?? 48;
+  const strikerGoal = strikerRule.points_per_goal ?? 6;
+
+  return (
+    <div className="leeuwtjes-info points-info">
+      <div className="leeuwtjes-mark" aria-hidden="true">
+        P
+      </div>
+      <div>
+        <strong>Punten</strong>
+        <p>
+          In de poulefase krijg je {groupOutcome} punten voor de juiste
+          winnaar/gelijkspel, {groupHomeGoals} voor het juiste aantal
+          thuisgoals, {groupAwayGoals} voor het juiste aantal uitgoals en{" "}
+          {groupExactBonus} extra voor exact. Exact is dus {groupExact} punten
+          en telt ook als juiste outcome.
+        </p>
+        <p>
+          Knock-outwedstrijden gebruiken dezelfde onderdelen met een multiplier,
+          tot {finalExact} punten voor een exacte finale. Quizantwoorden hebben
+          per vraag eigen punten op basis van kans. Spitsen leveren {strikerGoal}{" "}
+          basispunten per goal, ook met de ronde-multiplier.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function PointsHelpToggle({ rules }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="profile-help">
+      <button
+        className="text-button"
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+      >
+        {open ? "Punten uitleg verbergen" : "Punten uitleg"}
+      </button>
+      {open && <PointsInfo rules={rules} />}
     </section>
   );
 }
@@ -6593,6 +6932,7 @@ function App() {
               viewerPrizePot={pool.prize_pot}
               badgeCatalog={pool.badge_catalog ?? []}
               data={data}
+              rules={pool.rules}
               tournamentPicksVisible={tournamentPicksRevealed(pool)}
               onUpdateName={updateUserName}
               onUpdateImage={updateUserImage}
