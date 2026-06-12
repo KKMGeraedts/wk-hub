@@ -3057,7 +3057,7 @@ def missing_result_match_ids(
         for match in sorted(data["matches"], key=match_kickoff)
         if match.get("home_team_id")
         and match.get("away_team_id")
-        and match_kickoff(match) <= current
+        and match_kickoff(match) + API_FOOTBALL_POSTMATCH_BUFFER <= current
         and not match_has_final_result(match["id"], result_rows)
     ]
 
@@ -3266,10 +3266,10 @@ def store_api_football_fixture_snapshot(
         conn,
         """
         SELECT 1 FROM match_events
-        WHERE match_id = ? AND provider_event_key LIKE 'manual:%'
+        WHERE match_id = ? AND provider_event_key LIKE ?
         LIMIT 1
         """,
-        (match["id"],),
+        (match["id"], "manual:%"),
     ).fetchone()
     if manual_events is None:
         execute(conn, "DELETE FROM match_events WHERE match_id = ?", (match["id"],))
@@ -3346,10 +3346,10 @@ def store_api_football_fixture_snapshot(
         conn,
         """
         SELECT 1 FROM player_match_stats
-        WHERE match_id = ? AND provider_player_key LIKE 'manual:%'
+        WHERE match_id = ? AND provider_player_key LIKE ?
         LIMIT 1
         """,
-        (match["id"],),
+        (match["id"], "manual:%"),
     ).fetchone()
     if manual_stats is None:
         execute(conn, "DELETE FROM player_match_stats WHERE match_id = ?", (match["id"],))
@@ -3449,18 +3449,18 @@ def restore_provider_facts_from_latest_snapshot(
                 conn,
                 """
                 DELETE FROM match_events
-                WHERE match_id = ? AND provider_event_key LIKE 'manual:%'
+                WHERE match_id = ? AND provider_event_key LIKE ?
                 """,
-                (match_id,),
+                (match_id, "manual:%"),
             )
         if clear_stats:
             execute(
                 conn,
                 """
                 DELETE FROM player_match_stats
-                WHERE match_id = ? AND provider_player_key LIKE 'manual:%'
+                WHERE match_id = ? AND provider_player_key LIKE ?
                 """,
-                (match_id,),
+                (match_id, "manual:%"),
             )
         return False
 
@@ -3478,18 +3478,18 @@ def restore_provider_facts_from_latest_snapshot(
             conn,
             """
             DELETE FROM match_events
-            WHERE match_id = ? AND provider_event_key LIKE 'manual:%'
+            WHERE match_id = ? AND provider_event_key LIKE ?
             """,
-            (match_id,),
+            (match_id, "manual:%"),
         )
     if clear_stats:
         execute(
             conn,
             """
             DELETE FROM player_match_stats
-            WHERE match_id = ? AND provider_player_key LIKE 'manual:%'
+            WHERE match_id = ? AND provider_player_key LIKE ?
             """,
-            (match_id,),
+            (match_id, "manual:%"),
         )
     store_api_football_fixture_snapshot(conn, match, json.loads(row["payload_json"]), data)
     return True

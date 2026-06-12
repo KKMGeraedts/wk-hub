@@ -3469,7 +3469,7 @@ function AdminDataSyncPage({ onSyncComplete }) {
       <div className="panel-header">
         <div>
           <h3>Data sync</h3>
-          <p>Fetch missing final results for matches that have already started.</p>
+          <p>Fetch missing final results for matches that have finished.</p>
         </div>
       </div>
       <div className="panel-body admin-sync-panel">
