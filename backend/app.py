@@ -7137,15 +7137,51 @@ def api_football_admin_sync():
         return token_error
     payload = request.get_json(silent=True) or {}
     match_id = clean_text(payload.get("match_id"))
+    raw_match_ids = payload.get("match_ids")
+    match_ids = [
+        clean_text(value)
+        for value in (raw_match_ids if isinstance(raw_match_ids, list) else [])
+        if clean_text(value)
+    ]
     data = load_world_cup_data()
     try:
-        result = run_api_football_completed_sync(
-            data,
-            force=bool(payload.get("force", False)),
-            dry_run=bool(payload.get("dry_run", False)),
-            limit=int(payload.get("limit", API_FOOTBALL_MAX_BATCH_SIZE)),
-            match_id=match_id or None,
-        )
+        if match_ids:
+            results = [
+                run_api_football_completed_sync(
+                    data,
+                    force=True,
+                    dry_run=bool(payload.get("dry_run", False)),
+                    limit=1,
+                    match_id=item,
+                )
+                for item in match_ids
+            ]
+            result = {
+                "ok": all(item.get("ok") for item in results),
+                "results": results,
+                "synced": [
+                    synced_item for item in results for synced_item in item.get("synced", [])
+                ],
+                "attempts": [
+                    attempt_item for item in results for attempt_item in item.get("attempts", [])
+                ],
+                "skipped": [
+                    skipped_item for item in results for skipped_item in item.get("skipped", [])
+                ],
+                "requests_today": api_football_request_count_today(),
+                "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+            }
+        else:
+            result = run_api_football_completed_sync(
+                data,
+                force=bool(payload.get("force", False)),
+                dry_run=bool(payload.get("dry_run", False)),
+                limit=int(payload.get("limit", API_FOOTBALL_MAX_BATCH_SIZE)),
+                match_id=match_id or None,
+            )
+        if bool(payload.get("recompute_points", False)) and not bool(payload.get("dry_run", False)):
+            recompute_all_computed_points(load_world_cup_data())
+            result["computed_points_updated"] = True
     except Exception as error:
         logger.exception("API-Football manual sync failed")
         result = {
