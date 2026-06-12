@@ -15,13 +15,13 @@
       ],
       "viewership": true,
       "choice_points": {
-        "0-15": 9,
-        "16-30": 12,
-        "31-45": 17,
-        "46-60": 20,
-        "61-75": 20,
-        "76-90": 20,
-        "90+": 20
+        "0-15": 3,
+        "16-30": 4,
+        "31-45": 5,
+        "46-60": 5,
+        "61-75": 5,
+        "76-90": 5,
+        "90+": 5
       }
     },
     "m2": {
@@ -32,8 +32,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 12,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m3": {
@@ -44,8 +44,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 10,
-        "nee": 4
+        "ja": 3,
+        "nee": 1
       }
     },
     "m4": {
@@ -56,8 +56,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 6,
-        "nee": 6
+        "ja": 3,
+        "nee": 3
       }
     },
     "m5": {
@@ -68,20 +68,20 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 7,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m6": {
-      "question": "Scoort Ziyech in deze wedstrijd?",
+      "question": "Scoort Marokko in deze wedstrijd?",
       "type": "yes_no",
       "choices": [
         "ja",
         "nee"
       ],
       "choice_points": {
-        "ja": 17,
-        "nee": 4
+        "ja": 3,
+        "nee": 2
       }
     },
     "m7": {
@@ -92,8 +92,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 17,
-        "nee": 4
+        "ja": 5,
+        "nee": 1
       }
     },
     "m8": {
@@ -104,8 +104,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 8,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m9": {
@@ -116,15 +116,15 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 15,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m10": {
       "question": "Wie scoort het eerste doelpunt voor Nederland?",
       "type": "open",
       "viewership": true,
-      "dynamic_choice_points": 12
+      "dynamic_choice_points": 5
     },
     "m11": {
       "question": "In welke helft vallen de meeste goals?",
@@ -135,9 +135,9 @@
         "gelijk"
       ],
       "choice_points": {
-        "1e helft": 9,
-        "2e helft": 7,
-        "gelijk": 15
+        "1e helft": 3,
+        "2e helft": 3,
+        "gelijk": 4
       }
     },
     "m12": {
@@ -148,8 +148,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 5,
-        "nee": 7
+        "ja": 2,
+        "nee": 3
       }
     },
     "m13": {
@@ -160,8 +160,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 11,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m14": {
@@ -172,8 +172,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 5,
-        "nee": 7
+        "ja": 2,
+        "nee": 3
       }
     },
     "m15": {
@@ -184,8 +184,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 7,
-        "nee": 6
+        "ja": 3,
+        "nee": 3
       }
     },
     "m16": {
@@ -196,8 +196,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 7,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m17": {
@@ -208,8 +208,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 5,
-        "nee": 8
+        "ja": 2,
+        "nee": 3
       }
     },
     "m18": {
@@ -220,8 +220,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 7,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m19": {
@@ -232,8 +232,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 8,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m20": {
@@ -244,8 +244,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 5,
-        "nee": 7
+        "ja": 2,
+        "nee": 3
       }
     },
     "m21": {
@@ -256,8 +256,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m22": {
@@ -268,8 +268,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 11,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m23": {
@@ -280,8 +280,8 @@
         "panama"
       ],
       "choice_points": {
-        "ghana": 6,
-        "panama": 6
+        "ghana": 3,
+        "panama": 3
       }
     },
     "m24": {
@@ -292,8 +292,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m25": {
@@ -304,8 +304,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 6,
-        "nee": 6
+        "ja": 3,
+        "nee": 3
       }
     },
     "m26": {
@@ -316,8 +316,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m27": {
@@ -328,8 +328,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 9,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m28": {
@@ -340,8 +340,8 @@
         "zuid-korea"
       ],
       "choice_points": {
-        "mexico": 6,
-        "zuid-korea": 7
+        "mexico": 3,
+        "zuid-korea": 3
       }
     },
     "m29": {
@@ -352,8 +352,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m30": {
@@ -364,8 +364,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 14,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m31": {
@@ -376,8 +376,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 6,
-        "nee": 6
+        "ja": 3,
+        "nee": 3
       }
     },
     "m32": {
@@ -388,15 +388,15 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 19,
-        "nee": 4
+        "ja": 5,
+        "nee": 1
       }
     },
     "m33": {
       "question": "Welke speler wordt volgens de FIFA man van de wedstrijd?",
       "type": "open",
       "viewership": true,
-      "dynamic_choice_points": 12
+      "dynamic_choice_points": 5
     },
     "m34": {
       "question": "Wordt er in blessuretijd na minuut 90 nog gescoord?",
@@ -406,8 +406,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 17,
-        "nee": 4
+        "ja": 5,
+        "nee": 1
       }
     },
     "m35": {
@@ -418,8 +418,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 15,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m36": {
@@ -430,8 +430,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 4,
-        "nee": 10
+        "ja": 1,
+        "nee": 3
       }
     },
     "m37": {
@@ -442,8 +442,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 11,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m38": {
@@ -454,8 +454,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 6,
-        "nee": 6
+        "ja": 3,
+        "nee": 3
       }
     },
     "m39": {
@@ -466,8 +466,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 17,
-        "nee": 4
+        "ja": 5,
+        "nee": 1
       }
     },
     "m40": {
@@ -478,8 +478,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m41": {
@@ -490,8 +490,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 9,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m42": {
@@ -502,8 +502,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m43": {
@@ -514,8 +514,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 4
+        "ja": 5,
+        "nee": 1
       }
     },
     "m44": {
@@ -526,8 +526,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 4,
-        "nee": 11
+        "ja": 1,
+        "nee": 4
       }
     },
     "m45": {
@@ -538,8 +538,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m46": {
@@ -550,8 +550,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 17,
-        "nee": 4
+        "ja": 5,
+        "nee": 1
       }
     },
     "m47": {
@@ -562,8 +562,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 9,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m48": {
@@ -574,8 +574,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m49": {
@@ -586,8 +586,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 17,
-        "nee": 4
+        "ja": 5,
+        "nee": 1
       }
     },
     "m50": {
@@ -598,8 +598,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 11,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m51": {
@@ -610,8 +610,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 14,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m52": {
@@ -622,8 +622,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 17,
-        "nee": 4
+        "ja": 5,
+        "nee": 1
       }
     },
     "m53": {
@@ -634,8 +634,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 15,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m54": {
@@ -646,8 +646,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 5,
-        "nee": 7
+        "ja": 2,
+        "nee": 3
       }
     },
     "m55": {
@@ -658,8 +658,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 12,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m56": {
@@ -670,15 +670,15 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 14,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m57": {
       "question": "Welke Nederlandse speler heeft het eerste schot op doel?",
       "type": "open",
       "viewership": true,
-      "dynamic_choice_points": 12
+      "dynamic_choice_points": 5
     },
     "m58": {
       "question": "Scoort een invaller binnen 10 minuten na invalbeurt?",
@@ -688,8 +688,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 12,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m59": {
@@ -700,8 +700,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 7,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m60": {
@@ -712,8 +712,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 10,
-        "nee": 4
+        "ja": 4,
+        "nee": 2
       }
     },
     "m61": {
@@ -724,8 +724,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 7,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m62": {
@@ -736,8 +736,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 12,
-        "nee": 4
+        "ja": 4,
+        "nee": 1
       }
     },
     "m63": {
@@ -748,8 +748,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 5,
-        "nee": 7
+        "ja": 2,
+        "nee": 3
       }
     },
     "m64": {
@@ -760,8 +760,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 10,
-        "nee": 4
+        "ja": 3,
+        "nee": 2
       }
     },
     "m65": {
@@ -772,8 +772,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m66": {
@@ -784,8 +784,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m67": {
@@ -796,8 +796,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 3,
-        "nee": 20
+        "ja": 1,
+        "nee": 5
       }
     },
     "m68": {
@@ -808,8 +808,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 7,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m69": {
@@ -820,8 +820,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 8,
-        "nee": 5
+        "ja": 3,
+        "nee": 2
       }
     },
     "m70": {
@@ -832,8 +832,8 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 20,
-        "nee": 3
+        "ja": 5,
+        "nee": 1
       }
     },
     "m71": {
@@ -844,14 +844,14 @@
         "nee"
       ],
       "choice_points": {
-        "ja": 4,
-        "nee": 11
+        "ja": 1,
+        "nee": 4
       }
     },
     "m72": {
       "question": "Wie scoort het laatste doelpunt voor Argentinie?",
       "type": "open",
-      "dynamic_choice_points": 12
+      "dynamic_choice_points": 5
     }
   }
 }

@@ -3353,11 +3353,14 @@ function AdminPage({ currentUser, teams }) {
 
 function ScoringRulesPanel({ rules }) {
   const groupRule = rules?.match_scores?.["Group Stage"] ?? {};
-  const knockoutRule = rules?.match_scores?.["Round of 16"] ?? {};
+  const finalRule = rules?.match_scores?.["Final"] ?? {};
   const strikerRule = rules?.world_cup_strikers ?? {
     count: 5,
-    points_per_goal: 10,
+    points_per_goal: 6,
   };
+  const groupExact = groupRule.exact ?? 12;
+  const groupOutcome = groupRule.outcome ?? 6;
+  const finalExact = finalRule.exact ?? 48;
   return (
     <article className="panel scoring-rules-panel">
       <div className="panel-header">
@@ -3370,29 +3373,31 @@ function ScoringRulesPanel({ rules }) {
         <div>
           <strong>Wedstrijden</strong>
           <span>
-            Poulefase: {groupRule.exact ?? 45} punten exact,{" "}
-            {groupRule.outcome ?? 30} voor juiste toto.
+            Poulefase: {groupExact} punten exact, {groupOutcome} voor juiste
+            toto.
           </span>
+          <span>Juiste thuisgoals en uitgoals leveren extra punten op.</span>
           <span>
-            Knock-out loopt op per ronde, vanaf {knockoutRule.exact ?? 135}{" "}
-            exact.
+            Knock-out loopt op per ronde, tot {finalExact} punten exact in de
+            finale.
           </span>
         </div>
         <div>
           <strong>Quiz</strong>
-          <span>Keuze-opties tonen hun eigen punten.</span>
-          <span>Open quizvragen: {rules?.quiz_open ?? 12} punten.</span>
+          <span>Keuze-opties tonen hun eigen punten op basis van kans.</span>
+          <span>Open quizvragen: {rules?.quiz_open ?? 5} punten.</span>
         </div>
         <div>
           <strong>Toernooi</strong>
-          <span>Wereldkampioen: {rules?.world_cup_winner ?? 250} punten.</span>
+          <span>Wereldkampioen: {rules?.world_cup_winner ?? 60} punten.</span>
           <span>
-            Topscorer: {rules?.world_cup_top_scorer ?? 100} punten aan het
+            Topscorer: {rules?.world_cup_top_scorer ?? 40} punten aan het
             einde.
           </span>
           <span>
             {strikerRule.count ?? 5} spitsen:{" "}
-            {strikerRule.points_per_goal ?? 10} punten per goal.
+            {strikerRule.points_per_goal ?? 6} basispunten per goal, met
+            ronde-multiplier.
           </span>
         </div>
         <div>
@@ -3409,22 +3414,23 @@ function FaqPage({ rules }) {
   const groupRule = rules?.match_scores?.["Group Stage"] ?? {};
   const finalRule = rules?.match_scores?.["Final"] ?? {};
   const strikerRule = rules?.world_cup_strikers ?? {};
-  const groupExact = groupRule.exact ?? 45;
-  const groupOutcome = groupRule.outcome ?? 30;
-  const finalExact = finalRule.exact ?? 270;
+  const groupExact = groupRule.exact ?? 12;
+  const groupOutcome = groupRule.outcome ?? 6;
+  const groupHomeGoals = groupRule.home_goals ?? 2;
+  const groupAwayGoals = groupRule.away_goals ?? 2;
+  const groupExactBonus = groupRule.exact_bonus ?? 2;
+  const finalExact = finalRule.exact ?? 48;
   const leeuwtjes = rules?.leeuwtjes_total ?? 5;
   const strikerCount = strikerRule.count ?? 5;
-  const strikerGoal = strikerRule.points_per_goal ?? 10;
-  const topScorer = rules?.world_cup_top_scorer ?? 100;
-  const winner = rules?.world_cup_winner ?? 250;
-  const groupPosition = rules?.group_position ?? 25;
-  const quizYesNo = rules?.quiz_yes_no ?? 15;
-  const quizOpen = rules?.quiz_open ?? 12;
+  const strikerGoal = strikerRule.points_per_goal ?? 6;
+  const topScorer = rules?.world_cup_top_scorer ?? 40;
+  const winner = rules?.world_cup_winner ?? 60;
+  const quizOpen = rules?.quiz_open ?? 5;
 
   const faqItems = [
     {
       q: "Hoe verdien ik punten met wedstrijden?",
-      a: `Voorspel de uitslag van elke wedstrijd. In de poulefase levert een exact goede uitslag ${groupExact} punten op en de juiste toto (winst, gelijkspel of verlies) ${groupOutcome} punten. In de knock-out lopen de punten per ronde op, tot ${finalExact} punten voor een exact voorspelde finale. Je voorspelling aanpassen kan tot 1 uur voor de aftrap.`,
+      a: `Voorspel de uitslag van elke wedstrijd. In de poulefase krijg je ${groupOutcome} punten voor de juiste toto, ${groupHomeGoals} voor het juiste aantal thuisgoals, ${groupAwayGoals} voor het juiste aantal uitgoals en ${groupExactBonus} bonuspunten voor een exacte score. Een exacte poulefase-uitslag is dus ${groupExact} punten. In de knock-out lopen de punten per ronde op, tot ${finalExact} punten voor een exact voorspelde finale. Je voorspelling aanpassen kan tot 1 uur voor de aftrap.`,
     },
     {
       q: "Wat doen de Leeuwtjes?",
@@ -3432,7 +3438,7 @@ function FaqPage({ rules }) {
     },
     {
       q: "Hoe werken de spitsen?",
-      a: `Je kiest ${strikerCount} spitsen. Elke goal die een van jouw spitsen tijdens het toernooi maakt, levert ${strikerGoal} punten op. Je kiest ze eenmalig vóór de eerste groepswedstrijd; daarna staan ze vast. Kies dus spitsen met veel speeltijd en een grote kans op goals.`,
+      a: `Je kiest ${strikerCount} spitsen. Elke goal die een van jouw spitsen maakt, levert ${strikerGoal} basispunten op en volgt dezelfde ronde-multiplier als wedstrijdpunten. Een goal in de finale is dus veel meer waard dan een goal in de poulefase. Je kiest ze eenmalig vóór de eerste groepswedstrijd; daarna staan ze vast.`,
     },
     {
       q: "Wat levert de topscorer op?",
@@ -3444,11 +3450,11 @@ function FaqPage({ rules }) {
     },
     {
       q: "Krijg ik punten voor de eindstand van een poule?",
-      a: `Ja. Zodra alle wedstrijden van een poule gespeeld zijn, vergelijken we jouw voorspelde eindstand met de echte stand. Voor elke ploeg die je op de juiste plek hebt staan, krijg je ${groupPosition} punten. Dit gaat automatisch op basis van je wedstrijdvoorspellingen — je hoeft de stand niet apart in te vullen.`,
+      a: "Nee. De poulestand wordt nog wel gebruikt voor voortgang en badges, maar levert geen losse punten meer op. Je verdient punten direct met je wedstrijdvoorspellingen.",
     },
     {
       q: "Wat zijn de quizvragen?",
-      a: `Bij sommige wedstrijden hoort een quizvraag. Bij keuzevragen zie je per antwoord hoeveel punten het oplevert. Een ja/nee-vraag is ${quizYesNo} punten en een spelervraag ${quizOpen} punten. Beantwoorden kan tot 1 uur voor de aftrap.`,
+      a: `Bij sommige wedstrijden hoort een quizvraag. Bij keuzevragen zie je per antwoord hoeveel punten het oplevert; makkelijke antwoorden zijn weinig punten en onwaarschijnlijke antwoorden maximaal ${quizOpen} punten. Open spelervragen zijn ${quizOpen} punten. Beantwoorden kan tot 1 uur voor de aftrap.`,
     },
     {
       q: "Wanneer gaat alles op slot?",

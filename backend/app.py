@@ -139,14 +139,14 @@ MATCHDAY_SESSION_GAP = timedelta(hours=12)
 NETHERLANDS_TEAM_ID = "ned"
 AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 LEEUWTJES_LIMIT = 5
-GROUP_POSITION_POINTS = 25
-WINNER_POINTS = 250
-TOP_SCORER_POINTS = 100
+GROUP_POSITION_POINTS = 0
+WINNER_POINTS = 60
+TOP_SCORER_POINTS = 40
 STRIKER_PICK_COUNT = 5
-STRIKER_GOAL_POINTS = 10
-QUIZ_YES_NO_POINTS = 15
-QUIZ_OPEN_POINTS = 12
-QUIZ_VIEWERSHIP_POINTS = 15
+STRIKER_GOAL_POINTS = 6
+QUIZ_YES_NO_POINTS = 3
+QUIZ_OPEN_POINTS = 5
+QUIZ_VIEWERSHIP_POINTS = 5
 API_FOOTBALL_BASE_URL = os.environ.get(
     "API_FOOTBALL_BASE_URL", "https://v3.football.api-sports.io"
 ).rstrip("/")
@@ -162,11 +162,13 @@ SYNC_TARGET_MATCH_RESULT = "match_result"
 SYNC_TARGET_TEAM_SQUAD = "team_squad"
 SYNC_ATTEMPT_FIRST_POST_MATCH = "first_post_match"
 SYNC_ATTEMPT_SECOND_POST_MATCH = "second_post_match"
+SYNC_ATTEMPT_MISSING_DATA_RETRY = "missing_data_retry"
 SYNC_ATTEMPT_MANUAL = "manual"
 SYNC_ATTEMPT_SQUAD_REFRESH = "squad_refresh"
 SYNC_ATTEMPT_KINDS = {
     SYNC_ATTEMPT_FIRST_POST_MATCH,
     SYNC_ATTEMPT_SECOND_POST_MATCH,
+    SYNC_ATTEMPT_MISSING_DATA_RETRY,
     SYNC_ATTEMPT_MANUAL,
     SYNC_ATTEMPT_SQUAD_REFRESH,
 }
@@ -207,14 +209,30 @@ NEWSLETTER_FEEDS: tuple[dict[str, str], ...] = (
         ),
     },
 )
+BASE_MATCH_SCORE_RULE = {
+    "outcome": 6,
+    "home_goals": 2,
+    "away_goals": 2,
+    "exact_bonus": 2,
+    "exact": 12,
+}
+MATCH_ROUND_MULTIPLIERS = {
+    "Group Stage": 1.0,
+    "Round of 32": 1.25,
+    "Round of 16": 1.5,
+    "Quarter-final": 2.0,
+    "Semi-final": 2.5,
+    "Third-place play-off": 3.0,
+    "Final": 4.0,
+}
 MATCH_SCORE_RULES = {
-    "Group Stage": {"exact": 45, "outcome": 30},
-    "Round of 32": {"exact": 90, "outcome": 60},
-    "Round of 16": {"exact": 135, "outcome": 90},
-    "Quarter-final": {"exact": 180, "outcome": 120},
-    "Semi-final": {"exact": 225, "outcome": 150},
-    "Third-place play-off": {"exact": 225, "outcome": 150},
-    "Final": {"exact": 270, "outcome": 180},
+    round_name: {
+        **BASE_MATCH_SCORE_RULE,
+        "multiplier": multiplier,
+        "exact": int(BASE_MATCH_SCORE_RULE["exact"] * multiplier + 0.5),
+        "outcome": int(BASE_MATCH_SCORE_RULE["outcome"] * multiplier + 0.5),
+    }
+    for round_name, multiplier in MATCH_ROUND_MULTIPLIERS.items()
 }
 
 logging.basicConfig(
@@ -527,6 +545,8 @@ def result_sync_scheduled_for(match: dict[str, Any], attempt_kind: str) -> datet
         return match_kickoff(match) + RESULT_SYNC_FIRST_AFTER
     if attempt_kind == SYNC_ATTEMPT_SECOND_POST_MATCH:
         return match_kickoff(match) + RESULT_SYNC_SECOND_AFTER
+    if attempt_kind == SYNC_ATTEMPT_MISSING_DATA_RETRY:
+        return utc_now()
     raise ValueError(f"Unsupported result sync attempt kind: {attempt_kind}")
 
 
@@ -535,6 +555,7 @@ def due_result_sync_attempt_kinds(
     *,
     now: datetime,
     terminal_attempt_kinds: set[str],
+    has_result: bool = False,
 ) -> list[str]:
     if not match.get("home_team_id") or not match.get("away_team_id"):
         return []
@@ -550,6 +571,14 @@ def due_result_sync_attempt_kinds(
         and now >= second_due_at
     ):
         return [SYNC_ATTEMPT_SECOND_POST_MATCH]
+
+    if (
+        not has_result
+        and SYNC_ATTEMPT_FIRST_POST_MATCH in terminal_attempt_kinds
+        and SYNC_ATTEMPT_SECOND_POST_MATCH in terminal_attempt_kinds
+        and now >= second_due_at
+    ):
+        return [SYNC_ATTEMPT_MISSING_DATA_RETRY]
 
     return []
 
@@ -2380,32 +2409,39 @@ def striker_pick_rows(row: Any | None) -> list[dict[str, Any]]:
 def striker_pick_score_rows(
     row: Any | None,
     goal_counts: Counter[str] | None = None,
+    goal_points: Counter[str] | None = None,
 ) -> list[dict[str, Any]]:
     counts = goal_counts if goal_counts is not None else goal_counts_by_player()
+    points_by_player = goal_points if goal_points is not None else striker_goal_points_by_player()
     scored_rows = []
     for pick in striker_pick_rows(row):
-        goals = counts[normalized_player_name(pick["name"])]
+        normalized_name = normalized_player_name(pick["name"])
+        goals = counts[normalized_name]
         scored_rows.append(
             {
                 **pick,
                 "goals": goals,
-                "points": goals * STRIKER_GOAL_POINTS,
+                "points": points_by_player[normalized_name],
             }
         )
     return scored_rows
 
 
-def goal_counts_by_player() -> Counter[str]:
+def goal_counts_and_points_by_player(
+    data: dict[str, Any] | None = None,
+) -> tuple[Counter[str], Counter[str]]:
+    matches_by_id = {match["id"]: match for match in data.get("matches", [])} if data else {}
     with get_db() as conn:
         rows = execute(
             conn,
             """
-            SELECT player_name, event_type, detail, comments
+            SELECT match_id, player_name, event_type, detail, comments
             FROM match_events
             WHERE LOWER(event_type) = 'goal'
             """,
         ).fetchall()
     counts: Counter[str] = Counter()
+    points: Counter[str] = Counter()
     for row in rows:
         detail = normalize_answer(row["detail"])
         comments = normalize_answer(row["comments"])
@@ -2414,7 +2450,20 @@ def goal_counts_by_player() -> Counter[str]:
         player_name = normalized_player_name(row["player_name"])
         if player_name:
             counts[player_name] += 1
+            match = matches_by_id.get(row["match_id"]) if matches_by_id else None
+            multiplier = float(score_rule_for_match(match).get("multiplier", 1.0)) if match else 1.0
+            points[player_name] += round_match_points(STRIKER_GOAL_POINTS * multiplier)
+    return counts, points
+
+
+def goal_counts_by_player(data: dict[str, Any] | None = None) -> Counter[str]:
+    counts, _points = goal_counts_and_points_by_player(data)
     return counts
+
+
+def striker_goal_points_by_player(data: dict[str, Any] | None = None) -> Counter[str]:
+    _counts, points = goal_counts_and_points_by_player(data)
+    return points
 
 
 def top_scorer_prediction_points(
@@ -2430,10 +2479,14 @@ def top_scorer_prediction_points(
 def striker_prediction_points(
     picks: list[str],
     goal_counts: Counter[str] | None = None,
+    goal_points: Counter[str] | None = None,
 ) -> int:
     counts = goal_counts if goal_counts is not None else goal_counts_by_player()
+    points_by_player = goal_points if goal_points is not None else striker_goal_points_by_player()
     return sum(
-        counts[normalized_player_name(player_name)] * STRIKER_GOAL_POINTS for player_name in picks
+        points_by_player[normalized_player_name(player_name)]
+        for player_name in picks
+        if counts[normalized_player_name(player_name)]
     )
 
 
@@ -2566,10 +2619,11 @@ def api_football_get(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
         with urlopen(request_obj, timeout=20) as response:
             status_code = response.status
             payload = json.loads(response.read().decode("utf-8"))
-        record_api_football_request(endpoint, params, status_code, True)
         errors = payload.get("errors")
         if errors:
+            record_api_football_request(endpoint, params, status_code, False, str(errors)[:500])
             raise RuntimeError(f"API-Football returned errors: {errors}")
+        record_api_football_request(endpoint, params, status_code, True)
         return payload
     except HTTPError as error:
         status_code = error.code
@@ -2970,8 +3024,21 @@ def due_api_football_match_attempts(
     limit = max(1, min(API_FOOTBALL_MAX_BATCH_SIZE, int(limit)))
     candidates = []
     terminal_by_match: dict[str, set[str]] = {}
+    results_by_match: dict[str, Any] = {}
     if not dry_run:
         with get_db() as conn:
+            result_rows = execute(
+                conn,
+                """
+                SELECT match_id
+                FROM match_results
+                WHERE status_short IN (?, ?, ?)
+                  AND home_score IS NOT NULL
+                  AND away_score IS NOT NULL
+                """,
+                tuple(API_FOOTBALL_FINAL_STATUSES),
+            ).fetchall()
+            results_by_match = {row["match_id"]: row for row in result_rows}
             for match in data["matches"]:
                 if match_id and match["id"] != match_id:
                     continue
@@ -2996,11 +3063,16 @@ def due_api_football_match_attempts(
                 match,
                 now=current,
                 terminal_attempt_kinds=terminal_attempt_kinds,
+                has_result=match["id"] in results_by_match,
             )
             if not due_kinds:
                 continue
             attempt_kind = due_kinds[0]
-            scheduled_for = result_sync_scheduled_for(match, attempt_kind)
+            scheduled_for = (
+                current
+                if attempt_kind == SYNC_ATTEMPT_MISSING_DATA_RETRY
+                else result_sync_scheduled_for(match, attempt_kind)
+            )
         candidates.append(
             {
                 "match": match,
@@ -3382,6 +3454,17 @@ def run_api_football_completed_sync(
         return {"ok": True, "attempts": [], "synced": [], "skipped": [], "dry_run": dry_run}
 
     links = api_football_fixture_links()
+    linking = None
+    if (
+        not dry_run
+        and API_FOOTBALL_KEY
+        and any(item["match_id"] not in links for item in candidates)
+    ):
+        try:
+            linking = api_football_link_fixtures(data)
+            links = api_football_fixture_links()
+        except Exception as error:
+            linking = {"ok": False, "error": str(error)}
     linked_candidates = [item for item in candidates if item["match_id"] in links]
     skipped = [
         {
@@ -3443,6 +3526,28 @@ def run_api_football_completed_sync(
                 body="A due match could not be synced because no provider fixture link exists.",
                 related_attempt_id=attempt_id,
             )
+            if linking and linking.get("ok") is False:
+                create_admin_sync_notification(
+                    conn,
+                    notification_type="provider_request_failed",
+                    target_type=SYNC_TARGET_MATCH_RESULT,
+                    target_id=item["match_id"],
+                    title="Fixture link request failed",
+                    body="The provider fixture-linking request failed before result sync.",
+                    related_attempt_id=attempt_id,
+                )
+            create_admin_sync_notification(
+                conn,
+                notification_type="missing_match_data",
+                target_type=SYNC_TARGET_MATCH_RESULT,
+                target_id=item["match_id"],
+                title="Match data is still missing",
+                body=(
+                    "No result data is stored for this match yet. "
+                    "The sync will retry it during later result cron runs."
+                ),
+                related_attempt_id=attempt_id,
+            )
             attempts.append({**item, "status": SYNC_STATUS_SKIPPED})
     if not linked_candidates:
         return {
@@ -3451,6 +3556,7 @@ def run_api_football_completed_sync(
             "attempts": attempts,
             "synced": [],
             "skipped": skipped,
+            "linking": linking,
         }
 
     running_attempts = {}
@@ -3490,6 +3596,18 @@ def run_api_football_completed_sync(
                     target_id=item["match_id"],
                     title="Result sync request failed",
                     body="A due match could not be retrieved from the provider.",
+                    related_attempt_id=attempt_id,
+                )
+                create_admin_sync_notification(
+                    conn,
+                    notification_type="missing_match_data",
+                    target_type=SYNC_TARGET_MATCH_RESULT,
+                    target_id=item["match_id"],
+                    title="Match data is still missing",
+                    body=(
+                        "No result data is stored for this match yet. "
+                        "The sync will retry it during later result cron runs."
+                    ),
                     related_attempt_id=attempt_id,
                 )
                 attempts.append(
@@ -3550,6 +3668,18 @@ def run_api_football_completed_sync(
                     body="The provider response did not include the requested fixture.",
                     related_attempt_id=attempt_id,
                 )
+                create_admin_sync_notification(
+                    conn,
+                    notification_type="missing_match_data",
+                    target_type=SYNC_TARGET_MATCH_RESULT,
+                    target_id=item["match_id"],
+                    title="Match data is still missing",
+                    body=(
+                        "No result data is stored for this match yet. "
+                        "The sync will retry it during later result cron runs."
+                    ),
+                    related_attempt_id=attempt_id,
+                )
                 attempts.append(
                     {
                         "target_type": SYNC_TARGET_MATCH_RESULT,
@@ -3581,6 +3711,30 @@ def run_api_football_completed_sync(
                 target_type=SYNC_TARGET_MATCH_RESULT,
                 target_id=item["match_id"],
             )
+            if (
+                synced_item.get("final")
+                and synced_item.get("home_score") is not None
+                and synced_item.get("away_score") is not None
+            ):
+                resolve_admin_sync_notification(
+                    conn,
+                    notification_type="missing_match_data",
+                    target_type=SYNC_TARGET_MATCH_RESULT,
+                    target_id=item["match_id"],
+                )
+            else:
+                create_admin_sync_notification(
+                    conn,
+                    notification_type="missing_match_data",
+                    target_type=SYNC_TARGET_MATCH_RESULT,
+                    target_id=item["match_id"],
+                    title="Match data is still missing",
+                    body=(
+                        "The provider returned the fixture, but it does not have a final "
+                        "score yet. The sync will retry it during later result cron runs."
+                    ),
+                    related_attempt_id=attempt_id,
+                )
             attempts.append(
                 {
                     "target_type": SYNC_TARGET_MATCH_RESULT,
@@ -3604,6 +3758,7 @@ def run_api_football_completed_sync(
         "attempts": attempts,
         "synced": synced,
         "skipped": skipped,
+        "linking": linking,
         "requests_today": api_football_request_count_today(),
         "daily_limit": API_FOOTBALL_DAILY_LIMIT,
     }
@@ -3891,8 +4046,12 @@ def local_match_date(match: dict[str, Any]) -> Any:
     return match_kickoff(match).astimezone(AMSTERDAM_TZ).date()
 
 
-def score_rule_for_match(match: dict[str, Any]) -> dict[str, int]:
+def score_rule_for_match(match: dict[str, Any]) -> dict[str, Any]:
     return MATCH_SCORE_RULES.get(match["round"], MATCH_SCORE_RULES["Group Stage"])
+
+
+def round_match_points(points: float) -> int:
+    return int(points + 0.5)
 
 
 def match_prediction_points(prediction: Any, match: dict[str, Any]) -> tuple[int, str | None]:
@@ -3900,14 +4059,37 @@ def match_prediction_points(prediction: Any, match: dict[str, Any]) -> tuple[int
     if result is None:
         return 0, None
     rule = score_rule_for_match(match)
-    exact_score = prediction["home_score"] == match.get("home_score") and prediction[
-        "away_score"
-    ] == match.get("away_score")
+    multiplier = float(rule.get("multiplier", 1.0))
+    home_score = match.get("home_score")
+    away_score = match.get("away_score")
+    if home_score is None or away_score is None:
+        return 0, None
+    actual_home_score = int(home_score)
+    actual_away_score = int(away_score)
+    predicted_home_score = prediction["home_score"]
+    predicted_away_score = prediction["away_score"]
+    exact_score = (
+        predicted_home_score == actual_home_score and predicted_away_score == actual_away_score
+    )
+    predicted_result = prediction_result(prediction)
+    base_points = 0
+
+    if predicted_result == result:
+        base_points += BASE_MATCH_SCORE_RULE["outcome"]
+    if predicted_home_score == actual_home_score:
+        base_points += BASE_MATCH_SCORE_RULE["home_goals"]
+    if predicted_away_score == actual_away_score:
+        base_points += BASE_MATCH_SCORE_RULE["away_goals"]
     if exact_score:
-        return rule["exact"], "exact"
-    if prediction_result(prediction) == result:
-        return rule["outcome"], "outcome"
-    return 0, None
+        base_points += BASE_MATCH_SCORE_RULE["exact_bonus"]
+
+    if not base_points:
+        return 0, None
+    if exact_score:
+        return round_match_points(base_points * multiplier), "exact"
+    if predicted_result == result:
+        return round_match_points(base_points * multiplier), "outcome"
+    return round_match_points(base_points * multiplier), "partial"
 
 
 def quiz_complete(quiz: dict[str, Any] | None, prediction: Any | None) -> bool:
@@ -4661,7 +4843,7 @@ def build_leaderboard(
         viewership_winners,
     )
 
-    goal_counts = goal_counts_by_player()
+    goal_counts, striker_goal_points = goal_counts_and_points_by_player(data)
     leaderboard = []
     for user in users:
         points = 0
@@ -4741,7 +4923,11 @@ def build_leaderboard(
         )
         top_scorer_pick_row = top_scorers.get(user["id"])
         top_scorer_pick = top_scorer_pick_name(top_scorer_pick_row)
-        striker_picks = striker_pick_score_rows(top_scorer_pick_row, goal_counts)
+        striker_picks = striker_pick_score_rows(
+            top_scorer_pick_row,
+            goal_counts,
+            striker_goal_points,
+        )
         top_scorer_points = top_scorer_prediction_points(data, top_scorer_pick)
         top_scorer_impossible = bool(
             top_scorer_pick

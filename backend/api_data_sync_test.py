@@ -375,10 +375,199 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
             },
+            has_result=True,
         )
 
         self.assertEqual(early, [])
         self.assertEqual(complete, [])
+
+    def test_missing_result_after_both_windows_is_retried_as_backlog(self) -> None:
+        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        match = make_match("m001", kickoff)
+        data = {"matches": [match], "teams": []}
+
+        def scenario(conn):
+            for attempt_kind in (
+                wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
+                wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
+            ):
+                attempt_id = wk_app.create_provider_sync_attempt(
+                    conn,
+                    provider_key=wk_app.API_FOOTBALL_PROVIDER_KEY,
+                    target_type=wk_app.SYNC_TARGET_MATCH_RESULT,
+                    target_id="m001",
+                    attempt_kind=attempt_kind,
+                    scheduled_for=wk_app.result_sync_scheduled_for(match, attempt_kind),
+                    status=wk_app.SYNC_STATUS_SKIPPED,
+                )
+                wk_app.finish_provider_sync_attempt(
+                    conn,
+                    attempt_id,
+                    status=wk_app.SYNC_STATUS_SKIPPED,
+                    failure_code="missing_provider_fixture_link",
+                )
+            conn.commit()
+            return wk_app.due_api_football_match_attempts(data, limit=1)
+
+        candidates = self.run_with_temp_db(scenario)
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["attempt_kind"], wk_app.SYNC_ATTEMPT_MISSING_DATA_RETRY)
+
+    def test_missing_result_backlog_stops_after_result_exists(self) -> None:
+        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        match = make_match("m001", kickoff)
+        data = {"matches": [match], "teams": []}
+
+        def scenario(conn):
+            for attempt_kind in (
+                wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
+                wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
+            ):
+                attempt_id = wk_app.create_provider_sync_attempt(
+                    conn,
+                    provider_key=wk_app.API_FOOTBALL_PROVIDER_KEY,
+                    target_type=wk_app.SYNC_TARGET_MATCH_RESULT,
+                    target_id="m001",
+                    attempt_kind=attempt_kind,
+                    scheduled_for=wk_app.result_sync_scheduled_for(match, attempt_kind),
+                    status=wk_app.SYNC_STATUS_SKIPPED,
+                )
+                wk_app.finish_provider_sync_attempt(
+                    conn,
+                    attempt_id,
+                    status=wk_app.SYNC_STATUS_SKIPPED,
+                    failure_code="missing_provider_fixture_link",
+                )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_results (
+                    match_id, source, status_short, home_score, away_score
+                )
+                VALUES (?, ?, 'FT', 2, 1)
+                """,
+                ("m001", wk_app.API_FOOTBALL_PROVIDER_KEY),
+            )
+            conn.commit()
+            return wk_app.due_api_football_match_attempts(data, limit=1)
+
+        candidates = self.run_with_temp_db(scenario)
+
+        self.assertEqual(candidates, [])
+
+    def test_backlog_missing_link_notifies_admins_and_remains_retryable(self) -> None:
+        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        match = make_match("m001", kickoff)
+        data = {"matches": [match], "teams": []}
+
+        def scenario(conn):
+            for attempt_kind in (
+                wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
+                wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
+            ):
+                attempt_id = wk_app.create_provider_sync_attempt(
+                    conn,
+                    provider_key=wk_app.API_FOOTBALL_PROVIDER_KEY,
+                    target_type=wk_app.SYNC_TARGET_MATCH_RESULT,
+                    target_id="m001",
+                    attempt_kind=attempt_kind,
+                    scheduled_for=wk_app.result_sync_scheduled_for(match, attempt_kind),
+                    status=wk_app.SYNC_STATUS_SKIPPED,
+                )
+                wk_app.finish_provider_sync_attempt(
+                    conn,
+                    attempt_id,
+                    status=wk_app.SYNC_STATUS_SKIPPED,
+                    failure_code="missing_provider_fixture_link",
+                )
+
+            conn.commit()
+            result = wk_app.run_api_football_completed_sync(data, limit=1)
+            notifications = wk_app.active_admin_sync_notifications(conn)
+            retry_candidates = wk_app.due_api_football_match_attempts(data, limit=1)
+            return result, notifications, retry_candidates
+
+        previous_key = wk_app.API_FOOTBALL_KEY
+        wk_app.API_FOOTBALL_KEY = "test-key"
+        try:
+            with patch.object(
+                wk_app,
+                "api_football_link_fixtures",
+                return_value={"linked": 0, "skipped": 1, "fixtures_seen": 0},
+            ):
+                result, notifications, retry_candidates = self.run_with_temp_db(scenario)
+        finally:
+            wk_app.API_FOOTBALL_KEY = previous_key
+
+        self.assertEqual(
+            result["attempts"][0]["attempt_kind"], wk_app.SYNC_ATTEMPT_MISSING_DATA_RETRY
+        )
+        self.assertTrue(
+            any(item["type"] == "missing_match_data" for item in notifications),
+            notifications,
+        )
+        self.assertEqual(
+            retry_candidates[0]["attempt_kind"], wk_app.SYNC_ATTEMPT_MISSING_DATA_RETRY
+        )
+
+    def test_result_sync_links_fixtures_before_skipping_missing_link(self) -> None:
+        kickoff = datetime.now(UTC) - timedelta(minutes=30)
+        match = make_match("m001", kickoff, home_team_id="mex", away_team_id="rsa")
+        data = {
+            "matches": [match],
+            "teams": [
+                {"id": "mex", "name": "Mexico", "code": "MEX"},
+                {"id": "rsa", "name": "South Africa", "code": "RSA"},
+            ],
+            "groups": [],
+            "venues": [],
+            "meta": {},
+        }
+        fixture = {
+            "fixture": {"id": 123, "status": {"long": "Match Finished", "short": "FT"}},
+            "teams": {
+                "home": {"id": 16, "name": "Mexico"},
+                "away": {"id": 1531, "name": "South Africa"},
+            },
+            "goals": {"home": 2, "away": 0},
+            "events": [],
+            "players": [],
+        }
+
+        def link_fixture(_data):
+            with wk_app.get_db() as link_conn:
+                wk_app.execute(
+                    link_conn,
+                    """
+                    INSERT INTO api_football_fixture_links (
+                        match_id, api_fixture_id, confidence
+                    )
+                    VALUES (?, ?, ?)
+                    """,
+                    ("m001", 123, "test"),
+                )
+                link_conn.commit()
+            return {"linked": 1, "skipped": 0, "fixtures_seen": 1}
+
+        def scenario(_conn):
+            return wk_app.run_api_football_completed_sync(data, limit=1)
+
+        previous_key = wk_app.API_FOOTBALL_KEY
+        wk_app.API_FOOTBALL_KEY = "test-key"
+        try:
+            with (
+                patch.object(wk_app, "api_football_link_fixtures", side_effect=link_fixture),
+                patch.object(wk_app, "api_football_get", return_value={"response": [fixture]}),
+            ):
+                result = self.run_with_temp_db(scenario)
+        finally:
+            wk_app.API_FOOTBALL_KEY = previous_key
+
+        self.assertEqual(result["linking"]["linked"], 1)
+        self.assertEqual(result["synced"][0]["match_id"], "m001")
+        self.assertEqual(result["synced"][0]["home_score"], 2)
+        self.assertEqual(result["skipped"], [])
 
     def test_admin_sync_dry_run_accepts_match_id_without_provider_key(self) -> None:
         previous_token = wk_app.API_FOOTBALL_SYNC_TOKEN
@@ -656,6 +845,76 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             "meta": {"world_cup_winner_id": "ned", "top_scorer": "Cody Gakpo"},
         }
 
+    def test_match_prediction_points_use_detailed_group_rules(self) -> None:
+        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        match = make_match("m001", kickoff)
+        match["status"] = "completed"
+        match["home_score"] = 2
+        match["away_score"] = 1
+
+        exact_points, exact_kind = wk_app.match_prediction_points(
+            {"home_score": 2, "away_score": 1}, match
+        )
+        margin_points, margin_kind = wk_app.match_prediction_points(
+            {"home_score": 3, "away_score": 1}, match
+        )
+        goal_only_points, goal_only_kind = wk_app.match_prediction_points(
+            {"home_score": 0, "away_score": 1}, match
+        )
+
+        self.assertEqual((exact_points, exact_kind), (12, "exact"))
+        self.assertEqual((margin_points, margin_kind), (8, "outcome"))
+        self.assertEqual((goal_only_points, goal_only_kind), (2, "partial"))
+
+    def test_match_prediction_points_apply_round_multiplier(self) -> None:
+        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        match = make_match("m001", kickoff)
+        match["round"] = "Final"
+        match["status"] = "completed"
+        match["home_score"] = 2
+        match["away_score"] = 1
+
+        exact_points, _ = wk_app.match_prediction_points({"home_score": 2, "away_score": 1}, match)
+        outcome_points, _ = wk_app.match_prediction_points(
+            {"home_score": 4, "away_score": 2}, match
+        )
+
+        self.assertEqual(exact_points, 48)
+        self.assertEqual(outcome_points, 24)
+
+    def test_striker_points_apply_round_multiplier(self) -> None:
+        group_kickoff = datetime.now(UTC) - timedelta(days=2)
+        final_kickoff = datetime.now(UTC) - timedelta(hours=3)
+        group_match = make_match("m001", group_kickoff)
+        group_match["round"] = "Group Stage"
+        final_match = make_match("m002", final_kickoff)
+        final_match["round"] = "Final"
+        data = {"matches": [group_match, final_match]}
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES
+                    ('m001', 'provider:event:1', 'Goal', 'Cody Gakpo', '{}'),
+                    ('m002', 'provider:event:2', 'Goal', 'Cody Gakpo', '{}')
+                """,
+            )
+            conn.commit()
+            counts, points = wk_app.goal_counts_and_points_by_player(data)
+            return (
+                counts[wk_app.normalized_player_name("Cody Gakpo")],
+                points[wk_app.normalized_player_name("Cody Gakpo")],
+            )
+
+        goals, points = self.run_with_temp_db(scenario)
+
+        self.assertEqual(goals, 2)
+        self.assertEqual(points, 30)
+
     def seed_scoring_user(self, conn) -> None:
         wk_app.execute(
             conn,
@@ -800,7 +1059,11 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         try:
             with (
                 patch.object(wk_app, "api_football_fixture_links", return_value={}),
-                patch.object(wk_app, "api_football_get", side_effect=AssertionError),
+                patch.object(
+                    wk_app,
+                    "api_football_link_fixtures",
+                    return_value={"linked": 0, "skipped": 1, "fixtures_seen": 0},
+                ),
             ):
                 result, notifications = self.run_with_temp_db(
                     lambda conn: (
@@ -813,7 +1076,14 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["attempts"][0]["status"], wk_app.SYNC_STATUS_SKIPPED)
-        self.assertEqual(notifications[0]["type"], "missing_provider_link")
+        self.assertTrue(
+            any(item["type"] == "missing_provider_link" for item in notifications),
+            notifications,
+        )
+        self.assertTrue(
+            any(item["type"] == "missing_match_data" for item in notifications),
+            notifications,
+        )
 
     def test_provider_request_failure_creates_admin_sync_notification(self) -> None:
         data = self.scoring_data(done=False)
@@ -843,7 +1113,14 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["attempts"][0]["status"], wk_app.SYNC_STATUS_FAILED)
-        self.assertEqual(notifications[0]["type"], "provider_request_failed")
+        self.assertTrue(
+            any(item["type"] == "provider_request_failed" for item in notifications),
+            notifications,
+        )
+        self.assertTrue(
+            any(item["type"] == "missing_match_data" for item in notifications),
+            notifications,
+        )
 
     def test_sync_issue_notifications_are_admin_only_in_pool_state(self) -> None:
         data = self.scoring_data(done=False)
