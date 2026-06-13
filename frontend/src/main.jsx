@@ -236,18 +236,6 @@ function authenticatedViewFromRoute(poolState, pathname) {
   return defaultAuthenticatedView(poolState);
 }
 
-function formatCountdown(targetDate, now) {
-  const totalMinutes = Math.max(0, Math.floor((targetDate - now) / 60000));
-  const days = Math.floor(totalMinutes / 1440);
-  const hours = Math.floor((totalMinutes % 1440) / 60);
-  const minutes = totalMinutes % 60;
-  return {
-    days: String(days),
-    hours: String(hours).padStart(2, "0"),
-    minutes: String(minutes).padStart(2, "0"),
-  };
-}
-
 function TeamFlag({ id, className = "team-flag" }) {
   const [imageFailed, setImageFailed] = useState(false);
   const code = TEAM_FLAG_CODES[id];
@@ -6683,8 +6671,6 @@ function App() {
     return <div className="loading">Loading Talpa WK Pool...</div>;
   }
 
-  const kickoff = new Date("2026-06-11T19:00:00Z");
-  const countdown = formatCountdown(kickoff, now);
   const selectedProfile =
     pool.leaderboard.find((row) => String(row.user_id) === selectedProfileId) ??
     (String(pool.me?.id) === selectedProfileId ? fallbackProfile(pool) : null);
@@ -6787,22 +6773,19 @@ function App() {
               and five strikers, and follow the leaderboard.
             </p>
           </div>
-          <div className="hero-countdown" aria-label="Countdown to kickoff">
-            <span>Countdown to kickoff</span>
-            <div
-              className="clock-display"
-              aria-label={`${countdown.days} days ${countdown.hours} hours ${countdown.minutes} minutes`}
-            >
-              <strong>{countdown.days}</strong>
-              <b>:</b>
-              <strong>{countdown.hours}</strong>
-              <b>:</b>
-              <strong>{countdown.minutes}</strong>
+          <div className="hero-oranje" aria-label="World Cup is underway">
+            <div className="dutch-flag-card" aria-hidden="true">
+              <span />
+              <span />
+              <span />
             </div>
-            <div className="clock-labels" aria-hidden="true">
-              <span>Days</span>
-              <span>Hours</span>
-              <span>Minutes</span>
+            <div className="lion-crest" aria-hidden="true">
+              🦁
+            </div>
+            <div>
+              <span>Het WK is begonnen</span>
+              <strong>Oranje leeft</strong>
+              <p>Volg de dagscore, movers en gespeelde wedstrijden live.</p>
             </div>
           </div>
         </section>

@@ -136,8 +136,8 @@ if not isinstance(LOG_LEVEL, int):
     LOG_LEVEL = logging.INFO
 PREDICTION_LOCK_BEFORE_KICKOFF = timedelta(hours=1)
 # Matches separated by less than this gap belong to the same playing session.
-# World Cup 2026 matches are often played overnight (Dutch time): the early-hours
-# kickoffs of the next calendar day are part of the same matchday for NL viewers.
+# World Cup 2026 matches are often played overnight (Dutch time): evening and
+# early-morning kickoffs are part of the same American matchday for NL viewers.
 # Overnight gaps are ~6-8h; the daytime gap to the next evening session is much
 # larger, so this threshold cleanly separates one matchday from the next.
 MATCHDAY_SESSION_GAP = timedelta(hours=12)
@@ -2542,6 +2542,7 @@ def compact_name(value: Any) -> str:
 API_FOOTBALL_TEAM_ALIASES = {
     "bosnia herz egovina": "bih",
     "bosnia and herzegovina": "bih",
+    "bosnia herzegovina": "bih",
     "cape verde": "cpv",
     "congo dr": "cod",
     "curacao": "cuw",
@@ -4108,14 +4109,14 @@ def local_match_date(match: dict[str, Any]) -> Any:
 
 def tournament_session_date(match: dict[str, Any]) -> Any:
     local_kickoff = match_kickoff(match).astimezone(AMSTERDAM_TZ)
-    if local_kickoff.hour < 4:
+    if local_kickoff.hour < 12:
         return local_kickoff.date() - timedelta(days=1)
     return local_kickoff.date()
 
 
 def current_tournament_session_date(current: datetime) -> Any:
     local_current = current.astimezone(AMSTERDAM_TZ)
-    if local_current.hour < 4:
+    if local_current.hour < 12:
         return local_current.date() - timedelta(days=1)
     return local_current.date()
 
@@ -5723,6 +5724,108 @@ def top_movers_with_ties(
     ]
 
 
+def rank_users_by_scores(
+    users: list[Any],
+    scores: dict[int, int],
+) -> dict[int, int]:
+    ranked_users = sorted(
+        users,
+        key=lambda user: (
+            -scores.get(user["id"], 0),
+            normalize_identity(row_value(user, "name") or ""),
+        ),
+    )
+    return {user["id"]: index for index, user in enumerate(ranked_users, start=1)}
+
+
+def daily_movers_with_ties(
+    data: dict[str, Any],
+    users: list[Any],
+    by_user: dict[int, list[Any]],
+    quiz_by_user: dict[int, dict[str, Any]],
+    leeuwtjes_by_user: dict[int, set[str]],
+    viewership_winners: set[tuple[int, str]],
+    target_date: Any,
+    user_pictures: dict[int, dict[str, Any]] | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    previous_dates = sorted(
+        {
+            tournament_session_date(match)
+            for match in data["matches"]
+            if match_result(match) is not None and tournament_session_date(match) < target_date
+        }
+    )
+    previous_date = previous_dates[-1] if previous_dates else None
+    previous_scores = {
+        user["id"]: (
+            score_through_date(
+                data,
+                by_user.get(user["id"], []),
+                quiz_by_user.get(user["id"], {}),
+                leeuwtjes_by_user.get(user["id"], set()),
+                viewership_winners,
+                previous_date,
+            )
+            if previous_date is not None
+            else 0
+        )
+        for user in users
+    }
+    current_scores = {
+        user["id"]: score_through_date(
+            data,
+            by_user.get(user["id"], []),
+            quiz_by_user.get(user["id"], {}),
+            leeuwtjes_by_user.get(user["id"], set()),
+            viewership_winners,
+            target_date,
+        )
+        for user in users
+    }
+    previous_ranks = rank_users_by_scores(users, previous_scores)
+    current_ranks = rank_users_by_scores(users, current_scores)
+    movers = []
+    for user in users:
+        user_id = user["id"]
+        movement = previous_ranks[user_id] - current_ranks[user_id]
+        if movement == 0:
+            continue
+        name = row_value(user, "name") or "Unknown"
+        movers.append(
+            {
+                "user_id": user_id,
+                "name": name,
+                "rank": current_ranks[user_id],
+                "rank_previous": previous_ranks[user_id],
+                "rank_movement": movement,
+                "profile_picture": (user_pictures or {}).get(
+                    user_id,
+                    {
+                        "initials": initials(name),
+                        "hue": avatar_hue(name),
+                    },
+                ),
+            }
+        )
+
+    sorted_movers = sorted(
+        movers,
+        key=lambda row: (
+            -abs(int(row["rank_movement"])),
+            -int(row["rank_movement"]),
+            int(row["rank"]),
+            normalize_identity(row["name"]),
+        ),
+    )
+    if len(sorted_movers) > limit:
+        cutoff_movement = abs(int(sorted_movers[limit - 1]["rank_movement"]))
+        sorted_movers = [
+            row for row in sorted_movers if abs(int(row["rank_movement"])) >= cutoff_movement
+        ]
+    return sorted_movers
+
+
 def build_daily_recap(
     data: dict[str, Any],
     now: datetime | None = None,
@@ -5766,6 +5869,12 @@ def build_daily_recap(
 
     user_names = {user["id"]: user["name"] for user in users}
     user_pictures = {user["id"]: user_profile_picture(user) for user in users}
+    by_user: dict[int, list[Any]] = {}
+    for prediction in predictions:
+        by_user.setdefault(prediction["user_id"], []).append(prediction)
+    quiz_by_user: dict[int, dict[str, Any]] = {}
+    for prediction in quiz_predictions:
+        quiz_by_user.setdefault(prediction["user_id"], {})[prediction["match_id"]] = prediction
     leeuwtjes_by_user: dict[int, set[str]] = {}
     for row in leeuwtjes:
         leeuwtjes_by_user.setdefault(row["user_id"], set()).add(row["match_id"])
@@ -5800,8 +5909,15 @@ def build_daily_recap(
     if daily_points:
         top_user_id, top_points = daily_points.most_common(1)[0]
     top_players = top_daily_scores_with_ties(daily_points, user_names, user_pictures)
-    top_movers = top_movers_with_ties(
-        leaderboard or build_leaderboard(data, viewer_user_id=viewer_user_id, now=current)
+    top_movers = daily_movers_with_ties(
+        data,
+        list(users),
+        by_user,
+        quiz_by_user,
+        leeuwtjes_by_user,
+        viewership_winners,
+        target_date,
+        user_pictures,
     )
 
     moments = []

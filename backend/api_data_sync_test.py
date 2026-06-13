@@ -965,11 +965,21 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
     def test_tournament_session_date_groups_overnight_matches(self) -> None:
         evening_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
         overnight_match = make_match("m002", datetime(2026, 6, 12, 1, 59, tzinfo=UTC))
+        four_oclock_match = make_match("m004", datetime(2026, 6, 12, 2, 0, tzinfo=UTC))
+        west_coast_late_match = make_match("m005", datetime(2026, 6, 12, 4, 0, tzinfo=UTC))
         next_evening_match = make_match("m003", datetime(2026, 6, 12, 19, 0, tzinfo=UTC))
 
         self.assertEqual(
             wk_app.tournament_session_date(evening_match),
             wk_app.tournament_session_date(overnight_match),
+        )
+        self.assertEqual(
+            wk_app.tournament_session_date(evening_match),
+            wk_app.tournament_session_date(four_oclock_match),
+        )
+        self.assertEqual(
+            wk_app.tournament_session_date(evening_match),
+            wk_app.tournament_session_date(west_coast_late_match),
         )
         self.assertNotEqual(
             wk_app.tournament_session_date(evening_match),
@@ -1017,6 +1027,66 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             [moment["match_id"] for moment in recap["moments"]],
             ["m001", "m002"],
         )
+
+    def test_daily_recap_movers_use_target_session_only(self) -> None:
+        previous_match = make_match("m000", datetime(2026, 6, 10, 19, 0, tzinfo=UTC))
+        target_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
+        next_match = make_match("m002", datetime(2026, 6, 12, 19, 0, tzinfo=UTC))
+        for match in (previous_match, target_match, next_match):
+            match["status"] = "completed"
+            match["home_score"] = 1
+            match["away_score"] = 0
+        data = {
+            "matches": [previous_match, target_match, next_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES
+                    (1, 'Anna', 'anna@example.com', 'x', 0),
+                    (2, 'Bram', 'bram@example.com', 'x', 0),
+                    (3, 'Chris', 'chris@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES
+                    (1, 'm000', 1, 0),
+                    (2, 'm000', 2, 0),
+                    (1, 'm001', 0, 1),
+                    (3, 'm001', 1, 0),
+                    (1, 'm002', 1, 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                "INSERT INTO leeuwtje_predictions (user_id, match_id) VALUES (3, 'm001')",
+            )
+            conn.commit()
+            return wk_app.build_daily_recap(
+                data,
+                now=datetime(2026, 6, 12, 4, 30, tzinfo=UTC),
+                leaderboard=[],
+            )
+
+        recap = self.run_with_temp_db(scenario)
+
+        movers = {row["name"]: row["rank_movement"] for row in recap["top_movers"]}
+        self.assertEqual(movers["Chris"], 2)
+        self.assertEqual(movers["Anna"], -1)
+        self.assertEqual(movers["Bram"], -1)
 
     def seed_scoring_user(self, conn) -> None:
         wk_app.execute(
