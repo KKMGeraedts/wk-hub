@@ -23,7 +23,7 @@ As the pool operator, I want match result data to be retrieved only for the matc
 1. **Given** a match has passed its first post-match sync moment, **When** the result sync runs, **Then** the system requests data only for that match.
 2. **Given** a match has not reached a post-match sync moment, **When** the result sync runs, **Then** the system does not request provider data for that match.
 3. **Given** earlier matches have already completed their scheduled result sync attempts, **When** a later match becomes due, **Then** the system does not re-fetch the earlier matches.
-4. **Given** a match receives partial provider data at the first sync moment, **When** the second sync moment runs, **Then** the system requests that same match again and updates the stored provider data with any newer values.
+4. **Given** a match receives partial provider data at an earlier sync moment, **When** a later planned sync moment runs, **Then** the system requests that same match again and updates the stored provider data with any newer values.
 
 ---
 
@@ -175,9 +175,9 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - **FR-002**: The system MUST provide a clear internal boundary for provider retrieval, provider response storage, normalization, and scoring-label publication.
 - **FR-003**: The provider boundary MUST be able to support API-Football initially while preserving a path for future providers with equivalent match data.
 - **FR-004**: Result sync MUST run per relevant match rather than fetching the full completed tournament history.
-- **FR-005**: Each match result sync MUST be scheduled for two post-match attempts: one approximately 15 minutes after the match and one approximately 2 hours after the match.
+- **FR-005**: Each match result sync MUST be scheduled for three post-match attempts: one approximately 5 minutes after the match, one approximately 15 minutes after the match, and one approximately 2 hours after the match.
 - **FR-006**: The system MUST fetch result data only after a match has started and reached a configured post-match sync moment.
-- **FR-007**: The system MUST NOT keep rechecking final matches after the two planned post-match attempts unless an admin explicitly triggers a correction workflow in a future scope.
+- **FR-007**: The system MUST NOT keep rechecking final matches after the three planned post-match attempts unless an admin explicitly triggers a correction workflow in a future scope.
 - **FR-008**: Squad sync MUST remain separate from result sync and MUST NOT run on the same regular cadence as match results.
 - **FR-009**: The system MUST support one-time or rare squad sync because tournament squads are expected to be mostly fixed.
 - **FR-010**: The system MUST retain raw provider payload history permanently for audit and replay.
@@ -250,7 +250,7 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 
 - API-Football remains the initial provider, but the design should not embed provider-specific details into participant-facing code.
 - Provider fixture links should normally exist before matches need result sync; missing links are treated as exceptional.
-- Result sync timing is approximate because scheduler precision may vary, but the intent is one attempt near 15 minutes post-match and one near 2 hours post-match.
+- Result sync timing is approximate because scheduler precision may vary, but the intent is one attempt near 5 minutes post-match, one near 15 minutes post-match, and one near 2 hours post-match.
 - "Match is done" means the app has enough trusted status information to consider result/label scoring eligible for participant-visible scoring.
 - This spec does not add a user-facing freshness display, public scoring-source labels, user reports for incorrect labels, or a full admin sync dashboard unless later planning includes them as implementation details for admin notification.
 - This spec does not remove the existing manual label editor goal from the current fixes work; it refines how provider-backed and manual scoring facts should interact.

@@ -20,7 +20,7 @@
 
 ## Decision: Use per-match post-match result attempts
 
-**Rationale**: Result sync should run for only the relevant match after it has been played. The accepted timing is one attempt around 15 minutes after the match and a second around 2 hours after the match. This supports partial early data and later corrections without re-fetching full history.
+**Rationale**: Result sync should run for only the relevant match after it has been played. The accepted timing is one attempt around 5 minutes after the match, another around 15 minutes after the match, and a final regular attempt around 2 hours after the match. This supports partial early data and later corrections without re-fetching full history.
 
 **Alternatives considered**:
 
@@ -75,7 +75,7 @@
 
 ## Decision: Do not add a separate app-managed request limit
 
-**Rationale**: The requested per-match two-attempt schedule is already a strong boundary. Provider/account-level limits still exist, but the app should not create an additional daily budget feature for this scope.
+**Rationale**: The requested per-match post-match attempt schedule is already a strong boundary. Provider/account-level limits still exist, but the app should not create an additional daily budget feature for this scope.
 
 **Alternatives considered**:
 

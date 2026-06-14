@@ -30,6 +30,7 @@ Behavior:
 
 - Select only matches with due result sync attempt windows.
 - Supported due windows are approximately:
+  - early attempt: 5 minutes after the match
   - first attempt: 15 minutes after the match
   - second attempt: 2 hours after the match
 - Fetch provider data only for due linked matches.
@@ -49,7 +50,7 @@ Example response:
     {
       "target_type": "match_result",
       "target_id": "m001",
-      "attempt_kind": "first_post_match",
+      "attempt_kind": "early_post_match",
       "status": "succeeded",
       "provider_key": "api-football",
       "changed_facts": ["result", "events", "player_stats"],
@@ -319,7 +320,7 @@ Implementation must support the following checks:
 
 - A due-match sync requests only the due match.
 - Missing fixture links produce admin notifications and no participant-facing wrong result.
-- Partial provider data is stored and can be improved by the second sync attempt.
+- Partial provider data is stored and can be improved by later planned sync attempts.
 - Manual override wins over provider update.
 - Manual override reversal restores provider-backed fact.
 - Stored computed points update after fact changes and are read by both leaderboard and profile flows.

@@ -165,12 +165,14 @@ API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get(
 API_FOOTBALL_PROVIDER_KEY = "api-football"
 SYNC_TARGET_MATCH_RESULT = "match_result"
 SYNC_TARGET_TEAM_SQUAD = "team_squad"
+SYNC_ATTEMPT_EARLY_POST_MATCH = "early_post_match"
 SYNC_ATTEMPT_FIRST_POST_MATCH = "first_post_match"
 SYNC_ATTEMPT_SECOND_POST_MATCH = "second_post_match"
 SYNC_ATTEMPT_MISSING_DATA_RETRY = "missing_data_retry"
 SYNC_ATTEMPT_MANUAL = "manual"
 SYNC_ATTEMPT_SQUAD_REFRESH = "squad_refresh"
 SYNC_ATTEMPT_KINDS = {
+    SYNC_ATTEMPT_EARLY_POST_MATCH,
     SYNC_ATTEMPT_FIRST_POST_MATCH,
     SYNC_ATTEMPT_SECOND_POST_MATCH,
     SYNC_ATTEMPT_MISSING_DATA_RETRY,
@@ -183,6 +185,7 @@ SYNC_STATUS_SUCCEEDED = "succeeded"
 SYNC_STATUS_SKIPPED = "skipped"
 SYNC_STATUS_FAILED = "failed"
 SYNC_TERMINAL_STATUSES = {SYNC_STATUS_SUCCEEDED, SYNC_STATUS_SKIPPED, SYNC_STATUS_FAILED}
+RESULT_SYNC_EARLY_AFTER = timedelta(minutes=5)
 RESULT_SYNC_FIRST_AFTER = timedelta(minutes=15)
 RESULT_SYNC_SECOND_AFTER = timedelta(hours=2)
 API_FOOTBALL_POSTMATCH_BUFFER = timedelta(
@@ -546,10 +549,13 @@ def sql_timestamp(value: datetime | None) -> str | None:
 
 
 def result_sync_scheduled_for(match: dict[str, Any], attempt_kind: str) -> datetime:
+    postmatch_anchor = match_kickoff(match) + API_FOOTBALL_POSTMATCH_BUFFER
+    if attempt_kind == SYNC_ATTEMPT_EARLY_POST_MATCH:
+        return postmatch_anchor + RESULT_SYNC_EARLY_AFTER
     if attempt_kind == SYNC_ATTEMPT_FIRST_POST_MATCH:
-        return match_kickoff(match) + RESULT_SYNC_FIRST_AFTER
+        return postmatch_anchor + RESULT_SYNC_FIRST_AFTER
     if attempt_kind == SYNC_ATTEMPT_SECOND_POST_MATCH:
-        return match_kickoff(match) + RESULT_SYNC_SECOND_AFTER
+        return postmatch_anchor + RESULT_SYNC_SECOND_AFTER
     if attempt_kind == SYNC_ATTEMPT_MISSING_DATA_RETRY:
         return utc_now()
     raise ValueError(f"Unsupported result sync attempt kind: {attempt_kind}")
@@ -565,13 +571,22 @@ def due_result_sync_attempt_kinds(
     if not match.get("home_team_id") or not match.get("away_team_id"):
         return []
 
+    early_due_at = result_sync_scheduled_for(match, SYNC_ATTEMPT_EARLY_POST_MATCH)
+    if SYNC_ATTEMPT_EARLY_POST_MATCH not in terminal_attempt_kinds and now >= early_due_at:
+        return [SYNC_ATTEMPT_EARLY_POST_MATCH]
+
     first_due_at = result_sync_scheduled_for(match, SYNC_ATTEMPT_FIRST_POST_MATCH)
-    if SYNC_ATTEMPT_FIRST_POST_MATCH not in terminal_attempt_kinds and now >= first_due_at:
+    if (
+        SYNC_ATTEMPT_EARLY_POST_MATCH in terminal_attempt_kinds
+        and SYNC_ATTEMPT_FIRST_POST_MATCH not in terminal_attempt_kinds
+        and now >= first_due_at
+    ):
         return [SYNC_ATTEMPT_FIRST_POST_MATCH]
 
     second_due_at = result_sync_scheduled_for(match, SYNC_ATTEMPT_SECOND_POST_MATCH)
     if (
-        SYNC_ATTEMPT_FIRST_POST_MATCH in terminal_attempt_kinds
+        SYNC_ATTEMPT_EARLY_POST_MATCH in terminal_attempt_kinds
+        and SYNC_ATTEMPT_FIRST_POST_MATCH in terminal_attempt_kinds
         and SYNC_ATTEMPT_SECOND_POST_MATCH not in terminal_attempt_kinds
         and now >= second_due_at
     ):
@@ -579,6 +594,7 @@ def due_result_sync_attempt_kinds(
 
     if (
         not has_result
+        and SYNC_ATTEMPT_EARLY_POST_MATCH in terminal_attempt_kinds
         and SYNC_ATTEMPT_FIRST_POST_MATCH in terminal_attempt_kinds
         and SYNC_ATTEMPT_SECOND_POST_MATCH in terminal_attempt_kinds
         and now >= second_due_at

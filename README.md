@@ -79,7 +79,7 @@ API-Football fixture and squad syncs also keep append-only raw snapshot history 
 
 ## API-Football Sync
 
-The app can sync completed match data and team squads from API-Football using World Cup `league=1` and `season=2026`. Result sync is intentionally narrow: the app selects only matches whose post-match sync windows are due, currently around 15 minutes and 2 hours after kickoff, and requests only those linked fixtures. The cron endpoint can run more frequently than those windows because the backend records terminal per-match attempts and skips unrelated history. Squad sync remains separate because squads are mostly fixed tournament data. Successful provider payloads are retained in raw history tables, while normalized result/event/player-stat rows feed the app. Normal participant views read app-owned schedule, result, profile, and scoring data; they do not call API-Football directly.
+The app can sync completed match data and team squads from API-Football using World Cup `league=1` and `season=2026`. Result sync is intentionally narrow: the app selects only matches whose post-match sync windows are due, currently around 5 minutes, 15 minutes, and 2 hours after the expected end of the match, and requests only those linked fixtures. The cron endpoint can run more frequently than those windows because the backend records terminal per-match attempts and skips unrelated history. Squad sync remains separate because squads are mostly fixed tournament data. Successful provider payloads are retained in raw history tables, while normalized result/event/player-stat rows feed the app. Normal participant views read app-owned schedule, result, profile, and scoring data; they do not call API-Football directly.
 
 If a due result sync cannot run because the app match has no provider fixture link, the sync attempt is recorded as skipped and admins get a notification-bell item. If the provider request fails or does not return the linked fixture, the attempt is recorded as failed and admins get a deduplicated sync issue notification. Normal participants keep seeing a blank or pending result rather than provider failure details.
 
@@ -100,7 +100,7 @@ Config:
 - `API_FOOTBALL_DAILY_LIMIT`, default `90`
 - `API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE`, default `6`, because squads use one `players/squads` call and one `coachs` call per team
 - `API_FOOTBALL_SQUAD_REFRESH_HOURS`, default `24`
-- Result sync windows are app-defined at approximately 15 minutes and 2 hours after the match.
+- Result sync windows are app-defined at approximately 5 minutes, 15 minutes, and 2 hours after the expected match end. The expected end is controlled by `API_FOOTBALL_POSTMATCH_BUFFER_MINUTES`, default `135` minutes after kickoff. The Vercel result cron is configured to run every 5 minutes in UTC so those windows are picked up promptly; this requires a Vercel plan that supports more-than-daily cron frequency.
 - Scoring fact changes recompute stored leaderboard point categories. Leaderboard and profile responses read those stored rows when present and fall back to live calculation for not-yet-computed categories.
 
 ## Newsletter Refresh

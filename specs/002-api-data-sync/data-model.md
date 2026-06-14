@@ -101,7 +101,7 @@ Fields:
 - `provider_key`
 - `target_type`: `match_result` or `team_squad`
 - `target_id`: app match id or app team id
-- `attempt_kind`: `first_post_match`, `second_post_match`, `manual`, or `squad_refresh`
+- `attempt_kind`: `early_post_match`, `first_post_match`, `second_post_match`, `manual`, or `squad_refresh`
 - `scheduled_for`
 - `started_at`
 - `finished_at`

@@ -59,6 +59,14 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
     def test_timedelta_import_available_for_sync_windows(self) -> None:
         self.assertEqual(timedelta(minutes=15).total_seconds(), 900)
 
+    def test_vercel_result_cron_runs_often_enough_for_sync_windows(self) -> None:
+        config = json.loads((Path(__file__).resolve().parent.parent / "vercel.json").read_text())
+        crons = {item["path"]: item["schedule"] for item in config["crons"]}
+
+        self.assertEqual(crons["/api/cron/api-football-sync"], "*/5 * * * *")
+        self.assertEqual(crons["/api/cron/api-football-squad-sync"], "30 8 * * *")
+        self.assertEqual(crons["/api/cron/newsletters-refresh"], "0 7 * * *")
+
     def test_talpa_email_validation_for_new_accounts(self) -> None:
         self.assertEqual(
             wk_app.validate_talpa_account_email(" First.Last@TalpaStudios.com "),
@@ -329,49 +337,81 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(rows["quiz"]["answer"], "ja")
         self.assertEqual(rows["leeuwtje"]["match_id"], "m001")
 
-    def test_first_post_match_attempt_is_due_after_first_window(self) -> None:
+    def test_early_post_match_attempt_is_due_after_five_minutes(self) -> None:
         kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
         match = make_match("m001", kickoff)
+        postmatch_anchor = kickoff + wk_app.API_FOOTBALL_POSTMATCH_BUFFER
 
         due = wk_app.due_result_sync_attempt_kinds(
             match,
-            now=kickoff + wk_app.RESULT_SYNC_FIRST_AFTER,
+            now=postmatch_anchor + wk_app.RESULT_SYNC_EARLY_AFTER,
             terminal_attempt_kinds=set(),
         )
 
-        self.assertEqual(due, [wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH])
+        self.assertEqual(due, [wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH])
 
-    def test_second_post_match_attempt_waits_for_first_terminal_attempt(self) -> None:
+    def test_first_post_match_attempt_waits_for_early_terminal_attempt(self) -> None:
         kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
         match = make_match("m001", kickoff)
+        postmatch_anchor = kickoff + wk_app.API_FOOTBALL_POSTMATCH_BUFFER
 
+        due_without_early = wk_app.due_result_sync_attempt_kinds(
+            match,
+            now=postmatch_anchor + wk_app.RESULT_SYNC_FIRST_AFTER,
+            terminal_attempt_kinds=set(),
+        )
+        due_with_early = wk_app.due_result_sync_attempt_kinds(
+            match,
+            now=postmatch_anchor + wk_app.RESULT_SYNC_FIRST_AFTER,
+            terminal_attempt_kinds={wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH},
+        )
+
+        self.assertEqual(due_without_early, [wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH])
+        self.assertEqual(due_with_early, [wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH])
+
+    def test_second_post_match_attempt_waits_for_early_and_first_terminal_attempts(self) -> None:
+        kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
+        match = make_match("m001", kickoff)
+        postmatch_anchor = kickoff + wk_app.API_FOOTBALL_POSTMATCH_BUFFER
+
+        due_without_early = wk_app.due_result_sync_attempt_kinds(
+            match,
+            now=postmatch_anchor + wk_app.RESULT_SYNC_SECOND_AFTER,
+            terminal_attempt_kinds=set(),
+        )
         due_without_first = wk_app.due_result_sync_attempt_kinds(
             match,
-            now=kickoff + wk_app.RESULT_SYNC_SECOND_AFTER,
-            terminal_attempt_kinds=set(),
+            now=postmatch_anchor + wk_app.RESULT_SYNC_SECOND_AFTER,
+            terminal_attempt_kinds={wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH},
         )
         due_with_first = wk_app.due_result_sync_attempt_kinds(
             match,
-            now=kickoff + wk_app.RESULT_SYNC_SECOND_AFTER,
-            terminal_attempt_kinds={wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH},
+            now=postmatch_anchor + wk_app.RESULT_SYNC_SECOND_AFTER,
+            terminal_attempt_kinds={
+                wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH,
+                wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
+            },
         )
 
+        self.assertEqual(due_without_early, [wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH])
         self.assertEqual(due_without_first, [wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH])
         self.assertEqual(due_with_first, [wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH])
 
-    def test_no_attempt_due_before_first_window_or_after_both_terminal(self) -> None:
+    def test_no_attempt_due_before_early_window_or_after_all_terminal(self) -> None:
         kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
         match = make_match("m001", kickoff)
+        postmatch_anchor = kickoff + wk_app.API_FOOTBALL_POSTMATCH_BUFFER
 
         early = wk_app.due_result_sync_attempt_kinds(
             match,
-            now=kickoff + timedelta(minutes=14),
+            now=postmatch_anchor + timedelta(minutes=4),
             terminal_attempt_kinds=set(),
         )
         complete = wk_app.due_result_sync_attempt_kinds(
             match,
-            now=kickoff + timedelta(hours=3),
+            now=postmatch_anchor + timedelta(hours=3),
             terminal_attempt_kinds={
+                wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
             },
@@ -382,12 +422,13 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(complete, [])
 
     def test_missing_result_after_both_windows_is_retried_as_backlog(self) -> None:
-        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(hours=3)
         match = make_match("m001", kickoff)
         data = {"matches": [match], "teams": []}
 
         def scenario(conn):
             for attempt_kind in (
+                wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
             ):
@@ -415,12 +456,13 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(candidates[0]["attempt_kind"], wk_app.SYNC_ATTEMPT_MISSING_DATA_RETRY)
 
     def test_missing_result_backlog_stops_after_result_exists(self) -> None:
-        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(hours=3)
         match = make_match("m001", kickoff)
         data = {"matches": [match], "teams": []}
 
         def scenario(conn):
             for attempt_kind in (
+                wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
             ):
@@ -457,12 +499,13 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(candidates, [])
 
     def test_backlog_missing_link_notifies_admins_and_remains_retryable(self) -> None:
-        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(hours=3)
         match = make_match("m001", kickoff)
         data = {"matches": [match], "teams": []}
 
         def scenario(conn):
             for attempt_kind in (
+                wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
                 wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
             ):
@@ -512,7 +555,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         )
 
     def test_result_sync_links_fixtures_before_skipping_missing_link(self) -> None:
-        kickoff = datetime.now(UTC) - timedelta(minutes=30)
+        kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(minutes=30)
         match = make_match("m001", kickoff, home_team_id="mex", away_team_id="rsa")
         data = {
             "matches": [match],
@@ -574,7 +617,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         previous_key = wk_app.API_FOOTBALL_KEY
         wk_app.API_FOOTBALL_SYNC_TOKEN = "test-token"
         wk_app.API_FOOTBALL_KEY = ""
-        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(minutes=30)
         data = {
             "matches": [make_match("m001", kickoff)],
             "teams": [
