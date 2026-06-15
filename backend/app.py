@@ -5712,6 +5712,24 @@ def active_admin_sync_issue_notifications(user: dict[str, Any] | None) -> list[d
     ]
 
 
+def badge_unlocked_notifications(badges: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not badges:
+        return []
+    badge_labels = [badge["label"] for badge in badges[:3]]
+    extra_count = max(0, len(badges) - len(badge_labels))
+    label_text = ", ".join(badge_labels)
+    if extra_count:
+        label_text = f"{label_text} en {extra_count} meer"
+    return [
+        {
+            "type": "badge_unlocked",
+            "count": len(badges),
+            "title": "Badge unlocked",
+            "body": f"Je hebt {label_text} vrijgespeeld.",
+        }
+    ]
+
+
 def build_notifications(
     data: dict[str, Any],
     predictions: dict[str, dict[str, Any]],
@@ -6348,6 +6366,11 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
     )
     prize_pot_status = user.get("prize_pot_status") if user else None
     prize_pot_count = prize_pot_joined_count() if user else 0
+    viewer_leaderboard_row = next(
+        (row for row in leaderboard if user and row["user_id"] == user["id"]),
+        None,
+    )
+    viewer_badges = viewer_leaderboard_row.get("badges", []) if viewer_leaderboard_row else []
 
     return {
         "me": user,
@@ -6365,6 +6388,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         "notifications": (
             active_admin_sync_issue_notifications(user)
             + prize_pot_notification(user.get("prize_pot_status") if user else None)
+            + badge_unlocked_notifications(viewer_badges)
             + build_notifications(data, predictions, quiz_predictions, now)
         ),
         "prize_pot": prize_pot_payload_for_user(prize_pot_status, prize_pot_count),

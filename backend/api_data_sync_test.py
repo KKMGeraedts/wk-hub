@@ -1012,6 +1012,38 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(points["score_breakdown"]["away_goals_points"], 2)
         self.assertEqual(points["score_breakdown"]["exact_bonus_points"], 2)
 
+    def test_badge_unlocked_notification_is_shown_for_viewer(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Player', 'player@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES (1, 'm001', 2, 1)
+                """,
+            )
+            conn.commit()
+            return wk_app.user_pool_state(
+                {"id": 1, "name": "Player", "email": "player@example.com", "is_admin": False},
+                data,
+            )
+
+        payload = self.run_with_temp_db(scenario)
+
+        badge_notifications = [
+            item for item in payload["notifications"] if item["type"] == "badge_unlocked"
+        ]
+        self.assertEqual(len(badge_notifications), 1)
+        self.assertIn("Perfect Score", badge_notifications[0]["body"])
+
     def test_match_prediction_points_apply_round_multiplier(self) -> None:
         kickoff = datetime.now(UTC) - timedelta(hours=3)
         match = make_match("m001", kickoff)
@@ -1617,6 +1649,77 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 for item in second_notifications
             ),
             second_notifications,
+        )
+
+    def test_scorer_notification_is_admin_only_and_clears_when_player_matches(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin@example.com', 'x', 1),
+                       (2, 'Player', 'player@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES ('m001', 'provider:event:1', 'Goal', 'Unknown Hero', '{}')
+                """,
+            )
+            wk_app.verify_player_database_matches(conn)
+            conn.commit()
+            admin_with_issue = wk_app.user_pool_state(
+                {"id": 1, "name": "Admin", "email": "admin@example.com", "is_admin": True},
+                data,
+            )
+            player_with_issue = wk_app.user_pool_state(
+                {"id": 2, "name": "Player", "email": "player@example.com", "is_admin": False},
+                data,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Unknown Hero', '{}')
+                """,
+            )
+            wk_app.verify_player_database_matches(conn)
+            conn.commit()
+            admin_after_match = wk_app.user_pool_state(
+                {"id": 1, "name": "Admin", "email": "admin@example.com", "is_admin": True},
+                data,
+            )
+            return admin_with_issue, player_with_issue, admin_after_match
+
+        admin_with_issue, player_with_issue, admin_after_match = self.run_with_temp_db(scenario)
+
+        self.assertTrue(
+            any(
+                item["type"] == "sync_issue"
+                and item["title"] == "Goal scorer is not in the player database"
+                for item in admin_with_issue["notifications"]
+            ),
+            admin_with_issue["notifications"],
+        )
+        self.assertFalse(
+            any(item["type"] == "sync_issue" for item in player_with_issue["notifications"]),
+            player_with_issue["notifications"],
+        )
+        self.assertFalse(
+            any(
+                item["type"] == "sync_issue"
+                and item["title"] == "Goal scorer is not in the player database"
+                for item in admin_after_match["notifications"]
+            ),
+            admin_after_match["notifications"],
         )
 
     def test_player_database_matching_accepts_initial_surname_variants(self) -> None:
