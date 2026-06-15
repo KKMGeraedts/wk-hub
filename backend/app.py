@@ -812,7 +812,18 @@ def active_admin_sync_notifications(conn: Any) -> list[dict[str, Any]]:
     return [json_ready(row) for row in rows]
 
 
-def squad_player_database(conn: Any) -> tuple[set[int], set[str]]:
+def player_initial_surname_key(value: Any) -> str:
+    parts = compact_name(value).split()
+    if len(parts) < 2:
+        return ""
+    surname = parts[-1]
+    initials = "".join(part[0] for part in parts[:-1] if part)
+    if not surname or not initials:
+        return ""
+    return f"{initials[0]}:{surname}"
+
+
+def squad_player_database(conn: Any) -> tuple[set[int], set[str], set[str]]:
     rows = execute(
         conn,
         """
@@ -830,7 +841,16 @@ def squad_player_database(conn: Any) -> tuple[set[int], set[str]]:
         for row in rows
         if normalized_player_name(row["player_name"])
     }
-    return api_ids, names
+    signature_counts = Counter(
+        signature
+        for row in rows
+        for signature in [player_initial_surname_key(row["player_name"])]
+        if signature
+    )
+    unique_signatures = {
+        signature for signature, count in signature_counts.items() if count == 1
+    }
+    return api_ids, names, unique_signatures
 
 
 def player_matches_squad_database(
@@ -839,12 +859,16 @@ def player_matches_squad_database(
     player_name: Any,
     squad_api_ids: set[int],
     squad_names: set[str],
+    squad_initial_surname_keys: set[str],
 ) -> bool:
     parsed_api_player_id = int_or_none(api_player_id)
     if parsed_api_player_id is not None and parsed_api_player_id in squad_api_ids:
         return True
     normalized_name = normalized_player_name(player_name)
-    return bool(normalized_name and normalized_name in squad_names)
+    if normalized_name and normalized_name in squad_names:
+        return True
+    signature = player_initial_surname_key(player_name)
+    return bool(signature and signature in squad_initial_surname_keys)
 
 
 def notification_target_id(*parts: Any) -> str:
@@ -882,7 +906,7 @@ def scorer_player_rows_for_verification(conn: Any) -> list[dict[str, Any]]:
 
 
 def verify_player_database_matches(conn: Any) -> dict[str, int]:
-    squad_api_ids, squad_names = squad_player_database(conn)
+    squad_api_ids, squad_names, squad_initial_surname_keys = squad_player_database(conn)
     invalid_targets: set[tuple[str, str, str]] = set()
     invalid_strikers = 0
     invalid_scorers = 0
@@ -907,6 +931,7 @@ def verify_player_database_matches(conn: Any) -> dict[str, int]:
                 player_name=player_name,
                 squad_api_ids=squad_api_ids,
                 squad_names=squad_names,
+                squad_initial_surname_keys=squad_initial_surname_keys,
             ):
                 continue
             target_id = notification_target_id(row["user_id"], player_name)
@@ -934,6 +959,7 @@ def verify_player_database_matches(conn: Any) -> dict[str, int]:
             player_name=row.get("player_name"),
             squad_api_ids=squad_api_ids,
             squad_names=squad_names,
+            squad_initial_surname_keys=squad_initial_surname_keys,
         ):
             continue
         target_id = notification_target_id(row.get("match_id"), row.get("player_name"))

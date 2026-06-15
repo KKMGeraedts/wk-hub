@@ -1557,6 +1557,88 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             second_notifications,
         )
 
+    def test_player_database_matching_accepts_initial_surname_variants(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES
+                    ('swe', '1', 1, 'O. Rekik', '{}'),
+                    ('swe', '2', 2, 'M. Svanberg', '{}'),
+                    ('swe', '3', 3, 'A. Isak', '{}'),
+                    ('swe', '4', 4, 'V. Gyokeres', '{}'),
+                    ('swe', '5', 5, 'Y. Ayari', '{}')
+                """
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES
+                    ('m012', 'provider:event:1', 'Goal', 'Omar Rekik', '{}'),
+                    ('m012', 'provider:event:2', 'Goal', 'Mattias Svanberg', '{}'),
+                    ('m012', 'provider:event:3', 'Goal', 'Alexander Isak', '{}'),
+                    ('m012', 'provider:event:4', 'Goal', 'Viktor Gyökeres', '{}'),
+                    ('m012', 'provider:event:5', 'Goal', 'Yasin Ayari', '{}')
+                """
+            )
+            result = wk_app.verify_player_database_matches(conn)
+            notifications = wk_app.active_admin_sync_notifications(conn)
+            return result, notifications
+
+        result, notifications = self.run_with_temp_db(scenario)
+
+        self.assertEqual(result["invalid_goal_scorers"], 0)
+        self.assertFalse(
+            any(
+                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                for item in notifications
+            ),
+            notifications,
+        )
+
+    def test_player_database_matching_rejects_ambiguous_initial_surname(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES
+                    ('team', '1', 1, 'A. Smith', '{}'),
+                    ('team', '2', 2, 'Adam Smith', '{}')
+                """
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES ('m001', 'provider:event:1', 'Goal', 'Alex Smith', '{}')
+                """
+            )
+            result = wk_app.verify_player_database_matches(conn)
+            notifications = wk_app.active_admin_sync_notifications(conn)
+            return result, notifications
+
+        result, notifications = self.run_with_temp_db(scenario)
+
+        self.assertEqual(result["invalid_goal_scorers"], 1)
+        self.assertTrue(
+            any(
+                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                for item in notifications
+            ),
+            notifications,
+        )
+
     def test_world_cup_payload_hides_provider_failure_details(self) -> None:
         data = self.scoring_data(done=False)
 
