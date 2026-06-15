@@ -1121,10 +1121,10 @@ def apply_stored_leaderboard_points(
     return merged
 
 
-def recompute_all_computed_points(data: dict[str, Any]) -> None:
+def recompute_all_computed_points(data: dict[str, Any]) -> dict[str, int]:
     rows = build_leaderboard(data, use_computed_points=False)
     with get_db() as conn:
-        verify_player_database_matches(conn)
+        player_verification = verify_player_database_matches(conn)
         delete_computed_points(conn, scope_type="leaderboard", scope_id="current")
         for row in rows:
             user_id = int(row["user_id"])
@@ -1148,6 +1148,7 @@ def recompute_all_computed_points(data: dict[str, Any]) -> None:
                     details={"source": "recompute_all_computed_points"},
                     facts_revision_key=iso_utc(utc_now()),
                 )
+    return player_verification
 
 
 def database_snapshot(*, include_rows: bool) -> dict[str, Any]:
@@ -4049,8 +4050,9 @@ def run_api_football_completed_sync(
                 }
             )
 
+    player_verification = None
     if synced:
-        recompute_all_computed_points(data)
+        player_verification = recompute_all_computed_points(data)
 
     return {
         "ok": True,
@@ -4059,6 +4061,7 @@ def run_api_football_completed_sync(
         "synced": synced,
         "skipped": skipped,
         "linking": linking,
+        "player_database_verification": player_verification,
         "requests_today": api_football_request_count_today(),
         "daily_limit": API_FOOTBALL_DAILY_LIMIT,
     }
