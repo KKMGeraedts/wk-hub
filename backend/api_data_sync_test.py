@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from backend import app as wk_app
@@ -920,7 +921,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(after["source"], "reverted")
         self.assertEqual(after["reason"], "Provider data corrected")
 
-    def scoring_data(self, done: bool = True) -> dict[str, object]:
+    def scoring_data(self, done: bool = True) -> dict[str, Any]:
         kickoff = datetime.now(UTC) - timedelta(hours=3)
         match = make_match("m001", kickoff)
         if done:
@@ -1536,6 +1537,294 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             any(item["type"] == "sync_issue" for item in player_state["notifications"])
         )
 
+    def test_genai_config_defaults_to_disabled_without_mistral_key(self) -> None:
+        with patch.dict(
+            wk_app.os.environ,
+            {
+                "GENAI_PROVIDER": "mistral",
+                "GENAI_MODEL": "test-model",
+                "GENAI_TIMEOUT_SECONDS": "7",
+            },
+            clear=False,
+        ):
+            wk_app.os.environ.pop("MISTRAL_API_KEY", None)
+            config = wk_app.genai_config()
+
+        self.assertEqual(config["provider_key"], "mistral")
+        self.assertEqual(config["model"], "test-model")
+        self.assertEqual(config["timeout_seconds"], 7)
+        self.assertFalse(config["enabled"])
+        self.assertEqual(config["disabled_reason"], "missing_mistral_api_key")
+
+    def test_genai_config_enables_mistral_when_key_is_present(self) -> None:
+        with patch.dict(
+            wk_app.os.environ,
+            {
+                "GENAI_PROVIDER": "mistral",
+                "MISTRAL_API_KEY": "test-key",
+                "GENAI_MODEL": "test-model",
+                "GENAI_TIMEOUT_SECONDS": "not-a-number",
+            },
+            clear=False,
+        ):
+            config = wk_app.genai_config()
+
+        self.assertTrue(config["enabled"])
+        self.assertEqual(config["api_key"], "test-key")
+        self.assertEqual(config["timeout_seconds"], wk_app.GENAI_DEFAULT_TIMEOUT_SECONDS)
+
+    def test_genai_job_result_storage_is_compact(self) -> None:
+        def scenario(conn):
+            result_id = wk_app.record_genai_job_result(
+                conn,
+                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
+                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                target_id="m001",
+                status=wk_app.GENAI_STATUS_REJECTED,
+                provider_key="mistral",
+                model="test-model",
+                input_payload={
+                    "question": "Komt er een goal?",
+                    "prompt": "this should not be stored as prompt text",
+                },
+                accepted_output={"selected_answers": ["ja"]},
+                evidence={"facts": [{"type": "match_event", "id": "event-1"}]},
+                failure_code="low_confidence",
+                failure_message="Model was unsure",
+            )
+            row = wk_app.genai_job_result_by_id(conn, result_id)
+            table_rows = wk_app.execute(conn, "SELECT * FROM genai_job_results").fetchall()
+            return row, table_rows
+
+        row, table_rows = self.run_with_temp_db(scenario)
+
+        self.assertEqual(len(table_rows), 1)
+        self.assertEqual(row["job_type"], wk_app.GENAI_JOB_QUIZ_ANSWER)
+        self.assertEqual(row["status"], wk_app.GENAI_STATUS_REJECTED)
+        self.assertEqual(row["failure_code"], "low_confidence")
+        self.assertIsNotNone(row["input_hash"])
+        serialized = json.dumps(dict(row), default=str)
+        self.assertNotIn("this should not be stored", serialized)
+        self.assertNotIn("prompt", row.keys())
+        self.assertEqual(json.loads(row["accepted_output_json"]), {"selected_answers": ["ja"]})
+
+    def test_genai_failure_notifications_are_deduplicated_and_resolvable(self) -> None:
+        def scenario(conn):
+            wk_app.create_genai_failure_notification(
+                conn,
+                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
+                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                target_id="m001",
+                failure_code="invalid_output",
+                title="Quiz GenAI needs review",
+                body="The GenAI quiz answer could not be used.",
+            )
+            wk_app.create_genai_failure_notification(
+                conn,
+                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
+                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                target_id="m001",
+                failure_code="invalid_output",
+                title="Quiz GenAI still needs review",
+                body="The GenAI quiz answer still could not be used.",
+            )
+            first = wk_app.active_admin_sync_notifications(conn)
+            wk_app.resolve_genai_failure_notification(
+                conn,
+                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
+                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                target_id="m001",
+                failure_code="invalid_output",
+            )
+            second = wk_app.active_admin_sync_notifications(conn)
+            return first, second
+
+        first, second = self.run_with_temp_db(scenario)
+
+        genai_first = [
+            item
+            for item in first
+            if item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED
+        ]
+        self.assertEqual(len(genai_first), 1)
+        self.assertEqual(genai_first[0]["title"], "Quiz GenAI still needs review")
+        self.assertFalse(
+            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
+        )
+
+    def test_quiz_genai_accepts_high_confidence_supplied_evidence(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            output = {
+                "status": "answered",
+                "selected_answers": ["Netherlands"],
+                "confidence": "high",
+                "reason": "The stored match result has Netherlands winning 2-1.",
+                "evidence": [{"type": "match_event", "id": "provider:event:1"}],
+            }
+            return wk_app.validate_quiz_genai_output(output, job_input)
+
+        result = self.run_with_temp_db(scenario)
+
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["correct_answers"], ["Netherlands"])
+        self.assertEqual(result["evidence"], [{"type": "match_event", "id": "provider:event:1"}])
+
+    def test_quiz_genai_rejects_invalid_or_unsafe_output(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            cases = [
+                None,
+                {"status": "answered", "selected_answers": ["Germany"], "confidence": "high"},
+                {
+                    "status": "answered",
+                    "selected_answers": ["Netherlands"],
+                    "confidence": "medium",
+                    "evidence": [{"type": "match_event", "id": "provider:event:1"}],
+                },
+                {
+                    "status": "maybe",
+                    "selected_answers": ["Netherlands"],
+                    "confidence": "high",
+                    "evidence": [{"type": "match_event", "id": "provider:event:1"}],
+                },
+                {
+                    "status": "answered",
+                    "selected_answers": ["Netherlands"],
+                    "confidence": "high",
+                    "evidence": [],
+                },
+            ]
+            return [wk_app.validate_quiz_genai_output(case, job_input) for case in cases]
+
+        results = self.run_with_temp_db(scenario)
+
+        self.assertTrue(all(not result["accepted"] for result in results))
+        self.assertEqual(
+            [result["failure_code"] for result in results],
+            [
+                "invalid_output",
+                "answer_outside_options",
+                "low_confidence",
+                "unsupported_status",
+                "missing_evidence",
+            ],
+        )
+
+    def test_rejected_quiz_genai_notifies_once_and_does_not_score(self) -> None:
+        data = self.scoring_data(done=True)
+        data["matches"][0]["quiz"]["correct_answers"] = ["USA"]
+        data["matches"][0]["quiz"]["correct_answer"] = "USA"
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            output = {
+                "status": "answered",
+                "selected_answers": ["Germany"],
+                "confidence": "high",
+                "evidence": [{"type": "match_event", "id": "provider:event:1"}],
+            }
+            wk_app.publish_quiz_genai_label(conn, data, data["matches"][0], output, job_input)
+            wk_app.publish_quiz_genai_label(conn, data, data["matches"][0], output, job_input)
+            notifications = wk_app.active_admin_sync_notifications(conn)
+            leaderboard = wk_app.build_leaderboard(data, use_computed_points=False)
+            return notifications, leaderboard[0]
+
+        notifications, row = self.run_with_temp_db(scenario)
+        genai_notifications = [
+            item
+            for item in notifications
+            if item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED
+        ]
+
+        self.assertEqual(len(genai_notifications), 1)
+        self.assertEqual(row["quiz_points"], 0)
+
+    def test_manual_quiz_override_wins_over_genai_label_without_mutating_predictions(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO quiz_label_overrides (
+                    match_id, question, choices_json, correct_answers_json, source
+                )
+                VALUES ('m001', 'Who wins?', '["Netherlands", "USA"]', '["USA"]', 'manual')
+                """,
+            )
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            wk_app.publish_quiz_genai_label(
+                conn,
+                data,
+                data["matches"][0],
+                {
+                    "status": "answered",
+                    "selected_answers": ["Netherlands"],
+                    "confidence": "high",
+                    "evidence": [{"type": "match_event", "id": "provider:event:1"}],
+                },
+                job_input,
+            )
+            wk_app.apply_quiz_label_overrides(data)
+            prediction = wk_app.execute(
+                conn,
+                "SELECT answer FROM quiz_predictions WHERE user_id = 1 AND match_id = 'm001'",
+            ).fetchone()
+            return data["matches"][0]["quiz"], prediction["answer"]
+
+        quiz, prediction_answer = self.run_with_temp_db(scenario)
+
+        self.assertEqual(quiz["correct_answers"], ["USA"])
+        self.assertEqual(quiz["label_source"], "manual")
+        self.assertTrue(quiz["manual_override_active"])
+        self.assertEqual(prediction_answer, "Netherlands")
+
+    def test_accepted_quiz_genai_label_recomputes_quiz_points(self) -> None:
+        data = self.scoring_data(done=True)
+        data["matches"][0]["quiz"]["correct_answers"] = ["USA"]
+        data["matches"][0]["quiz"]["correct_answer"] = "USA"
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            wk_app.recompute_all_computed_points(data)
+            before = wk_app.computed_point_rows(
+                conn, user_id=1, scope_type="leaderboard", scope_id="current"
+            )
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            result = wk_app.publish_quiz_genai_label(
+                conn,
+                data,
+                data["matches"][0],
+                {
+                    "status": "answered",
+                    "selected_answers": ["Netherlands"],
+                    "confidence": "high",
+                    "evidence": [{"type": "match_event", "id": "provider:event:1"}],
+                },
+                job_input,
+            )
+            after = wk_app.computed_point_rows(
+                conn, user_id=1, scope_type="leaderboard", scope_id="current"
+            )
+            return result, before, after
+
+        result, before, after = self.run_with_temp_db(scenario)
+
+        before_points = {row["category"]: row["points"] for row in before}
+        after_points = {row["category"]: row["points"] for row in after}
+        self.assertTrue(result["accepted"])
+        self.assertEqual(before_points["quiz_points"], 0)
+        self.assertGreater(after_points["quiz_points"], 0)
+
     def test_unmatched_striker_pick_notifies_admins_until_player_exists(self) -> None:
         def scenario(conn):
             wk_app.execute(
@@ -1649,6 +1938,365 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 for item in second_notifications
             ),
             second_notifications,
+        )
+
+    def test_player_genai_runs_only_after_deterministic_matching_fails(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
+                """,
+            )
+            squad = wk_app.squad_player_database(conn)
+            matched = wk_app.player_genai_should_run(
+                api_player_id=None,
+                player_name="C. Gakpo",
+                squad_api_ids=squad[0],
+                squad_names=squad[1],
+                squad_initial_surname_keys=squad[2],
+            )
+            unmatched = wk_app.player_genai_should_run(
+                api_player_id=None,
+                player_name="Gakppo",
+                squad_api_ids=squad[0],
+                squad_names=squad[1],
+                squad_initial_surname_keys=squad[2],
+            )
+            return matched, unmatched
+
+        matched, unmatched = self.run_with_temp_db(scenario)
+
+        self.assertFalse(matched)
+        self.assertTrue(unmatched)
+
+    def test_player_genai_accepts_only_supplied_candidate(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
+                """,
+            )
+            job_input = wk_app.build_player_genai_input(
+                conn,
+                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_id="m001:gakppo",
+                raw_player_name="Gakppo",
+                match_id="m001",
+                local_team_id="ned",
+            )
+            accepted = wk_app.validate_player_genai_output(
+                {
+                    "status": "matched",
+                    "matched_candidate_id": "ned:1",
+                    "confidence": "high",
+                    "evidence": [{"type": "candidate", "id": "ned:1"}],
+                },
+                job_input,
+            )
+            rejected = wk_app.validate_player_genai_output(
+                {
+                    "status": "matched",
+                    "matched_candidate_id": "ned:999",
+                    "confidence": "high",
+                    "evidence": [{"type": "candidate", "id": "ned:999"}],
+                },
+                job_input,
+            )
+            return accepted, rejected
+
+        accepted, rejected = self.run_with_temp_db(scenario)
+
+        self.assertTrue(accepted["accepted"])
+        self.assertEqual(accepted["matched_candidate"]["player_name"], "Cody Gakpo")
+        self.assertFalse(rejected["accepted"])
+        self.assertEqual(rejected["failure_code"], "candidate_outside_shortlist")
+
+    def test_player_genai_rejects_ambiguous_no_match_low_confidence_and_invalid(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
+                """,
+            )
+            job_input = wk_app.build_player_genai_input(
+                conn,
+                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_id="m001:gakppo",
+                raw_player_name="Gakppo",
+                match_id="m001",
+                local_team_id="ned",
+            )
+            cases = [
+                None,
+                {
+                    "status": "ambiguous",
+                    "matched_candidate_id": None,
+                    "confidence": "low",
+                    "evidence": [{"type": "candidate", "id": "ned:1"}],
+                },
+                {
+                    "status": "no_match",
+                    "matched_candidate_id": None,
+                    "confidence": "high",
+                    "evidence": [{"type": "candidate", "id": "ned:1"}],
+                },
+                {
+                    "status": "matched",
+                    "matched_candidate_id": "ned:1",
+                    "confidence": "medium",
+                    "evidence": [{"type": "candidate", "id": "ned:1"}],
+                },
+            ]
+            return [wk_app.validate_player_genai_output(case, job_input) for case in cases]
+
+        results = self.run_with_temp_db(scenario)
+
+        self.assertTrue(all(not result["accepted"] for result in results))
+        self.assertEqual(
+            [result["failure_code"] for result in results],
+            ["invalid_output", "ambiguous", "no_match", "low_confidence"],
+        )
+
+    def test_player_genai_link_preserves_original_names_and_prediction_rows(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Player', 'player@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO top_scorer_predictions (
+                    user_id, player_name, striker_name_1
+                )
+                VALUES (1, 'Cody Gakpo', 'Gakppo')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES ('m001', 'event-1', 'Goal', 'Gakppo', '{}')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
+                """,
+            )
+            job_input = wk_app.build_player_genai_input(
+                conn,
+                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_id="m001:gakppo",
+                raw_player_name="Gakppo",
+                match_id="m001",
+                local_team_id="ned",
+            )
+            result = wk_app.publish_player_genai_link(
+                conn,
+                job_input,
+                {
+                    "status": "matched",
+                    "matched_candidate_id": "ned:1",
+                    "confidence": "high",
+                    "evidence": [{"type": "candidate", "id": "ned:1"}],
+                },
+            )
+            verification = wk_app.verify_player_database_matches(conn)
+            event = wk_app.execute(conn, "SELECT player_name FROM match_events").fetchone()
+            pick = wk_app.execute(
+                conn, "SELECT striker_name_1 FROM top_scorer_predictions"
+            ).fetchone()
+            return result, verification, event["player_name"], pick["striker_name_1"]
+
+        result, verification, event_name, pick_name = self.run_with_temp_db(scenario)
+
+        self.assertTrue(result["accepted"])
+        self.assertEqual(verification["invalid_goal_scorers"], 0)
+        self.assertEqual(event_name, "Gakppo")
+        self.assertEqual(pick_name, "Gakppo")
+
+    def test_rejected_player_genai_notifies_once_and_acceptance_resolves(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
+                """,
+            )
+            job_input = wk_app.build_player_genai_input(
+                conn,
+                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_id="m001:gakppo",
+                raw_player_name="Gakppo",
+                match_id="m001",
+                local_team_id="ned",
+            )
+            low_confidence = {
+                "status": "matched",
+                "matched_candidate_id": "ned:1",
+                "confidence": "low",
+                "evidence": [{"type": "candidate", "id": "ned:1"}],
+            }
+            wk_app.publish_player_genai_link(conn, job_input, low_confidence)
+            wk_app.publish_player_genai_link(conn, job_input, low_confidence)
+            first = wk_app.active_admin_sync_notifications(conn)
+            wk_app.publish_player_genai_link(
+                conn,
+                job_input,
+                {
+                    "status": "matched",
+                    "matched_candidate_id": "ned:1",
+                    "confidence": "high",
+                    "evidence": [{"type": "candidate", "id": "ned:1"}],
+                },
+            )
+            second = wk_app.active_admin_sync_notifications(conn)
+            return first, second
+
+        first, second = self.run_with_temp_db(scenario)
+
+        self.assertEqual(
+            len(
+                [
+                    item
+                    for item in first
+                    if item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED
+                ]
+            ),
+            1,
+        )
+        self.assertFalse(
+            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
+        )
+
+    def test_participant_reads_do_not_call_genai_or_write_results(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(
+                    wk_app,
+                    "run_genai_structured_completion",
+                    side_effect=AssertionError("participant read called GenAI"),
+                ),
+            ):
+                statuses = [
+                    client.get("/api/world-cup").status_code,
+                    client.get("/api/pool").status_code,
+                    client.get("/api/profiles/1/predictions").status_code,
+                ]
+            row = wk_app.execute(
+                conn, "SELECT COUNT(*) AS count FROM genai_job_results"
+            ).fetchone()
+            return statuses, row["count"]
+
+        statuses, result_count = self.run_with_temp_db(scenario)
+
+        self.assertEqual(statuses, [200, 200, 200])
+        self.assertEqual(result_count, 0)
+
+    def test_successful_genai_outcomes_are_admin_visible_without_bell_noise(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            wk_app.publish_quiz_genai_label(
+                conn,
+                data,
+                data["matches"][0],
+                {
+                    "status": "answered",
+                    "selected_answers": ["Netherlands"],
+                    "confidence": "high",
+                    "evidence": [{"type": "match_event", "id": "provider:event:1"}],
+                },
+                job_input,
+            )
+            payload = wk_app.admin_labels_payload(data)
+            notifications = wk_app.active_admin_sync_notifications(conn)
+            return payload["matches"][0]["quiz"], notifications
+
+        quiz, notifications = self.run_with_temp_db(scenario)
+
+        self.assertEqual(quiz["genai"]["status"], wk_app.GENAI_STATUS_ACCEPTED)
+        self.assertEqual(quiz["source"], "genai:mistral")
+        self.assertFalse(
+            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in notifications)
+        )
+
+    def test_genai_provider_failures_create_admin_only_notifications(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin@example.com', 'x', 1),
+                       (2, 'Player', 'player@example.com', 'x', 0)
+                """,
+            )
+            wk_app.record_genai_provider_failure(
+                conn,
+                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
+                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                target_id="m001",
+                failure_code="provider_timeout",
+                failure_message="GenAI provider timed out.",
+                input_payload={"match_id": "m001"},
+            )
+            conn.commit()
+            admin_state = wk_app.user_pool_state(
+                {"id": 1, "name": "Admin", "email": "admin@example.com", "is_admin": True},
+                data,
+            )
+            player_state = wk_app.user_pool_state(
+                {"id": 2, "name": "Player", "email": "player@example.com", "is_admin": False},
+                data,
+            )
+            rows = wk_app.execute(
+                conn, "SELECT status, failure_code FROM genai_job_results"
+            ).fetchall()
+            return admin_state, player_state, [dict(row) for row in rows]
+
+        admin_state, player_state, rows = self.run_with_temp_db(scenario)
+
+        self.assertEqual(rows[0]["status"], wk_app.GENAI_STATUS_FAILED)
+        self.assertEqual(rows[0]["failure_code"], "provider_timeout")
+        self.assertTrue(any(item["type"] == "sync_issue" for item in admin_state["notifications"]))
+        self.assertFalse(
+            any(item["type"] == "sync_issue" for item in player_state["notifications"])
         )
 
     def test_scorer_notification_is_admin_only_and_clears_when_player_matches(self) -> None:

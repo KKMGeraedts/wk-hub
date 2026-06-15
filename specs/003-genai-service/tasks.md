@@ -18,8 +18,8 @@
 
 **Purpose**: Prepare configuration and documentation surfaces for the GenAI Service.
 
-- [ ] T001 Add GenAI environment variable documentation for `GENAI_PROVIDER`, `MISTRAL_API_KEY`, `GENAI_MODEL`, and `GENAI_TIMEOUT_SECONDS` in `README.md`
-- [ ] T002 Verify `.gitignore` covers Python, Node, build output, and environment files for this Flask/Vite project in `.gitignore`
+- [X] T001 Add GenAI environment variable documentation for `GENAI_PROVIDER`, `MISTRAL_API_KEY`, `GENAI_MODEL`, and `GENAI_TIMEOUT_SECONDS` in `README.md`
+- [X] T002 Verify `.gitignore` covers Python, Node, build output, and environment files for this Flask/Vite project in `.gitignore`
 
 ---
 
@@ -33,20 +33,20 @@
 
 > Write these tests first and confirm they fail before implementation.
 
-- [ ] T003 [P] Add tests for GenAI configuration defaults, disabled state, and missing Mistral API key behavior in `backend/api_data_sync_test.py`
-- [ ] T004 [P] Add tests proving GenAI job result storage persists compact status/evidence but not full prompts or raw responses in `backend/api_data_sync_test.py`
-- [ ] T005 [P] Add tests for GenAI admin sync notification deduplication and resolution helpers in `backend/api_data_sync_test.py`
+- [X] T003 [P] Add tests for GenAI configuration defaults, disabled state, and missing Mistral API key behavior in `backend/api_data_sync_test.py`
+- [X] T004 [P] Add tests proving GenAI job result storage persists compact status/evidence but not full prompts or raw responses in `backend/api_data_sync_test.py`
+- [X] T005 [P] Add tests for GenAI admin sync notification deduplication and resolution helpers in `backend/api_data_sync_test.py`
 
 ### Implementation
 
-- [ ] T006 Add GenAI constants, environment configuration helpers, provider enabled checks, and timeout parsing in `backend/app.py`
-- [ ] T007 Add SQLite schema for `genai_job_results`, `quiz_auto_labels`, and `player_candidate_links` in `backend/app.py`
-- [ ] T008 Add Postgres schema for `genai_job_results`, `quiz_auto_labels`, and `player_candidate_links` in `backend/app.py`
-- [ ] T009 Add SQLite/Postgres migration guards for new GenAI tables and columns in `backend/app.py`
-- [ ] T010 Implement compact GenAI job result persistence, input hashing, status updates, and lookup helpers in `backend/app.py`
-- [ ] T011 Implement provider-agnostic GenAI client boundary and Mistral HTTP helper with structured-output parsing and timeout handling in `backend/app.py`
-- [ ] T012 Implement shared GenAI failure notification helpers using `admin_sync_notifications` in `backend/app.py`
-- [ ] T013 Run foundational backend tests for GenAI configuration, compact result storage, and notification helpers with `.venv/bin/python -m unittest backend.api_data_sync_test`
+- [X] T006 Add GenAI constants, environment configuration helpers, provider enabled checks, and timeout parsing in `backend/app.py`
+- [X] T007 Add SQLite schema for `genai_job_results`, `quiz_auto_labels`, and `player_candidate_links` in `backend/app.py`
+- [X] T008 Add Postgres schema for `genai_job_results`, `quiz_auto_labels`, and `player_candidate_links` in `backend/app.py`
+- [X] T009 Add SQLite/Postgres migration guards for new GenAI tables and columns in `backend/app.py`
+- [X] T010 Implement compact GenAI job result persistence, input hashing, status updates, and lookup helpers in `backend/app.py`
+- [X] T011 Implement provider-agnostic GenAI client boundary and Mistral HTTP helper with structured-output parsing and timeout handling in `backend/app.py`
+- [X] T012 Implement shared GenAI failure notification helpers using `admin_sync_notifications` in `backend/app.py`
+- [X] T013 Run foundational backend tests for GenAI configuration, compact result storage, and notification helpers with `.venv/bin/python -m unittest backend.api_data_sync_test`
 
 **Checkpoint**: GenAI configuration, storage, client boundary, and notification primitives are ready for user-story implementation.
 
@@ -62,25 +62,25 @@
 
 > Write these tests first and confirm they fail before implementation.
 
-- [ ] T014 [P] [US1] Add quiz GenAI accepted-output validation tests for option matching, high confidence, and supplied-fact evidence in `backend/api_data_sync_test.py`
-- [ ] T015 [P] [US1] Add quiz GenAI rejection tests for invalid JSON, outside-option answers, low confidence, unsupported status, and missing evidence in `backend/api_data_sync_test.py`
-- [ ] T016 [P] [US1] Add tests proving rejected quiz GenAI output creates one deduplicated admin sync issue and does not score participants in `backend/api_data_sync_test.py`
-- [ ] T017 [P] [US1] Add tests proving manual quiz override wins over a GenAI automatic label and participant `quiz_predictions` are not mutated in `backend/api_data_sync_test.py`
-- [ ] T018 [P] [US1] Add tests proving accepted GenAI quiz labels trigger computed quiz point recalculation in `backend/api_data_sync_test.py`
+- [X] T014 [P] [US1] Add quiz GenAI accepted-output validation tests for option matching, high confidence, and supplied-fact evidence in `backend/api_data_sync_test.py`
+- [X] T015 [P] [US1] Add quiz GenAI rejection tests for invalid JSON, outside-option answers, low confidence, unsupported status, and missing evidence in `backend/api_data_sync_test.py`
+- [X] T016 [P] [US1] Add tests proving rejected quiz GenAI output creates one deduplicated admin sync issue and does not score participants in `backend/api_data_sync_test.py`
+- [X] T017 [P] [US1] Add tests proving manual quiz override wins over a GenAI automatic label and participant `quiz_predictions` are not mutated in `backend/api_data_sync_test.py`
+- [X] T018 [P] [US1] Add tests proving accepted GenAI quiz labels trigger computed quiz point recalculation in `backend/api_data_sync_test.py`
 
 ### Implementation for User Story 1
 
-- [ ] T019 [US1] Implement normalized match fact extraction for quiz GenAI inputs from `match_results`, `match_events`, `match_clean_sheets`, and `player_match_stats` in `backend/app.py`
-- [ ] T020 [US1] Implement quiz GenAI input construction using quiz question text, answer options, and compact normalized facts in `backend/app.py`
-- [ ] T021 [US1] Implement quiz GenAI output schema validation for selected answers, confidence, status, and evidence references in `backend/app.py`
-- [ ] T022 [US1] Implement `quiz_auto_labels` persistence for accepted `genai:mistral` labels below manual override precedence in `backend/app.py`
-- [ ] T023 [US1] Extend effective quiz label application so manual `quiz_label_overrides` win over GenAI automatic labels in `backend/app.py`
-- [ ] T024 [US1] Trigger computed point recalculation when an accepted GenAI quiz label changes the effective label in `backend/app.py`
-- [ ] T025 [US1] Create or update admin sync issues for rejected quiz GenAI outcomes and resolve them when the quiz becomes accepted or manually labeled in `backend/app.py`
-- [ ] T026 [US1] Add GenAI quiz source/status/evidence fields to admin label payloads in `backend/app.py`
-- [ ] T027 [US1] Render GenAI quiz status, source, confidence, evidence summary, and manual override precedence in the admin labels panel in `frontend/src/main.jsx`
-- [ ] T028 [US1] Add CSS for GenAI quiz status and evidence display in `frontend/src/styles.css`
-- [ ] T029 [US1] Run User Story 1 backend tests with `.venv/bin/python -m unittest backend.api_data_sync_test`
+- [X] T019 [US1] Implement normalized match fact extraction for quiz GenAI inputs from `match_results`, `match_events`, `match_clean_sheets`, and `player_match_stats` in `backend/app.py`
+- [X] T020 [US1] Implement quiz GenAI input construction using quiz question text, answer options, and compact normalized facts in `backend/app.py`
+- [X] T021 [US1] Implement quiz GenAI output schema validation for selected answers, confidence, status, and evidence references in `backend/app.py`
+- [X] T022 [US1] Implement `quiz_auto_labels` persistence for accepted `genai:mistral` labels below manual override precedence in `backend/app.py`
+- [X] T023 [US1] Extend effective quiz label application so manual `quiz_label_overrides` win over GenAI automatic labels in `backend/app.py`
+- [X] T024 [US1] Trigger computed point recalculation when an accepted GenAI quiz label changes the effective label in `backend/app.py`
+- [X] T025 [US1] Create or update admin sync issues for rejected quiz GenAI outcomes and resolve them when the quiz becomes accepted or manually labeled in `backend/app.py`
+- [X] T026 [US1] Add GenAI quiz source/status/evidence fields to admin label payloads in `backend/app.py`
+- [X] T027 [US1] Render GenAI quiz status, source, confidence, evidence summary, and manual override precedence in the admin labels panel in `frontend/src/main.jsx`
+- [X] T028 [US1] Add CSS for GenAI quiz status and evidence display in `frontend/src/styles.css`
+- [X] T029 [US1] Run User Story 1 backend tests with `.venv/bin/python -m unittest backend.api_data_sync_test`
 
 **Checkpoint**: User Story 1 is independently functional and can be reviewed through the admin label editor.
 
@@ -96,24 +96,24 @@
 
 > Write these tests first and confirm they fail before implementation.
 
-- [ ] T030 [P] [US2] Add tests proving player GenAI matching runs only after deterministic player-id/name/initial-surname matching fails in `backend/api_data_sync_test.py`
-- [ ] T031 [P] [US2] Add player GenAI accepted-output tests proving the matched candidate must exist in the supplied candidate list in `backend/api_data_sync_test.py`
-- [ ] T032 [P] [US2] Add player GenAI rejection tests for ambiguous, outside-candidate, no-match, low-confidence, and invalid output in `backend/api_data_sync_test.py`
-- [ ] T033 [P] [US2] Add tests proving accepted player candidate links preserve original scorer/striker names and do not mutate participant prediction rows in `backend/api_data_sync_test.py`
-- [ ] T034 [P] [US2] Add tests proving rejected player GenAI outcomes create deduplicated admin sync issues and accepted/manual fixes resolve them in `backend/api_data_sync_test.py`
+- [X] T030 [P] [US2] Add tests proving player GenAI matching runs only after deterministic player-id/name/initial-surname matching fails in `backend/api_data_sync_test.py`
+- [X] T031 [P] [US2] Add player GenAI accepted-output tests proving the matched candidate must exist in the supplied candidate list in `backend/api_data_sync_test.py`
+- [X] T032 [P] [US2] Add player GenAI rejection tests for ambiguous, outside-candidate, no-match, low-confidence, and invalid output in `backend/api_data_sync_test.py`
+- [X] T033 [P] [US2] Add tests proving accepted player candidate links preserve original scorer/striker names and do not mutate participant prediction rows in `backend/api_data_sync_test.py`
+- [X] T034 [P] [US2] Add tests proving rejected player GenAI outcomes create deduplicated admin sync issues and accepted/manual fixes resolve them in `backend/api_data_sync_test.py`
 
 ### Implementation for User Story 2
 
-- [ ] T035 [US2] Implement squad-player candidate shortlist generation for unresolved scorer and striker targets in `backend/app.py`
-- [ ] T036 [US2] Implement player GenAI input construction with raw name, target context, and existing candidate list in `backend/app.py`
-- [ ] T037 [US2] Implement player GenAI output validation for matched candidate id, confidence, status, and evidence in `backend/app.py`
-- [ ] T038 [US2] Implement `player_candidate_links` persistence for accepted GenAI matches without rewriting `match_events`, `player_match_stats`, or `top_scorer_predictions` in `backend/app.py`
-- [ ] T039 [US2] Integrate accepted player candidate links into `player_matches_squad_database()` and `verify_player_database_matches()` in `backend/app.py`
-- [ ] T040 [US2] Update unresolved scorer and striker notification resolution to account for accepted GenAI player candidate links in `backend/app.py`
-- [ ] T041 [US2] Add GenAI player link status/evidence to admin label payloads for goal/scorer and player-stat inspection in `backend/app.py`
-- [ ] T042 [US2] Render GenAI player match status and original-name preservation in the admin labels panel in `frontend/src/main.jsx`
-- [ ] T043 [US2] Add CSS for GenAI player match status in `frontend/src/styles.css`
-- [ ] T044 [US2] Run User Story 2 backend tests with `.venv/bin/python -m unittest backend.api_data_sync_test`
+- [X] T035 [US2] Implement squad-player candidate shortlist generation for unresolved scorer and striker targets in `backend/app.py`
+- [X] T036 [US2] Implement player GenAI input construction with raw name, target context, and existing candidate list in `backend/app.py`
+- [X] T037 [US2] Implement player GenAI output validation for matched candidate id, confidence, status, and evidence in `backend/app.py`
+- [X] T038 [US2] Implement `player_candidate_links` persistence for accepted GenAI matches without rewriting `match_events`, `player_match_stats`, or `top_scorer_predictions` in `backend/app.py`
+- [X] T039 [US2] Integrate accepted player candidate links into `player_matches_squad_database()` and `verify_player_database_matches()` in `backend/app.py`
+- [X] T040 [US2] Update unresolved scorer and striker notification resolution to account for accepted GenAI player candidate links in `backend/app.py`
+- [X] T041 [US2] Add GenAI player link status/evidence to admin label payloads for goal/scorer and player-stat inspection in `backend/app.py`
+- [X] T042 [US2] Render GenAI player match status and original-name preservation in the admin labels panel in `frontend/src/main.jsx`
+- [X] T043 [US2] Add CSS for GenAI player match status in `frontend/src/styles.css`
+- [X] T044 [US2] Run User Story 2 backend tests with `.venv/bin/python -m unittest backend.api_data_sync_test`
 
 **Checkpoint**: User Story 2 is independently functional and unresolved player matching remains admin-visible when GenAI cannot safely link a candidate.
 
@@ -129,19 +129,19 @@
 
 > Write these tests first and confirm they fail before implementation.
 
-- [ ] T045 [P] [US3] Add tests proving participant `/api/world-cup`, `/api/pool`, and profile reads do not call the GenAI client or write GenAI result rows in `backend/api_data_sync_test.py`
-- [ ] T046 [P] [US3] Add tests proving successful GenAI outcomes are present in admin review payloads but do not create notification-bell items in `backend/api_data_sync_test.py`
-- [ ] T047 [P] [US3] Add tests proving GenAI provider disabled, timeout, and provider error states create admin-only notifications without participant details in `backend/api_data_sync_test.py`
+- [X] T045 [P] [US3] Add tests proving participant `/api/world-cup`, `/api/pool`, and profile reads do not call the GenAI client or write GenAI result rows in `backend/api_data_sync_test.py`
+- [X] T046 [P] [US3] Add tests proving successful GenAI outcomes are present in admin review payloads but do not create notification-bell items in `backend/api_data_sync_test.py`
+- [X] T047 [P] [US3] Add tests proving GenAI provider disabled, timeout, and provider error states create admin-only notifications without participant details in `backend/api_data_sync_test.py`
 - [ ] T048 [P] [US3] Add frontend coverage or build-safe rendering assertions for GenAI admin status payloads in `frontend/src/main.jsx`
 
 ### Implementation for User Story 3
 
-- [ ] T049 [US3] Add defensive guards so participant-facing routes cannot trigger GenAI jobs or GenAI writes in `backend/app.py`
-- [ ] T050 [US3] Ensure admin pool notifications include GenAI failure sync issues only for admin users in `backend/app.py`
-- [ ] T051 [US3] Add admin-facing GenAI provider/status summary to existing admin label or sync status payloads in `backend/app.py`
-- [ ] T052 [US3] Render GenAI failure notifications through existing notification bell styles without exposing provider internals to normal participants in `frontend/src/main.jsx`
-- [ ] T053 [US3] Add or adjust notification/status styles for GenAI failure severity in `frontend/src/styles.css`
-- [ ] T054 [US3] Run User Story 3 backend tests with `.venv/bin/python -m unittest backend.api_data_sync_test`
+- [X] T049 [US3] Add defensive guards so participant-facing routes cannot trigger GenAI jobs or GenAI writes in `backend/app.py`
+- [X] T050 [US3] Ensure admin pool notifications include GenAI failure sync issues only for admin users in `backend/app.py`
+- [X] T051 [US3] Add admin-facing GenAI provider/status summary to existing admin label or sync status payloads in `backend/app.py`
+- [X] T052 [US3] Render GenAI failure notifications through existing notification bell styles without exposing provider internals to normal participants in `frontend/src/main.jsx`
+- [X] T053 [US3] Add or adjust notification/status styles for GenAI failure severity in `frontend/src/styles.css`
+- [X] T054 [US3] Run User Story 3 backend tests with `.venv/bin/python -m unittest backend.api_data_sync_test`
 
 **Checkpoint**: User Story 3 is independently functional and GenAI operations are safe, visible, and participant-read-free.
 
@@ -151,9 +151,9 @@
 
 **Purpose**: Documentation, validation, and cleanup that affect multiple stories.
 
-- [ ] T055 Update GenAI operational documentation and quickstart notes in `README.md`
-- [ ] T056 Update `specs/003-genai-service/quickstart.md` with any finalized environment variable names or admin review paths discovered during implementation
-- [ ] T057 Review `specs/003-genai-service/contracts/api-and-ui-contract.md` against final payload shapes and update if needed
+- [X] T055 Update GenAI operational documentation and quickstart notes in `README.md`
+- [X] T056 Update `specs/003-genai-service/quickstart.md` with any finalized environment variable names or admin review paths discovered during implementation
+- [X] T057 Review `specs/003-genai-service/contracts/api-and-ui-contract.md` against final payload shapes and update if needed
 - [ ] T058 Run Python formatting and static checks with `npm run py:check`
 - [ ] T059 Run frontend build with `npm run build`
 - [ ] T060 Run full validation with `npm run check`

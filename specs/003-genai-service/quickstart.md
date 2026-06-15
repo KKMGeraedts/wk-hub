@@ -22,7 +22,7 @@
    export GENAI_TIMEOUT_SECONDS=10
    ```
 
-   Exact provider variable names may be finalized during implementation, but the provider key, API key, model, and timeout must be configurable.
+   `GENAI_PROVIDER=mistral` with `MISTRAL_API_KEY` enables provider calls. Without a supported provider and key, attempted jobs fail closed and create admin-only sync issues.
 
 ## Validation Commands
 
@@ -35,6 +35,14 @@ npm run py:check
 npm run check
 ```
 
+If the local shell does not provide Node/npm, run the backend validation directly:
+
+```bash
+.venv/bin/python -m unittest backend.api_data_sync_test
+.venv/bin/python -m ruff check backend api
+.venv/bin/python -m mypy
+```
+
 ## Scenario 1: Quiz Answer Accepted From Match Facts
 
 1. Seed or sync a completed match with normalized result/events/player stats.
@@ -44,6 +52,7 @@ npm run check
 5. Confirm the accepted output selects an existing answer option and cites supplied facts.
 6. Confirm an automatic quiz label is effective when no manual override exists.
 7. Confirm computed quiz points are recalculated.
+8. Review `GET /api/admin/labels` or the admin scoring labels panel for the GenAI source/status/evidence.
 
 Expected result: evidence-backed GenAI quiz answers can score without participant prediction mutation.
 
@@ -76,6 +85,7 @@ Expected result: the existing admin panel remains authoritative.
 5. Confirm the GenAI Job receives only the unresolved raw name, target context, and a short candidate list.
 6. Confirm the accepted output selects one existing candidate.
 7. Confirm the raw scorer/striker name remains visible.
+8. Review the admin scoring labels panel for the accepted player link; it should show the original raw name and matched squad player.
 
 Expected result: GenAI can link an unresolved name to an existing player without rewriting source names.
 

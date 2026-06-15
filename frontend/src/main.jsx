@@ -2933,7 +2933,8 @@ function labelSource(match, type) {
 }
 
 function LabelSourcePill({ source }) {
-  return <span className={source === "manual" ? "pill orange" : "pill"}>{source}</span>;
+  const className = source === "manual" ? "pill orange" : source?.startsWith("genai") ? "pill blue" : "pill";
+  return <span className={className}>{source}</span>;
 }
 
 function quizAnswerValues(value) {
@@ -2944,6 +2945,20 @@ function quizAnswerValues(value) {
     .split(",")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function genaiEvidenceSummary(genai) {
+  const evidence = genai?.evidence ?? [];
+  if (!evidence.length) return "No evidence";
+  return evidence
+    .slice(0, 3)
+    .map((item) => `${item.type}:${item.id}`)
+    .join(", ");
+}
+
+function genaiPlayerLinkSummary(link) {
+  if (!link) return "";
+  return `${link.raw_player_name} -> ${link.matched_player_name}`;
 }
 
 function adminQuizFromDraft(match, draft) {
@@ -3155,9 +3170,16 @@ function AdminLabelsPage({ teams }) {
           <h3>Scoring labels</h3>
           <p>Inspect and adjust labels/results used for scoring.</p>
         </div>
-        <span className="pill green">
-          {Object.values(labels.tables ?? {}).filter(Boolean).length} label tables
-        </span>
+        <div className="admin-label-header-status">
+          <span className="pill green">
+            {Object.values(labels.tables ?? {}).filter(Boolean).length} label tables
+          </span>
+          {labels.genai && (
+            <span className={labels.genai.enabled ? "pill blue" : "pill warning"}>
+              GenAI {labels.genai.enabled ? "enabled" : "disabled"}
+            </span>
+          )}
+        </div>
       </div>
       <div className="panel-body">
         {error && <div className="form-error">{error}</div>}
@@ -3182,6 +3204,12 @@ function AdminLabelsPage({ teams }) {
                 const statSummary = labelMatch.player_stats?.length
                   ? `${labelMatch.player_stats.length} player stat labels`
                   : "No player stat labels";
+                const playerGenaiLinks = [
+                  ...(labelMatch.events ?? []),
+                  ...(labelMatch.player_stats ?? []),
+                ]
+                  .map((item) => item.genai_link)
+                  .filter(Boolean);
                 const labelDraft = drafts[labelMatch.match_id] ?? {};
                 const activeQuiz = adminQuizFromDraft(labelMatch, labelDraft);
                 const quizOptions = adminQuizChoiceOptions(
@@ -3284,6 +3312,22 @@ function AdminLabelsPage({ teams }) {
                           {formatNumber(labelMatch.quiz?.viewership_answer) ||
                             "Missing"}
                         </span>
+                        <span
+                          className={
+                            labelMatch.quiz?.genai
+                              ? "admin-genai-readout"
+                              : "admin-genai-readout is-empty"
+                          }
+                        >
+                          <strong>GenAI job</strong>
+                          {labelMatch.quiz?.genai
+                            ? `${labelMatch.quiz.genai.status} · ${labelMatch.quiz.genai.confidence}`
+                            : "No GenAI label"}
+                          {labelMatch.quiz?.manual_override_active &&
+                            labelMatch.quiz?.genai && (
+                              <em>Manual override active</em>
+                            )}
+                        </span>
                         <span>
                           <strong>Scorers</strong>
                           {goalSummary}
@@ -3291,6 +3335,20 @@ function AdminLabelsPage({ teams }) {
                         <span>
                           <strong>Stats</strong>
                           {statSummary}
+                        </span>
+                        <span
+                          className={
+                            playerGenaiLinks.length
+                              ? "admin-genai-readout"
+                              : "admin-genai-readout is-empty"
+                          }
+                        >
+                          <strong>Player GenAI</strong>
+                          {playerGenaiLinks.length
+                            ? `${playerGenaiLinks.length} accepted link${
+                                playerGenaiLinks.length === 1 ? "" : "s"
+                              }`
+                            : "No player links"}
                         </span>
                       </div>
                     </section>
@@ -3368,6 +3426,21 @@ function AdminLabelsPage({ teams }) {
                           <h4>Quiz label</h4>
                           {match.quiz ? (
                             <>
+                              {match.quiz.genai && (
+                                <div className="admin-genai-detail">
+                                  <div>
+                                    <strong>{match.quiz.genai.source}</strong>
+                                    <span>
+                                      {match.quiz.genai.status} ·{" "}
+                                      {match.quiz.genai.confidence} confidence
+                                    </span>
+                                  </div>
+                                  <p>{genaiEvidenceSummary(match.quiz.genai)}</p>
+                                  {match.quiz.manual_override_active && (
+                                    <em>Manual label is used for scoring.</em>
+                                  )}
+                                </div>
+                              )}
                               <label>
                                 Question
                                 <textarea
@@ -3480,6 +3553,17 @@ function AdminLabelsPage({ teams }) {
 
                         <section className="admin-label-section is-wide">
                           <h4>Goal and scorer labels</h4>
+                          {playerGenaiLinks.length > 0 && (
+                            <div className="admin-genai-link-list">
+                              {playerGenaiLinks.map((link) => (
+                                <span
+                                  key={`${link.raw_player_name}-${link.matched_player_name}`}
+                                >
+                                  {genaiPlayerLinkSummary(link)}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           <textarea
                             rows="8"
                             value={draft.events_json ?? "[]"}

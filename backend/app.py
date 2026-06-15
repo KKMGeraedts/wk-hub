@@ -110,6 +110,9 @@ DB_BACKUP_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("provider_sync_attempts", ("id",)),
     ("computed_points", ("user_id", "scope_type", "scope_id", "category")),
     ("admin_sync_notifications", ("created_at", "id")),
+    ("genai_job_results", ("created_at", "id")),
+    ("quiz_auto_labels", ("match_id",)),
+    ("player_candidate_links", ("target_type", "target_id")),
     ("newsletter_articles", ("published_at", "url")),
 )
 DIST_DIR = ROOT / "frontend" / "dist"
@@ -187,7 +190,21 @@ SYNC_STATUS_SKIPPED = "skipped"
 SYNC_STATUS_FAILED = "failed"
 SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD = "scorer_player_not_in_squad"
 SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD = "striker_pick_not_in_squad"
+SYNC_NOTIFICATION_GENAI_JOB_FAILED = "genai_job_failed"
 SYNC_TERMINAL_STATUSES = {SYNC_STATUS_SUCCEEDED, SYNC_STATUS_SKIPPED, SYNC_STATUS_FAILED}
+GENAI_PROVIDER_MISTRAL = "mistral"
+GENAI_DEFAULT_MODEL = "mistral-small-latest"
+GENAI_DEFAULT_TIMEOUT_SECONDS = 10
+GENAI_JOB_QUIZ_ANSWER = "quiz_answer_from_match_facts"
+GENAI_JOB_PLAYER_MATCH = "player_match_from_candidates"
+GENAI_TARGET_MATCH_QUIZ = "match_quiz"
+GENAI_TARGET_MATCH_SCORER = "match_scorer"
+GENAI_TARGET_STRIKER_PICK = "striker_pick"
+GENAI_STATUS_ACCEPTED = "accepted"
+GENAI_STATUS_REJECTED = "rejected"
+GENAI_STATUS_FAILED = "failed"
+GENAI_STATUS_SKIPPED_MANUAL_OVERRIDE = "skipped_manual_override"
+GENAI_STATUS_DISABLED = "disabled"
 RESULT_SYNC_EARLY_AFTER = timedelta(minutes=5)
 RESULT_SYNC_FIRST_AFTER = timedelta(minutes=15)
 RESULT_SYNC_SECOND_AFTER = timedelta(hours=2)
@@ -347,9 +364,408 @@ def parse_text_list_json(value: Any) -> list[str]:
     return [item for item in (clean_text(value) for value in parsed) if item]
 
 
+def quiz_answer_options(quiz: dict[str, Any]) -> list[str]:
+    choices = quiz.get("choices")
+    if isinstance(choices, list):
+        options = [clean_text(choice) for choice in choices]
+        return [choice for choice in options if choice]
+    if quiz.get("type") == "yes_no":
+        return ["yes", "no"]
+    correct_answers = quiz.get("correct_answers")
+    if correct_answers is None and quiz.get("correct_answer") is not None:
+        correct_answers = [quiz.get("correct_answer")]
+    if isinstance(correct_answers, list):
+        return [answer for answer in (clean_text(value) for value in correct_answers) if answer]
+    return []
+
+
+def quiz_genai_fact_payload(conn: Any, match_id: str) -> dict[str, Any]:
+    result = execute(
+        conn,
+        """
+        SELECT match_id, status_short, status_long, elapsed, home_score, away_score
+        FROM match_results
+        WHERE match_id = ?
+        """,
+        (match_id,),
+    ).fetchone()
+    events = execute(
+        conn,
+        """
+        SELECT provider_event_key, elapsed, extra, local_team_id, team_name,
+               player_name, assist_name, event_type, detail, comments
+        FROM match_events
+        WHERE match_id = ?
+        ORDER BY COALESCE(elapsed, 999), COALESCE(extra, 0), provider_event_key
+        """,
+        (match_id,),
+    ).fetchall()
+    clean_sheets = execute(
+        conn,
+        """
+        SELECT local_team_id, team_name
+        FROM match_clean_sheets
+        WHERE match_id = ?
+        ORDER BY local_team_id
+        """,
+        (match_id,),
+    ).fetchall()
+    player_stats = execute(
+        conn,
+        """
+        SELECT provider_player_key, local_team_id, team_name, player_name, minutes,
+               position, goals, assists, yellow_cards, red_cards, clean_sheet
+        FROM player_match_stats
+        WHERE match_id = ?
+        ORDER BY team_name, position, player_name, provider_player_key
+        """,
+        (match_id,),
+    ).fetchall()
+    return {
+        "result": (
+            {
+                "id": match_id,
+                "status_short": result["status_short"],
+                "status_long": result["status_long"],
+                "elapsed": result["elapsed"],
+                "home_score": result["home_score"],
+                "away_score": result["away_score"],
+            }
+            if result
+            else None
+        ),
+        "events": [
+            {
+                "id": row["provider_event_key"],
+                "elapsed": row["elapsed"],
+                "extra": row["extra"],
+                "local_team_id": row["local_team_id"],
+                "team_name": row["team_name"],
+                "player_name": row["player_name"],
+                "assist_name": row["assist_name"],
+                "event_type": row["event_type"],
+                "detail": row["detail"],
+                "comments": row["comments"],
+            }
+            for row in events
+        ],
+        "clean_sheets": [
+            {
+                "id": row["local_team_id"],
+                "local_team_id": row["local_team_id"],
+                "team_name": row["team_name"],
+            }
+            for row in clean_sheets
+        ],
+        "player_stats": [
+            {
+                "id": row["provider_player_key"],
+                "local_team_id": row["local_team_id"],
+                "team_name": row["team_name"],
+                "player_name": row["player_name"],
+                "minutes": row["minutes"],
+                "position": row["position"],
+                "goals": row["goals"],
+                "assists": row["assists"],
+                "yellow_cards": row["yellow_cards"],
+                "red_cards": row["red_cards"],
+                "clean_sheet": bool(row["clean_sheet"]),
+            }
+            for row in player_stats
+        ],
+    }
+
+
+def build_quiz_genai_input(conn: Any, match: dict[str, Any]) -> dict[str, Any]:
+    quiz = match.get("quiz") if isinstance(match, dict) else None
+    if not isinstance(quiz, dict):
+        quiz = {}
+    return {
+        "job_type": GENAI_JOB_QUIZ_ANSWER,
+        "match_id": match.get("id"),
+        "question": clean_text(quiz.get("question")),
+        "answer_options": quiz_answer_options(quiz),
+        "facts": quiz_genai_fact_payload(conn, clean_text(match.get("id"))),
+    }
+
+
+def quiz_genai_evidence_ids(job_input: dict[str, Any]) -> set[tuple[str, str]]:
+    facts = job_input.get("facts") if isinstance(job_input, dict) else {}
+    if not isinstance(facts, dict):
+        return set()
+    allowed: set[tuple[str, str]] = set()
+    result = facts.get("result")
+    if isinstance(result, dict) and result.get("id"):
+        allowed.add(("match_result", clean_text(result.get("id"))))
+    for row in facts.get("events") or []:
+        if isinstance(row, dict) and row.get("id"):
+            allowed.add(("match_event", clean_text(row.get("id"))))
+    for row in facts.get("clean_sheets") or []:
+        if isinstance(row, dict) and row.get("id"):
+            allowed.add(("clean_sheet", clean_text(row.get("id"))))
+    for row in facts.get("player_stats") or []:
+        if isinstance(row, dict) and row.get("id"):
+            allowed.add(("player_stat", clean_text(row.get("id"))))
+    return allowed
+
+
+def validate_quiz_genai_output(
+    output: Any, job_input: dict[str, Any]
+) -> dict[str, Any]:
+    def rejected(code: str, message: str) -> dict[str, Any]:
+        return {
+            "accepted": False,
+            "correct_answers": [],
+            "evidence": [],
+            "failure_code": code,
+            "failure_message": message,
+        }
+
+    if not isinstance(output, dict):
+        return rejected("invalid_output", "GenAI output must be a JSON object.")
+    status = clean_text(output.get("status")).casefold()
+    if status != "answered":
+        return rejected("unsupported_status", "Quiz GenAI did not answer the question.")
+    selected_answers = output.get("selected_answers")
+    if not isinstance(selected_answers, list) or not selected_answers:
+        return rejected("invalid_output", "Quiz GenAI output must select at least one answer.")
+    confidence = clean_text(output.get("confidence")).casefold()
+    if confidence != "high":
+        return rejected("low_confidence", "Quiz GenAI confidence was not high.")
+    options = [clean_text(option) for option in job_input.get("answer_options") or []]
+    option_by_normalized = {normalize_answer(option): option for option in options if option}
+    correct_answers: list[str] = []
+    for answer in selected_answers:
+        normalized = normalize_answer(answer)
+        if normalized not in option_by_normalized:
+            return rejected("answer_outside_options", "Quiz GenAI selected an unknown option.")
+        correct_answers.append(option_by_normalized[normalized])
+    evidence = output.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return rejected("missing_evidence", "Quiz GenAI output did not cite supplied facts.")
+    allowed_ids = quiz_genai_evidence_ids(job_input)
+    compact_evidence: list[dict[str, str]] = []
+    for item in evidence:
+        if not isinstance(item, dict):
+            return rejected("invalid_evidence", "Quiz GenAI evidence must be object references.")
+        ref = (clean_text(item.get("type")), clean_text(item.get("id")))
+        if ref not in allowed_ids:
+            return rejected("unsupported_evidence", "Quiz GenAI evidence was not supplied.")
+        compact_evidence.append({"type": ref[0], "id": ref[1]})
+    return {
+        "accepted": True,
+        "correct_answers": correct_answers,
+        "evidence": compact_evidence,
+        "failure_code": None,
+        "failure_message": None,
+        "confidence": confidence,
+        "reason": clean_text(output.get("reason")),
+    }
+
+
+def manual_quiz_override_exists(conn: Any, match_id: str) -> bool:
+    row = execute(
+        conn,
+        "SELECT 1 FROM quiz_label_overrides WHERE match_id = ? LIMIT 1",
+        (match_id,),
+    ).fetchone()
+    return row is not None
+
+
+def json_list_or_empty(value: Any) -> list[Any]:
+    if value in (None, ""):
+        return []
+    try:
+        parsed = json.loads(str(value))
+    except (TypeError, ValueError):
+        return []
+    return parsed if isinstance(parsed, list) else []
+
+
+def quiz_genai_payload_from_row(row: Any | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "job_type": GENAI_JOB_QUIZ_ANSWER,
+        "status": row["job_status"] if row_has_key(row, "job_status") else GENAI_STATUS_ACCEPTED,
+        "provider_key": row["provider_key"] if row_has_key(row, "provider_key") else None,
+        "model": row["model"] if row_has_key(row, "model") else None,
+        "source": row["source"],
+        "confidence": row["confidence"],
+        "evidence": json_list_or_empty(row["evidence_json"]),
+        "resolved_at": row["resolved_at"],
+        "job_result_id": row["job_result_id"],
+    }
+
+
+def player_genai_link_payload(row: Any | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "job_type": GENAI_JOB_PLAYER_MATCH,
+        "status": row["job_status"] if row_has_key(row, "job_status") else GENAI_STATUS_ACCEPTED,
+        "source": row["source"],
+        "provider_key": row["provider_key"] if row_has_key(row, "provider_key") else None,
+        "model": row["model"] if row_has_key(row, "model") else None,
+        "confidence": row["confidence"],
+        "raw_player_name": row["raw_player_name"],
+        "matched_player_name": row["matched_player_name"],
+        "matched_local_team_id": row["matched_local_team_id"],
+        "matched_api_player_id": row["matched_api_player_id"],
+        "evidence": json_list_or_empty(row["evidence_json"]),
+        "job_result_id": row["job_result_id"],
+    }
+
+
+def apply_auto_quiz_label(match: dict[str, Any], row: Any) -> None:
+    quiz = match.get("quiz")
+    if not isinstance(quiz, dict):
+        return
+    correct_answers = parse_correct_answers_json(row["correct_answers_json"])
+    if not correct_answers:
+        return
+    quiz["correct_answers"] = correct_answers
+    quiz["correct_answer"] = correct_answers[0]
+    quiz["label_source"] = row["source"] or "genai"
+    quiz["label_updated_at"] = row["updated_at"]
+    quiz["manual_override_active"] = False
+    quiz["genai"] = quiz_genai_payload_from_row(row)
+
+
+def store_quiz_auto_label(
+    conn: Any,
+    *,
+    match_id: str,
+    job_result_id: int | None,
+    correct_answers: list[str],
+    confidence: str,
+    evidence: list[dict[str, str]],
+    facts_revision_key: str | None,
+) -> None:
+    execute(
+        conn,
+        """
+        INSERT INTO quiz_auto_labels (
+            match_id, source, job_result_id, correct_answers_json, confidence,
+            facts_revision_key, evidence_json, resolved_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(match_id) DO UPDATE SET
+            source = excluded.source,
+            job_result_id = excluded.job_result_id,
+            correct_answers_json = excluded.correct_answers_json,
+            confidence = excluded.confidence,
+            facts_revision_key = excluded.facts_revision_key,
+            evidence_json = excluded.evidence_json,
+            resolved_at = excluded.resolved_at,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            match_id,
+            f"genai:{GENAI_PROVIDER_MISTRAL}",
+            job_result_id,
+            json.dumps(correct_answers),
+            confidence,
+            facts_revision_key,
+            json.dumps(evidence, sort_keys=True),
+        ),
+    )
+
+
+def publish_quiz_genai_label(
+    conn: Any,
+    data: dict[str, Any],
+    match: dict[str, Any],
+    output: Any,
+    job_input: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if job_input is None:
+        job_input = build_quiz_genai_input(conn, match)
+    match_id = clean_text(match.get("id"))
+    validation = validate_quiz_genai_output(output, job_input)
+    if not validation["accepted"]:
+        result_id = record_genai_job_result(
+            conn,
+            job_type=GENAI_JOB_QUIZ_ANSWER,
+            target_type=GENAI_TARGET_MATCH_QUIZ,
+            target_id=match_id,
+            status=GENAI_STATUS_REJECTED,
+            input_payload=job_input,
+            failure_code=validation["failure_code"],
+            failure_message=validation["failure_message"],
+        )
+        create_genai_failure_notification(
+            conn,
+            job_type=GENAI_JOB_QUIZ_ANSWER,
+            target_type=GENAI_TARGET_MATCH_QUIZ,
+            target_id=match_id,
+            failure_code=validation["failure_code"],
+            title="Quiz GenAI needs review",
+            body=validation["failure_message"],
+            related_attempt_id=result_id,
+        )
+        return validation
+
+    result_id = record_genai_job_result(
+        conn,
+        job_type=GENAI_JOB_QUIZ_ANSWER,
+        target_type=GENAI_TARGET_MATCH_QUIZ,
+        target_id=match_id,
+        status=GENAI_STATUS_ACCEPTED,
+        input_payload=job_input,
+        accepted_output={"selected_answers": validation["correct_answers"]},
+        evidence=validation["evidence"],
+    )
+    store_quiz_auto_label(
+        conn,
+        match_id=match_id,
+        job_result_id=result_id,
+        correct_answers=validation["correct_answers"],
+        confidence="high",
+        evidence=validation["evidence"],
+        facts_revision_key=genai_input_hash(job_input.get("facts")),
+    )
+    for failure_code in (
+        "invalid_output",
+        "unsupported_status",
+        "low_confidence",
+        "answer_outside_options",
+        "missing_evidence",
+        "invalid_evidence",
+        "unsupported_evidence",
+    ):
+        resolve_genai_failure_notification(
+            conn,
+            job_type=GENAI_JOB_QUIZ_ANSWER,
+            target_type=GENAI_TARGET_MATCH_QUIZ,
+            target_id=match_id,
+            failure_code=failure_code,
+        )
+    if not manual_quiz_override_exists(conn, match_id):
+        auto_row = execute(
+            conn,
+            "SELECT * FROM quiz_auto_labels WHERE match_id = ?",
+            (match_id,),
+        ).fetchone()
+        if auto_row is not None:
+            apply_auto_quiz_label(match, auto_row)
+    conn.commit()
+    recompute_all_computed_points(data)
+    validation["job_result_id"] = result_id
+    return validation
+
+
 def apply_quiz_label_overrides(data: dict[str, Any]) -> None:
     try:
         with get_db() as conn:
+            auto_rows = execute(
+                conn,
+                """
+                SELECT match_id, source, job_result_id, correct_answers_json,
+                       confidence, evidence_json, resolved_at, updated_at
+                FROM quiz_auto_labels
+                """,
+            ).fetchall()
             rows = execute(
                 conn,
                 """
@@ -362,11 +778,17 @@ def apply_quiz_label_overrides(data: dict[str, Any]) -> None:
         logger.exception("Could not load quiz label overrides")
         return
 
+    auto_labels = {row["match_id"]: row for row in auto_rows}
     overrides = {row["match_id"]: row for row in rows}
     for match in data.get("matches", []):
-        row = overrides.get(match["id"])
         quiz = match.get("quiz")
-        if not row or not isinstance(quiz, dict):
+        if not isinstance(quiz, dict):
+            continue
+        auto_row = auto_labels.get(match["id"])
+        if auto_row is not None:
+            apply_auto_quiz_label(match, auto_row)
+        row = overrides.get(match["id"])
+        if not row:
             continue
         question = clean_text(row["question"] if row_has_key(row, "question") else None)
         if question:
@@ -385,6 +807,7 @@ def apply_quiz_label_overrides(data: dict[str, Any]) -> None:
         quiz["label_source"] = row["source"] or "manual"
         quiz["label_updated_at"] = row["updated_at"]
         quiz["label_updated_by_user_id"] = row["updated_by_user_id"]
+        quiz["manual_override_active"] = True
 
 
 def merge_team_profile(team: dict[str, Any], profile: dict[str, Any]) -> None:
@@ -812,6 +1235,271 @@ def active_admin_sync_notifications(conn: Any) -> list[dict[str, Any]]:
     return [json_ready(row) for row in rows]
 
 
+def int_env_value(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
+def genai_config() -> dict[str, Any]:
+    provider_key = clean_text(os.environ.get("GENAI_PROVIDER") or GENAI_PROVIDER_MISTRAL).casefold()
+    model = clean_text(os.environ.get("GENAI_MODEL") or GENAI_DEFAULT_MODEL)
+    timeout_seconds = int_env_value("GENAI_TIMEOUT_SECONDS", GENAI_DEFAULT_TIMEOUT_SECONDS)
+    api_key = ""
+    disabled_reason = ""
+    if provider_key != GENAI_PROVIDER_MISTRAL:
+        disabled_reason = "unsupported_provider"
+    else:
+        api_key = clean_text(os.environ.get("MISTRAL_API_KEY"))
+        if not api_key:
+            disabled_reason = "missing_mistral_api_key"
+    return {
+        "provider_key": provider_key,
+        "model": model,
+        "api_key": api_key,
+        "timeout_seconds": timeout_seconds,
+        "enabled": not disabled_reason,
+        "disabled_reason": disabled_reason or None,
+    }
+
+
+def canonical_json(value: Any) -> str:
+    return json.dumps(json_ready(value), sort_keys=True, separators=(",", ":"))
+
+
+def genai_input_hash(input_payload: dict[str, Any] | None) -> str | None:
+    if input_payload is None:
+        return None
+    return hashlib.sha256(canonical_json(input_payload).encode("utf-8")).hexdigest()
+
+
+def json_dump_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(json_ready(value), sort_keys=True)
+
+
+def record_genai_job_result(
+    conn: Any,
+    *,
+    job_type: str,
+    target_type: str,
+    target_id: str,
+    status: str,
+    provider_key: str | None = None,
+    model: str | None = None,
+    input_payload: dict[str, Any] | None = None,
+    accepted_output: Any | None = None,
+    evidence: Any | None = None,
+    failure_code: str | None = None,
+    failure_message: str | None = None,
+) -> int | None:
+    config = genai_config()
+    provider = provider_key or config["provider_key"]
+    model_name = model or config["model"]
+    input_digest = genai_input_hash(input_payload)
+    if USING_POSTGRES:
+        row = execute(
+            conn,
+            """
+            INSERT INTO genai_job_results (
+                job_type, target_type, target_id, provider_key, model, status,
+                failure_code, failure_message, accepted_output_json, evidence_json,
+                input_hash, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            RETURNING id
+            """,
+            (
+                job_type,
+                target_type,
+                target_id,
+                provider,
+                model_name,
+                status,
+                failure_code,
+                failure_message,
+                json_dump_or_none(accepted_output),
+                json_dump_or_none(evidence),
+                input_digest,
+            ),
+        ).fetchone()
+        return int(row["id"]) if row else None
+    cursor = execute(
+        conn,
+        """
+        INSERT INTO genai_job_results (
+            job_type, target_type, target_id, provider_key, model, status,
+            failure_code, failure_message, accepted_output_json, evidence_json,
+            input_hash, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """,
+        (
+            job_type,
+            target_type,
+            target_id,
+            provider,
+            model_name,
+            status,
+            failure_code,
+            failure_message,
+            json_dump_or_none(accepted_output),
+            json_dump_or_none(evidence),
+            input_digest,
+        ),
+    )
+    return int(cursor.lastrowid) if cursor.lastrowid is not None else None
+
+
+def genai_job_result_by_id(conn: Any, result_id: int | None) -> Any | None:
+    if result_id is None:
+        return None
+    return execute(
+        conn,
+        """
+        SELECT id, job_type, target_type, target_id, provider_key, model, status,
+               failure_code, failure_message, accepted_output_json, evidence_json,
+               input_hash, created_at, updated_at
+        FROM genai_job_results
+        WHERE id = ?
+        """,
+        (result_id,),
+    ).fetchone()
+
+
+def genai_notification_target_type(job_type: str, target_type: str) -> str:
+    return f"genai:{job_type}:{target_type}"
+
+
+def genai_notification_target_id(target_id: str, failure_code: str) -> str:
+    return f"{target_id}:{failure_code}"
+
+
+def create_genai_failure_notification(
+    conn: Any,
+    *,
+    job_type: str,
+    target_type: str,
+    target_id: str,
+    failure_code: str,
+    title: str,
+    body: str,
+    severity: str = "warning",
+    related_attempt_id: int | None = None,
+) -> None:
+    create_admin_sync_notification(
+        conn,
+        notification_type=SYNC_NOTIFICATION_GENAI_JOB_FAILED,
+        target_type=genai_notification_target_type(job_type, target_type),
+        target_id=genai_notification_target_id(target_id, failure_code),
+        title=title,
+        body=body,
+        severity=severity,
+        related_attempt_id=related_attempt_id,
+    )
+
+
+def resolve_genai_failure_notification(
+    conn: Any,
+    *,
+    job_type: str,
+    target_type: str,
+    target_id: str,
+    failure_code: str,
+) -> None:
+    resolve_admin_sync_notification(
+        conn,
+        notification_type=SYNC_NOTIFICATION_GENAI_JOB_FAILED,
+        target_type=genai_notification_target_type(job_type, target_type),
+        target_id=genai_notification_target_id(target_id, failure_code),
+    )
+
+
+class GenAIProviderError(RuntimeError):
+    pass
+
+
+def parse_mistral_json_response(payload: dict[str, Any]) -> dict[str, Any]:
+    choices = payload.get("choices")
+    if not isinstance(choices, list) or not choices:
+        raise GenAIProviderError("missing_choices")
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    content = message.get("content") if isinstance(message, dict) else None
+    if isinstance(content, list):
+        content = "".join(
+            str(part.get("text", ""))
+            for part in content
+            if isinstance(part, dict)
+        )
+    if not isinstance(content, str) or not content.strip():
+        raise GenAIProviderError("missing_content")
+    try:
+        parsed = json.loads(content)
+    except ValueError as error:
+        raise GenAIProviderError("invalid_json_content") from error
+    if not isinstance(parsed, dict):
+        raise GenAIProviderError("json_content_not_object")
+    return parsed
+
+
+def mistral_structured_completion(
+    *,
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
+    config = genai_config()
+    if not config["enabled"]:
+        raise GenAIProviderError(config["disabled_reason"] or "genai_disabled")
+    body = json.dumps(
+        {
+            "model": model or config["model"],
+            "messages": messages,
+            "response_format": {"type": "json_object"},
+        }
+    ).encode("utf-8")
+    request_obj = Request(
+        "https://api.mistral.ai/v1/chat/completions",
+        data=body,
+        headers={
+            "Authorization": f"Bearer {config['api_key']}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(
+            request_obj,
+            timeout=timeout_seconds or config["timeout_seconds"],
+        ) as response:
+            response_payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, ValueError) as error:
+        raise GenAIProviderError("provider_request_failed") from error
+    if not isinstance(response_payload, dict):
+        raise GenAIProviderError("invalid_provider_response")
+    return parse_mistral_json_response(response_payload)
+
+
+def run_genai_structured_completion(
+    *,
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    timeout_seconds: int | None = None,
+) -> dict[str, Any]:
+    config = genai_config()
+    if config["provider_key"] != GENAI_PROVIDER_MISTRAL:
+        raise GenAIProviderError("unsupported_provider")
+    return mistral_structured_completion(
+        messages=messages,
+        model=model,
+        timeout_seconds=timeout_seconds,
+    )
+
+
 def player_initial_surname_key(value: Any) -> str:
     parts = compact_name(value).split()
     if len(parts) < 2:
@@ -886,6 +1574,321 @@ def player_matches_squad_database(
     return bool(signature and signature in squad_initial_surname_keys)
 
 
+def player_genai_should_run(
+    *,
+    api_player_id: Any | None,
+    player_name: Any,
+    squad_api_ids: set[int],
+    squad_names: set[str],
+    squad_initial_surname_keys: set[str],
+) -> bool:
+    return not player_matches_squad_database(
+        api_player_id=api_player_id,
+        player_name=player_name,
+        squad_api_ids=squad_api_ids,
+        squad_names=squad_names,
+        squad_initial_surname_keys=squad_initial_surname_keys,
+    )
+
+
+def player_candidate_id(row: Any) -> str:
+    return f"{clean_text(row['local_team_id'])}:{clean_text(row['provider_player_key'])}"
+
+
+def player_genai_candidate_shortlist(
+    conn: Any,
+    *,
+    local_team_id: str | None = None,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    params: tuple[Any, ...] = ()
+    where_clause = ""
+    if clean_text(local_team_id):
+        where_clause = "WHERE local_team_id = ?"
+        params = (clean_text(local_team_id),)
+    rows = execute(
+        conn,
+        f"""
+        SELECT local_team_id, provider_player_key, api_player_id, player_name
+        FROM team_squad_players
+        {where_clause}
+        ORDER BY player_name, local_team_id, provider_player_key
+        LIMIT {int(limit)}
+        """,
+        params,
+    ).fetchall()
+    return [
+        {
+            "candidate_id": player_candidate_id(row),
+            "api_player_id": row["api_player_id"],
+            "player_name": row["player_name"],
+            "local_team_id": row["local_team_id"],
+            "provider_player_key": row["provider_player_key"],
+        }
+        for row in rows
+    ]
+
+
+def build_player_genai_input(
+    conn: Any,
+    *,
+    target_type: str,
+    target_id: str,
+    raw_player_name: str,
+    match_id: str | None = None,
+    local_team_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "job_type": GENAI_JOB_PLAYER_MATCH,
+        "target_type": clean_text(target_type),
+        "target_id": clean_text(target_id),
+        "raw_player_name": clean_text(raw_player_name),
+        "match_id": clean_text(match_id),
+        "local_team_id": clean_text(local_team_id),
+        "candidates": player_genai_candidate_shortlist(conn, local_team_id=local_team_id),
+    }
+
+
+def validate_player_genai_output(
+    output: Any, job_input: dict[str, Any]
+) -> dict[str, Any]:
+    def rejected(code: str, message: str) -> dict[str, Any]:
+        return {
+            "accepted": False,
+            "matched_candidate": None,
+            "evidence": [],
+            "failure_code": code,
+            "failure_message": message,
+        }
+
+    if not isinstance(output, dict):
+        return rejected("invalid_output", "GenAI player output must be a JSON object.")
+    status = clean_text(output.get("status")).casefold()
+    if status in {"ambiguous", "no_match"}:
+        return rejected(status, "GenAI player match did not produce one safe candidate.")
+    if status != "matched":
+        return rejected("unsupported_status", "GenAI player output used an unsupported status.")
+    if clean_text(output.get("confidence")).casefold() != "high":
+        return rejected("low_confidence", "GenAI player match confidence was not high.")
+    candidates = {
+        candidate["candidate_id"]: candidate
+        for candidate in job_input.get("candidates") or []
+        if isinstance(candidate, dict) and candidate.get("candidate_id")
+    }
+    candidate_id = clean_text(output.get("matched_candidate_id"))
+    if candidate_id not in candidates:
+        return rejected(
+            "candidate_outside_shortlist",
+            "GenAI player match selected a candidate outside the supplied shortlist.",
+        )
+    evidence = output.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        return rejected("missing_evidence", "GenAI player match did not cite a candidate.")
+    compact_evidence: list[dict[str, str]] = []
+    for item in evidence:
+        if not isinstance(item, dict):
+            return rejected("invalid_evidence", "GenAI player evidence must be object references.")
+        ref_type = clean_text(item.get("type"))
+        ref_id = clean_text(item.get("id"))
+        if ref_type != "candidate" or ref_id not in candidates:
+            return rejected("unsupported_evidence", "GenAI player evidence was not supplied.")
+        compact_evidence.append({"type": ref_type, "id": ref_id})
+    return {
+        "accepted": True,
+        "matched_candidate": candidates[candidate_id],
+        "evidence": compact_evidence,
+        "failure_code": None,
+        "failure_message": None,
+        "confidence": "high",
+        "reason": clean_text(output.get("reason")),
+    }
+
+
+def accepted_player_candidate_link_exists(
+    conn: Any,
+    *,
+    target_type: str,
+    target_id: str,
+) -> bool:
+    row = execute(
+        conn,
+        """
+        SELECT 1
+        FROM player_candidate_links
+        WHERE target_type = ?
+          AND target_id = ?
+          AND confidence = 'high'
+        LIMIT 1
+        """,
+        (target_type, target_id),
+    ).fetchone()
+    return row is not None
+
+
+def store_player_candidate_link(
+    conn: Any,
+    *,
+    job_input: dict[str, Any],
+    job_result_id: int | None,
+    candidate: dict[str, Any],
+    evidence: list[dict[str, str]],
+) -> None:
+    execute(
+        conn,
+        """
+        INSERT INTO player_candidate_links (
+            target_type, target_id, raw_player_name, matched_local_team_id,
+            matched_api_player_id, matched_player_name, source, job_result_id,
+            confidence, evidence_json, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'high', ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(target_type, target_id) DO UPDATE SET
+            raw_player_name = excluded.raw_player_name,
+            matched_local_team_id = excluded.matched_local_team_id,
+            matched_api_player_id = excluded.matched_api_player_id,
+            matched_player_name = excluded.matched_player_name,
+            source = excluded.source,
+            job_result_id = excluded.job_result_id,
+            confidence = excluded.confidence,
+            evidence_json = excluded.evidence_json,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            job_input["target_type"],
+            job_input["target_id"],
+            job_input["raw_player_name"],
+            candidate["local_team_id"],
+            candidate["api_player_id"],
+            candidate["player_name"],
+            f"genai:{GENAI_PROVIDER_MISTRAL}",
+            job_result_id,
+            json.dumps(evidence, sort_keys=True),
+        ),
+    )
+
+
+def resolve_player_match_notifications(conn: Any, target_type: str, target_id: str) -> None:
+    if target_type == GENAI_TARGET_MATCH_SCORER:
+        resolve_admin_sync_notification(
+            conn,
+            notification_type=SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD,
+            target_type=SYNC_TARGET_MATCH_RESULT,
+            target_id=target_id,
+        )
+    if target_type == GENAI_TARGET_STRIKER_PICK:
+        resolve_admin_sync_notification(
+            conn,
+            notification_type=SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD,
+            target_type=SYNC_TARGET_STRIKER_PICK,
+            target_id=target_id,
+        )
+
+
+def publish_player_genai_link(
+    conn: Any,
+    job_input: dict[str, Any],
+    output: Any,
+) -> dict[str, Any]:
+    target_type = job_input["target_type"]
+    target_id = job_input["target_id"]
+    validation = validate_player_genai_output(output, job_input)
+    if not validation["accepted"]:
+        result_id = record_genai_job_result(
+            conn,
+            job_type=GENAI_JOB_PLAYER_MATCH,
+            target_type=target_type,
+            target_id=target_id,
+            status=GENAI_STATUS_REJECTED,
+            input_payload=job_input,
+            failure_code=validation["failure_code"],
+            failure_message=validation["failure_message"],
+        )
+        create_genai_failure_notification(
+            conn,
+            job_type=GENAI_JOB_PLAYER_MATCH,
+            target_type=target_type,
+            target_id=target_id,
+            failure_code=validation["failure_code"],
+            title="Player GenAI match needs review",
+            body=validation["failure_message"],
+            related_attempt_id=result_id,
+        )
+        return validation
+
+    result_id = record_genai_job_result(
+        conn,
+        job_type=GENAI_JOB_PLAYER_MATCH,
+        target_type=target_type,
+        target_id=target_id,
+        status=GENAI_STATUS_ACCEPTED,
+        input_payload=job_input,
+        accepted_output={"matched_candidate_id": validation["matched_candidate"]["candidate_id"]},
+        evidence=validation["evidence"],
+    )
+    store_player_candidate_link(
+        conn,
+        job_input=job_input,
+        job_result_id=result_id,
+        candidate=validation["matched_candidate"],
+        evidence=validation["evidence"],
+    )
+    for failure_code in (
+        "invalid_output",
+        "ambiguous",
+        "no_match",
+        "unsupported_status",
+        "low_confidence",
+        "candidate_outside_shortlist",
+        "missing_evidence",
+        "invalid_evidence",
+        "unsupported_evidence",
+    ):
+        resolve_genai_failure_notification(
+            conn,
+            job_type=GENAI_JOB_PLAYER_MATCH,
+            target_type=target_type,
+            target_id=target_id,
+            failure_code=failure_code,
+        )
+    resolve_player_match_notifications(conn, target_type, target_id)
+    validation["job_result_id"] = result_id
+    return validation
+
+
+def record_genai_provider_failure(
+    conn: Any,
+    *,
+    job_type: str,
+    target_type: str,
+    target_id: str,
+    failure_code: str,
+    failure_message: str,
+    input_payload: dict[str, Any] | None = None,
+) -> int | None:
+    result_id = record_genai_job_result(
+        conn,
+        job_type=job_type,
+        target_type=target_type,
+        target_id=target_id,
+        status=GENAI_STATUS_FAILED,
+        input_payload=input_payload,
+        failure_code=failure_code,
+        failure_message=failure_message,
+    )
+    create_genai_failure_notification(
+        conn,
+        job_type=job_type,
+        target_type=target_type,
+        target_id=target_id,
+        failure_code=failure_code,
+        title="GenAI job failed",
+        body=failure_message,
+        severity="warning",
+        related_attempt_id=result_id,
+    )
+    return result_id
+
+
 def notification_target_id(*parts: Any) -> str:
     return ":".join(compact_name(part).replace(" ", "-") for part in parts if compact_name(part))
 
@@ -952,6 +1955,12 @@ def verify_player_database_matches(conn: Any) -> dict[str, int]:
             target_id = notification_target_id(row["user_id"], player_name)
             if not target_id:
                 continue
+            if accepted_player_candidate_link_exists(
+                conn,
+                target_type=GENAI_TARGET_STRIKER_PICK,
+                target_id=target_id,
+            ):
+                continue
             invalid_targets.add(
                 (SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD, SYNC_TARGET_STRIKER_PICK, target_id)
             )
@@ -979,6 +1988,12 @@ def verify_player_database_matches(conn: Any) -> dict[str, int]:
             continue
         target_id = notification_target_id(row.get("match_id"), row.get("player_name"))
         if not target_id:
+            continue
+        if accepted_player_candidate_link_exists(
+            conn,
+            target_type=GENAI_TARGET_MATCH_SCORER,
+            target_id=target_id,
+        ):
             continue
         invalid_targets.add(
             (
@@ -1746,6 +2761,60 @@ def init_db() -> None:
         WHERE is_active = 1
         """,
         """
+        CREATE TABLE IF NOT EXISTS genai_job_results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            job_type TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            provider_key TEXT NOT NULL,
+            model TEXT NOT NULL,
+            status TEXT NOT NULL,
+            failure_code TEXT,
+            failure_message TEXT,
+            accepted_output_json TEXT,
+            evidence_json TEXT,
+            input_hash TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS quiz_auto_labels (
+            match_id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            job_result_id INTEGER,
+            correct_answers_json TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            facts_revision_key TEXT,
+            evidence_json TEXT,
+            resolved_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (job_result_id) REFERENCES genai_job_results(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS player_candidate_links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            raw_player_name TEXT NOT NULL,
+            matched_local_team_id TEXT,
+            matched_api_player_id INTEGER,
+            matched_player_name TEXT NOT NULL,
+            source TEXT NOT NULL,
+            job_result_id INTEGER,
+            confidence TEXT NOT NULL,
+            evidence_json TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (job_result_id) REFERENCES genai_job_results(id)
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_player_candidate_links_target
+        ON player_candidate_links (target_type, target_id)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS newsletter_articles (
             url TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -2105,6 +3174,60 @@ def init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_sync_notifications_active_unique
         ON admin_sync_notifications (type, target_type, target_id)
         WHERE is_active = 1
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS genai_job_results (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            job_type TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            provider_key TEXT NOT NULL,
+            model TEXT NOT NULL,
+            status TEXT NOT NULL,
+            failure_code TEXT,
+            failure_message TEXT,
+            accepted_output_json TEXT,
+            evidence_json TEXT,
+            input_hash TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS quiz_auto_labels (
+            match_id TEXT PRIMARY KEY,
+            source TEXT NOT NULL,
+            job_result_id INTEGER,
+            correct_answers_json TEXT NOT NULL,
+            confidence TEXT NOT NULL,
+            facts_revision_key TEXT,
+            evidence_json TEXT,
+            resolved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (job_result_id) REFERENCES genai_job_results(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS player_candidate_links (
+            id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+            target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL,
+            raw_player_name TEXT NOT NULL,
+            matched_local_team_id TEXT,
+            matched_api_player_id INTEGER,
+            matched_player_name TEXT NOT NULL,
+            source TEXT NOT NULL,
+            job_result_id INTEGER,
+            confidence TEXT NOT NULL,
+            evidence_json TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (job_result_id) REFERENCES genai_job_results(id)
+        )
+        """,
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_player_candidate_links_target
+        ON player_candidate_links (target_type, target_id)
         """,
         """
         CREATE TABLE IF NOT EXISTS newsletter_articles (
@@ -6568,13 +7691,20 @@ def label_audit(
     )
 
 
-def quiz_label_for_admin(match: dict[str, Any], override: Any | None) -> dict[str, Any] | None:
+def quiz_label_for_admin(
+    match: dict[str, Any],
+    override: Any | None,
+    auto_label: Any | None = None,
+) -> dict[str, Any] | None:
     quiz = match.get("quiz")
     if not isinstance(quiz, dict):
         return None
     correct_answers = quiz.get("correct_answers")
     if correct_answers is None and quiz.get("correct_answer") is not None:
         correct_answers = [quiz.get("correct_answer")]
+    auto_answers = parse_correct_answers_json(
+        auto_label["correct_answers_json"] if auto_label is not None else None
+    )
     label = {
         "question": quiz.get("question"),
         "type": quiz.get("type"),
@@ -6587,7 +7717,19 @@ def quiz_label_for_admin(match: dict[str, Any], override: Any | None) -> dict[st
         "source": "static",
         "updated_at": None,
         "updated_by_user_id": None,
+        "genai": None,
+        "manual_override_active": False,
     }
+    if auto_label is not None and auto_answers:
+        label.update(
+            {
+                "correct_answer": auto_answers[0],
+                "correct_answers": auto_answers,
+                "source": auto_label["source"] or "genai",
+                "updated_at": auto_label["updated_at"],
+                "genai": quiz_genai_payload_from_row(auto_label),
+            }
+        )
     if override is not None:
         override_answers = parse_correct_answers_json(override["correct_answers_json"])
         override_question = clean_text(
@@ -6606,6 +7748,7 @@ def quiz_label_for_admin(match: dict[str, Any], override: Any | None) -> dict[st
                 "source": override["source"] or "manual",
                 "updated_at": override["updated_at"],
                 "updated_by_user_id": override["updated_by_user_id"],
+                "manual_override_active": True,
             }
         )
     return label
@@ -6642,12 +7785,43 @@ def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
             ORDER BY match_id, team_name, position, player_name
             """,
         ).fetchall()
+        player_link_rows = execute(
+            conn,
+            """
+            SELECT pcl.target_type, pcl.target_id, pcl.raw_player_name,
+                   pcl.matched_local_team_id, pcl.matched_api_player_id,
+                   pcl.matched_player_name, pcl.source, pcl.job_result_id,
+                   pcl.confidence, pcl.evidence_json, gjr.status AS job_status,
+                   gjr.provider_key, gjr.model
+            FROM player_candidate_links pcl
+            LEFT JOIN genai_job_results gjr ON gjr.id = pcl.job_result_id
+            """,
+        ).fetchall()
+        genai_status_rows = execute(
+            conn,
+            """
+            SELECT status, COUNT(*) AS count
+            FROM genai_job_results
+            GROUP BY status
+            """,
+        ).fetchall()
         quiz_rows = execute(
             conn,
             """
             SELECT match_id, question, choices_json, correct_answers_json,
                    viewership_answer, source, updated_by_user_id, updated_at
             FROM quiz_label_overrides
+            """,
+        ).fetchall()
+        quiz_auto_rows = execute(
+            conn,
+            """
+            SELECT qal.match_id, qal.source, qal.job_result_id,
+                   qal.correct_answers_json, qal.confidence, qal.evidence_json,
+                   qal.resolved_at, qal.updated_at, gjr.status AS job_status,
+                   gjr.provider_key, gjr.model
+            FROM quiz_auto_labels qal
+            LEFT JOIN genai_job_results gjr ON gjr.id = qal.job_result_id
             """,
         ).fetchall()
         audit_rows = execute(
@@ -6662,17 +7836,29 @@ def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
 
     results = {row["match_id"]: row for row in result_rows}
     quizzes = {row["match_id"]: row for row in quiz_rows}
+    auto_quizzes = {row["match_id"]: row for row in quiz_auto_rows}
+    player_links = {
+        (row["target_type"], row["target_id"]): row for row in player_link_rows
+    }
     events_by_match: dict[str, list[dict[str, Any]]] = {}
     for row in event_rows:
         event = dict(row)
         event["source"] = admin_label_source_from_key(row["provider_event_key"])
         event["event_id"] = row["provider_event_key"]
+        target_id = notification_target_id(row["match_id"], row["player_name"])
+        event["genai_link"] = player_genai_link_payload(
+            player_links.get((GENAI_TARGET_MATCH_SCORER, target_id))
+        )
         events_by_match.setdefault(row["match_id"], []).append(event)
     stats_by_match: dict[str, list[dict[str, Any]]] = {}
     for row in stat_rows:
         stat = dict(row)
         stat["source"] = admin_label_source_from_key(row["provider_player_key"])
         stat["stat_id"] = row["provider_player_key"]
+        target_id = notification_target_id(row["match_id"], row["player_name"])
+        stat["genai_link"] = player_genai_link_payload(
+            player_links.get((GENAI_TARGET_MATCH_SCORER, target_id))
+        )
         stats_by_match.setdefault(row["match_id"], []).append(stat)
 
     matches = []
@@ -6689,15 +7875,27 @@ def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
                 "home_team_name": match.get("home_team"),
                 "away_team_name": match.get("away_team"),
                 "result": dict(result) if result else None,
-                "quiz": quiz_label_for_admin(match, quizzes.get(match["id"])),
+                "quiz": quiz_label_for_admin(
+                    match,
+                    quizzes.get(match["id"]),
+                    auto_quizzes.get(match["id"]),
+                ),
                 "events": events_by_match.get(match["id"], []),
                 "player_stats": stats_by_match.get(match["id"], []),
             }
         )
 
+    config = genai_config()
     return {
         "matches": matches,
         "audit": [json_ready(row) for row in audit_rows],
+        "genai": {
+            "provider_key": config["provider_key"],
+            "model": config["model"],
+            "enabled": config["enabled"],
+            "disabled_reason": config["disabled_reason"],
+            "job_counts": {row["status"]: int(row["count"]) for row in genai_status_rows},
+        },
         "tables": {
             "match_results": True,
             "match_events": True,

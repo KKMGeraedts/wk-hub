@@ -759,6 +759,11 @@ button:focus-visible {
     color: var(--green);
 }
 
+.pill.blue {
+    background: #dbeafe;
+    color: var(--blue);
+}
+
 .pill.warning {
     background: #fff3d8;
     color: #8a5a00;
@@ -2001,6 +2006,13 @@ tr.highlight td {
     align-items: center;
 }
 
+.admin-label-header-status {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
 .admin-label-score input {
     pointer-events: none;
 }
@@ -2011,7 +2023,7 @@ tr.highlight td {
 
 .admin-label-readout-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 8px;
 }
 
@@ -2034,6 +2046,81 @@ tr.highlight td {
     color: var(--ink);
     font-size: 11px;
     text-transform: uppercase;
+}
+
+.admin-genai-readout em {
+    display: block;
+    margin-top: 4px;
+    color: var(--orange-dark);
+    font-size: 11px;
+    font-style: normal;
+    text-transform: uppercase;
+}
+
+.admin-genai-readout.is-empty {
+    color: var(--muted);
+}
+
+.admin-genai-detail {
+    display: grid;
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    background: #eff6ff;
+}
+
+.admin-genai-detail div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.admin-genai-detail strong,
+.admin-genai-detail span,
+.admin-genai-detail p,
+.admin-genai-detail em {
+    overflow-wrap: anywhere;
+}
+
+.admin-genai-detail strong {
+    color: var(--blue);
+}
+
+.admin-genai-detail span,
+.admin-genai-detail p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 850;
+}
+
+.admin-genai-detail em {
+    color: var(--orange-dark);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.admin-genai-link-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.admin-genai-link-list span {
+    min-width: 0;
+    max-width: 100%;
+    padding: 6px 8px;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: var(--blue);
+    font-size: 12px;
+    font-weight: 850;
+    overflow-wrap: anywhere;
 }
 
 .admin-label-grid {

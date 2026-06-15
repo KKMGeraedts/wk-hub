@@ -201,6 +201,37 @@ Rules:
 }
 ```
 
+The same response also includes a compact provider/job summary:
+
+```json
+{
+  "genai": {
+    "provider_key": "mistral",
+    "model": "configured-model",
+    "enabled": true,
+    "disabled_reason": null,
+    "job_counts": {"accepted": 2, "rejected": 1}
+  }
+}
+```
+
+Goal-event and player-stat rows may include an accepted player link:
+
+```json
+{
+  "player_name": "Gakppo",
+  "genai_link": {
+    "job_type": "player_match_from_candidates",
+    "status": "accepted",
+    "source": "genai:mistral",
+    "confidence": "high",
+    "raw_player_name": "Gakppo",
+    "matched_player_name": "Cody Gakpo",
+    "evidence": [{"type": "candidate", "id": "ned:1"}]
+  }
+}
+```
+
 Rules:
 
 - Existing `PATCH /api/admin/labels/<match_id>/quiz` remains the manual override endpoint.

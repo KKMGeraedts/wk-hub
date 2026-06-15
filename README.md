@@ -50,6 +50,10 @@ Set these environment variables in Vercel:
 - `API_FOOTBALL_KEY` for post-match result and squad syncing
 - `WK_HUB_SYNC_TOKEN` or `CRON_SECRET` to protect sync endpoints
 - `API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE`, optional, default `6`
+- `GENAI_PROVIDER`, optional, use `mistral` to enable GenAI jobs
+- `MISTRAL_API_KEY` for GenAI quiz answering and player matching
+- `GENAI_MODEL`, optional, Mistral model name for GenAI jobs
+- `GENAI_TIMEOUT_SECONDS`, optional, request timeout for GenAI provider calls
 
 `DATABASE_URL` must be present in the Vercel project for the API to start. `POSTGRES_URL` is also supported as a fallback. Without one of those values, `/api/health` returns a JSON `503` explaining the missing database configuration, and the app cannot load pool data.
 
@@ -102,6 +106,21 @@ Config:
 - `API_FOOTBALL_SQUAD_REFRESH_HOURS`, default `24`
 - Result sync windows are app-defined at approximately 5 minutes, 15 minutes, and 2 hours after the expected match end. The expected end is controlled by `API_FOOTBALL_POSTMATCH_BUFFER_MINUTES`, default `135` minutes after kickoff. The Vercel result cron runs daily at 08:00 UTC on Hobby; use the protected admin sync endpoint for manual or match-specific syncs outside that daily run.
 - Scoring fact changes recompute stored leaderboard point categories. Leaderboard and profile responses read those stored rows when present and fall back to live calculation for not-yet-computed categories.
+
+## GenAI Service
+
+The GenAI Service supports bounded admin/scoring workflows such as answering quiz questions from normalized match facts and matching unresolved scorer names to existing squad-player candidates. It is disabled unless configured.
+
+Config:
+
+- `GENAI_PROVIDER`, set to `mistral` to enable the first provider
+- `MISTRAL_API_KEY`, required when `GENAI_PROVIDER=mistral`
+- `GENAI_MODEL`, optional, defaults to the backend's configured Mistral model
+- `GENAI_TIMEOUT_SECONDS`, optional, default request timeout for provider calls
+
+GenAI jobs must run from sync/admin/scoring workflows only. Normal participant views must not call the GenAI provider.
+
+Accepted quiz jobs write compact `quiz_auto_labels` below manual quiz overrides and trigger stored point recomputation. Accepted player-match jobs write `player_candidate_links` without rewriting scorer events, player stats, or participant striker picks. Failed, low-confidence, or invalid jobs create deduplicated admin-only sync issues. Admins can review GenAI status and evidence in the existing scoring labels panel, and can still overwrite quiz labels with the manual admin tool.
 
 ## Newsletter Refresh
 
