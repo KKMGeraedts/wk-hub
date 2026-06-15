@@ -2089,6 +2089,54 @@ tr.highlight td {
     overflow: auto;
 }
 
+.admin-quiz-answer-options {
+    display: grid;
+    gap: 8px;
+}
+
+.admin-quiz-answer-option {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--ink);
+    font: inherit;
+    font-weight: 850;
+    text-align: left;
+    cursor: pointer;
+}
+
+.admin-quiz-answer-option span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.admin-quiz-answer-option b {
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #eef2f7;
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.admin-quiz-answer-option.is-selected {
+    border-color: #16a34a;
+    background: #f0fdf4;
+    color: #166534;
+}
+
+.admin-quiz-answer-option.is-selected b {
+    background: #dcfce7;
+    color: #166534;
+}
+
 .admin-label-actions {
     display: flex;
     flex-wrap: wrap;

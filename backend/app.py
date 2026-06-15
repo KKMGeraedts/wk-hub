@@ -6537,7 +6537,10 @@ def quiz_label_for_admin(match: dict[str, Any], override: Any | None) -> dict[st
         correct_answers = [quiz.get("correct_answer")]
     label = {
         "question": quiz.get("question"),
+        "type": quiz.get("type"),
         "choices": quiz.get("choices") or [],
+        "choice_points": quiz.get("choice_points") or {},
+        "dynamic_choice_points": quiz.get("dynamic_choice_points"),
         "correct_answer": quiz.get("correct_answer"),
         "correct_answers": correct_answers or [],
         "viewership_answer": quiz.get("viewership_answer"),

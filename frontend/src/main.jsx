@@ -2936,6 +2936,43 @@ function LabelSourcePill({ source }) {
   return <span className={source === "manual" ? "pill orange" : "pill"}>{source}</span>;
 }
 
+function quizAnswerValues(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? "").trim()).filter(Boolean);
+  }
+  return String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function adminQuizFromDraft(match, draft) {
+  if (!match?.quiz) return null;
+  const choices = String(draft.choices ?? "")
+    .split("\n")
+    .map((choice) => choice.trim())
+    .filter(Boolean);
+  return {
+    ...match.quiz,
+    question: draft.question || match.quiz.question,
+    choices,
+  };
+}
+
+function adminQuizChoiceOptions(match, teams, draft) {
+  const quiz = adminQuizFromDraft(match, draft);
+  if (!quiz) return [];
+  return quizChoices({ ...match, quiz }, teams);
+}
+
+function adminQuizChoicePoints(quiz, choice) {
+  const points = quizChoicePoint(quiz, choice);
+  if (points !== undefined && points !== null && points !== "") return points;
+  if (quiz?.dynamic_choice_points !== undefined) return quiz.dynamic_choice_points;
+  if (quiz?.type === "yes_no") return 3;
+  return 5;
+}
+
 function AdminLabelsPage({ teams }) {
   const [labels, setLabels] = useState({ matches: [], audit: [], tables: {} });
   const [selectedMatchId, setSelectedMatchId] = useState("");
@@ -2965,7 +3002,7 @@ function AdminLabelsPage({ teams }) {
           elapsed: match.result?.elapsed ?? 90,
           question: match.quiz?.question ?? "",
           choices: (match.quiz?.choices ?? []).join("\n"),
-          correct_answers: (match.quiz?.correct_answers ?? []).join(", "),
+          correct_answers: match.quiz?.correct_answers ?? [],
           viewership_answer: match.quiz?.viewership_answer ?? "",
           events_json: labelEventDraft(match.events),
           player_stats_json: labelStatDraft(match.player_stats),
@@ -3045,14 +3082,10 @@ function AdminLabelsPage({ teams }) {
     setError("");
     setSuccess("");
     try {
-      const answers = String(draft.correct_answers ?? "")
-        .split(",")
-        .map((answer) => answer.trim())
-        .filter(Boolean);
-      const choices = String(draft.choices ?? "")
-        .split("\n")
-        .map((choice) => choice.trim())
-        .filter(Boolean);
+      const answers = quizAnswerValues(draft.correct_answers);
+      const choices = adminQuizChoiceOptions(match, teams, draft).map(
+        (choice) => choice.value,
+      );
       const result = await apiJson(`/api/admin/labels/${selectedMatchId}/quiz`, {
         method: "PATCH",
         body: JSON.stringify(
@@ -3149,6 +3182,16 @@ function AdminLabelsPage({ teams }) {
                 const statSummary = labelMatch.player_stats?.length
                   ? `${labelMatch.player_stats.length} player stat labels`
                   : "No player stat labels";
+                const labelDraft = drafts[labelMatch.match_id] ?? {};
+                const activeQuiz = adminQuizFromDraft(labelMatch, labelDraft);
+                const quizOptions = adminQuizChoiceOptions(
+                  labelMatch,
+                  teams,
+                  labelDraft,
+                );
+                const selectedQuizAnswers = new Set(
+                  quizAnswerValues(labelDraft.correct_answers),
+                );
                 return (
                   <article
                     className={
@@ -3349,12 +3392,57 @@ function AdminLabelsPage({ teams }) {
                               </label>
                               <label>
                                 Correct answers
-                                <input
-                                  value={draft.correct_answers ?? ""}
-                                  onChange={(event) =>
-                                    updateDraft("correct_answers", event.target.value)
-                                  }
-                                />
+                                {quizOptions.length ? (
+                                  <div className="admin-quiz-answer-options">
+                                    {quizOptions.map((choice) => {
+                                      const selected = selectedQuizAnswers.has(
+                                        choice.value,
+                                      );
+                                      const points = adminQuizChoicePoints(
+                                        activeQuiz,
+                                        choice.value,
+                                      );
+                                      return (
+                                        <button
+                                          className={
+                                            selected
+                                              ? "admin-quiz-answer-option is-selected"
+                                              : "admin-quiz-answer-option"
+                                          }
+                                          type="button"
+                                          key={choice.value}
+                                          aria-pressed={selected}
+                                          onClick={() =>
+                                            updateDraft(
+                                              "correct_answers",
+                                              selected ? [] : [choice.value],
+                                            )
+                                          }
+                                        >
+                                          <span>
+                                            {String(choice.label).replace(
+                                              /\s\([^)]*pts\)$/,
+                                              "",
+                                            )}
+                                          </span>
+                                          <b>{points} pts</b>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ) : (
+                                  <input
+                                    value={quizAnswerValues(
+                                      draft.correct_answers,
+                                    ).join(", ")}
+                                    onChange={(event) =>
+                                      updateDraft(
+                                        "correct_answers",
+                                        quizAnswerValues(event.target.value),
+                                      )
+                                    }
+                                  />
+                                )}
                               </label>
                               <label>
                                 Viewership answer
