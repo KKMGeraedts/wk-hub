@@ -1498,6 +1498,40 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(points["score_breakdown"]["away_goals_points"], 2)
         self.assertEqual(points["score_breakdown"]["exact_bonus_points"], 2)
 
+    def test_user_match_points_include_traceable_striker_points(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES
+                    ('m001', 'provider:event:1', 'Goal', 'Cody Gakpo', '{}'),
+                    ('m001', 'provider:event:2', 'Goal', 'Cody Gakpo', '{}')
+                """,
+            )
+            conn.commit()
+            return wk_app.user_match_points_by_match(
+                data,
+                {"m001": {"home_score": 2, "away_score": 1}},
+                {},
+                [],
+                ["Cody Gakpo"],
+            )
+
+        points_by_match = self.run_with_temp_db(scenario)
+        points = points_by_match["m001"]
+
+        self.assertEqual(points["striker_points"], 12)
+        self.assertEqual(points["total_points"], 24)
+        self.assertEqual(
+            points["striker_scorers"],
+            [{"name": "Cody Gakpo", "goals": 2, "points": 12}],
+        )
+
     def test_badge_unlocked_notification_is_shown_for_viewer(self) -> None:
         data = self.scoring_data(done=True)
 
@@ -1529,6 +1563,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         ]
         self.assertEqual(len(badge_notifications), 1)
         self.assertIn("Perfect Score", badge_notifications[0]["body"])
+        self.assertEqual(badge_notifications[0]["badges"][0]["label"], "Perfect Score")
+        self.assertIn("mark", badge_notifications[0]["badges"][0])
 
     def test_match_prediction_points_apply_round_multiplier(self) -> None:
         kickoff = datetime.now(UTC) - timedelta(hours=3)
@@ -1756,6 +1792,111 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         self.assertEqual(summary["date"], "2026-06-11")
         self.assertEqual([match["id"] for match in summary["matches"]], ["m001", "m002"])
+
+    def test_matchday_match_detail_requires_locked_predictions(self) -> None:
+        match = make_match("m001", datetime(2026, 6, 11, 20, 0, tzinfo=UTC))
+        match["status"] = "scheduled"
+        data = {
+            "matches": [match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        detail, error = self.run_with_temp_db(
+            lambda _conn: wk_app.matchday_match_detail(
+                data,
+                "m001",
+                now=datetime(2026, 6, 11, 18, 30, tzinfo=UTC),
+            )
+        )
+
+        self.assertIsNone(detail)
+        self.assertEqual(error, "not_locked")
+
+    def test_matchday_match_detail_groups_predictions_and_quiz_answers(self) -> None:
+        match = make_match("m001", datetime(2026, 6, 11, 20, 0, tzinfo=UTC))
+        match["status"] = "scheduled"
+        match["quiz"] = {
+            "question": "Scoort Nederland?",
+            "type": "yes_no",
+            "choices": ["ja", "nee"],
+        }
+        data = {
+            "matches": [match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES
+                    (1, 'Anna', 'anna@example.com', 'x', 0),
+                    (2, 'Bram', 'bram@example.com', 'x', 0),
+                    (3, 'Chris', 'chris@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES
+                    (1, 'm001', 0, 0),
+                    (2, 'm001', 1, 0),
+                    (3, 'm001', 0, 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO quiz_predictions (user_id, match_id, answer)
+                VALUES
+                    (1, 'm001', 'ja'),
+                    (2, 'm001', 'nee')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                "INSERT INTO leeuwtje_predictions (user_id, match_id) VALUES (2, 'm001')",
+            )
+            conn.commit()
+            return wk_app.matchday_match_detail(
+                data,
+                "m001",
+                now=datetime(2026, 6, 11, 19, 30, tzinfo=UTC),
+            )
+
+        detail, error = self.run_with_temp_db(scenario)
+
+        self.assertIsNone(error)
+        self.assertEqual(detail["match"]["prediction_count"], 3)
+        self.assertEqual(detail["match"]["home_win_count"], 1)
+        self.assertEqual(detail["match"]["draw_count"], 2)
+        self.assertEqual(
+            [group["score_label"] for group in detail["score_groups"]],
+            ["0 - 0", "1 - 0"],
+        )
+        self.assertEqual(
+            [row["name"] for row in detail["score_groups"][0]["predictions"]],
+            ["Anna", "Chris"],
+        )
+        self.assertTrue(detail["score_groups"][1]["predictions"][0]["leeuwtje"])
+        self.assertEqual(
+            [group["answer"] for group in detail["quiz_answer_groups"]],
+            ["ja", "nee"],
+        )
 
     def test_daily_recap_movers_use_target_session_only(self) -> None:
         previous_match = make_match("m000", datetime(2026, 6, 10, 19, 0, tzinfo=UTC))

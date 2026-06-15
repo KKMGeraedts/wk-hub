@@ -4,6 +4,7 @@ import base64
 import binascii
 import hashlib
 import html
+import itertools
 import json
 import logging
 import os
@@ -3987,6 +3988,63 @@ def striker_prediction_points(
     )
 
 
+def striker_points_by_match_for_picks(
+    data: dict[str, Any],
+    picks: list[str],
+) -> dict[str, dict[str, Any]]:
+    if not picks:
+        return {}
+    pick_keys = {key: pick for pick in picks for key in player_counter_keys(pick) if key}
+    if not pick_keys:
+        return {}
+    matches_by_id = {match["id"]: match for match in data.get("matches", [])}
+    with get_db() as conn:
+        rows = execute(
+            conn,
+            """
+            SELECT match_id, player_name, event_type, detail, comments
+            FROM match_events
+            WHERE LOWER(event_type) = 'goal'
+            """,
+        ).fetchall()
+    by_match: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        detail = normalize_answer(row["detail"])
+        comments = normalize_answer(row["comments"])
+        if "own goal" in detail or "own goal" in comments:
+            continue
+        matched_pick = next(
+            (pick_keys[key] for key in player_counter_keys(row["player_name"]) if key in pick_keys),
+            None,
+        )
+        if not matched_pick:
+            continue
+        match = matches_by_id.get(row["match_id"])
+        multiplier = float(score_rule_for_match(match).get("multiplier", 1.0)) if match else 1.0
+        goal_points = round_match_points(STRIKER_GOAL_POINTS * multiplier)
+        entry = by_match.setdefault(
+            row["match_id"],
+            {"points": 0, "scorers": {}, "multiplier": multiplier},
+        )
+        entry["points"] += goal_points
+        scorer = entry["scorers"].setdefault(
+            matched_pick,
+            {"name": matched_pick, "goals": 0, "points": 0},
+        )
+        scorer["goals"] += 1
+        scorer["points"] += goal_points
+    return {
+        match_id: {
+            **entry,
+            "scorers": sorted(
+                entry["scorers"].values(),
+                key=lambda scorer: (-scorer["points"], scorer["name"]),
+            ),
+        }
+        for match_id, entry in by_match.items()
+    }
+
+
 def normalize_api_name(value: Any) -> str:
     normalized = unicodedata.normalize("NFKD", str(value or ""))
     ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
@@ -5850,9 +5908,11 @@ def user_match_points_by_match(
     predictions: dict[str, dict[str, Any]],
     quiz_predictions: dict[str, Any],
     leeuwtje_match_ids: list[str],
+    striker_picks: list[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     viewership_winners = quiz_viewership_winners(data, list(quiz_predictions.values()))
     leeuwtje_set = set(leeuwtje_match_ids)
+    striker_points_by_match = striker_points_by_match_for_picks(data, striker_picks or [])
     points_by_match = {}
     for match in data["matches"]:
         if match_result(match) is None:
@@ -5868,6 +5928,8 @@ def user_match_points_by_match(
             quiz_predictions.get(match["id"]),
             viewership_winners,
         )
+        striker_entry = striker_points_by_match.get(match["id"], {})
+        striker_points = int(striker_entry.get("points") or 0)
         quiz = match.get("quiz") or {}
         quiz_prediction = quiz_predictions.get(match["id"])
         points_by_match[match["id"]] = {
@@ -5875,7 +5937,9 @@ def user_match_points_by_match(
             "score_breakdown": score_breakdown,
             "leeuwtje_points": leeuwtje_points,
             "quiz_points": quiz_points,
-            "total_points": score_points + leeuwtje_points + quiz_points,
+            "striker_points": striker_points,
+            "striker_scorers": striker_entry.get("scorers", []),
+            "total_points": score_points + leeuwtje_points + quiz_points + striker_points,
             "score_kind": score_breakdown["score_kind"],
             "prediction": (
                 {
@@ -6490,6 +6554,17 @@ def user_prediction_groups(
             "SELECT match_id FROM leeuwtje_predictions WHERE user_id = ?",
             (profile_user_id,),
         ).fetchall()
+        top_scorer_row = execute(
+            conn,
+            """
+            SELECT player_name, player_name_2, player_name_3,
+                   striker_name_1, striker_name_2, striker_name_3,
+                   striker_name_4, striker_name_5
+            FROM top_scorer_predictions
+            WHERE user_id = ?
+            """,
+            (profile_user_id,),
+        ).fetchone()
 
     by_match = {row["match_id"]: row for row in rows}
     quiz_by_match = {row["match_id"]: row for row in quiz_rows}
@@ -6499,6 +6574,7 @@ def user_prediction_groups(
         by_match,
         quiz_by_match,
         list(leeuwtjes),
+        striker_pick_names(top_scorer_row),
     )
     groups = []
     predictions_by_date: dict[str, list[dict[str, Any]]] = {}
@@ -7023,6 +7099,7 @@ def badge_unlocked_notifications(badges: list[dict[str, Any]]) -> list[dict[str,
             "count": len(badges),
             "title": "Badge unlocked",
             "body": f"Je hebt {label_text} vrijgespeeld.",
+            "badges": badges,
         }
     ]
 
@@ -7239,6 +7316,144 @@ def build_matchday_summary(
         "is_today": target_date == current_session,
         "matches": matches,
     }
+
+
+def matchday_match_detail(
+    data: dict[str, Any],
+    match_id: str,
+    now: datetime | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    current = now or utc_now()
+    match = match_by_id(data, match_id)
+    if match is None:
+        return None, "not_found"
+    if not is_prediction_locked(match, current):
+        return None, "not_locked"
+
+    with get_db() as conn:
+        users = execute(
+            conn,
+            """
+            SELECT id, name, profile_image_url
+            FROM users
+            WHERE archived_at IS NULL
+            ORDER BY name
+            """,
+        ).fetchall()
+        predictions = execute(
+            conn,
+            """
+            SELECT user_id, home_score, away_score
+            FROM match_predictions
+            WHERE match_id = ?
+            """,
+            (match_id,),
+        ).fetchall()
+        quiz_rows = execute(
+            conn,
+            """
+            SELECT user_id, answer
+            FROM quiz_predictions
+            WHERE match_id = ? AND COALESCE(answer, '') != ''
+            """,
+            (match_id,),
+        ).fetchall()
+        leeuwtje_rows = execute(
+            conn,
+            "SELECT user_id FROM leeuwtje_predictions WHERE match_id = ?",
+            (match_id,),
+        ).fetchall()
+
+    users_by_id = {row["id"]: row for row in users}
+    quiz_by_user = {row["user_id"]: row["answer"] for row in quiz_rows}
+    leeuwtje_user_ids = {row["user_id"] for row in leeuwtje_rows}
+    outcomes = Counter(outcome_bucket(prediction) for prediction in predictions)
+
+    rows = []
+    for prediction in predictions:
+        user = users_by_id.get(prediction["user_id"])
+        if user is None:
+            continue
+        rows.append(
+            {
+                "user_id": user["id"],
+                "name": user["name"],
+                "profile_picture": user_profile_picture(user),
+                "home_score": prediction["home_score"],
+                "away_score": prediction["away_score"],
+                "score_label": f"{prediction['home_score']} - {prediction['away_score']}",
+                "outcome": outcome_bucket(prediction),
+                "leeuwtje": user["id"] in leeuwtje_user_ids,
+                "quiz_answer": quiz_by_user.get(user["id"]),
+            }
+        )
+
+    rows.sort(
+        key=lambda row: (
+            int(row["home_score"]),
+            int(row["away_score"]),
+            normalize_identity(row["name"]),
+        )
+    )
+    score_groups = []
+    for score_key, score_rows in itertools.groupby(
+        rows, key=lambda row: (row["home_score"], row["away_score"])
+    ):
+        grouped_rows = list(score_rows)
+        score_groups.append(
+            {
+                "home_score": score_key[0],
+                "away_score": score_key[1],
+                "score_label": f"{score_key[0]} - {score_key[1]}",
+                "count": len(grouped_rows),
+                "predictions": grouped_rows,
+            }
+        )
+
+    quiz_answer_groups = []
+    sorted_quiz_rows = sorted(
+        [row for row in rows if row.get("quiz_answer")],
+        key=lambda row: (normalize_answer(row["quiz_answer"]), normalize_identity(row["name"])),
+    )
+    for answer, answer_rows in itertools.groupby(
+        sorted_quiz_rows, key=lambda row: row["quiz_answer"]
+    ):
+        grouped_rows = list(answer_rows)
+        quiz_answer_groups.append(
+            {
+                "answer": answer,
+                "count": len(grouped_rows),
+                "predictions": grouped_rows,
+            }
+        )
+
+    return (
+        {
+            "match": {
+                "match_id": match["id"],
+                "id": match["id"],
+                "date": match["date"],
+                "time_utc": match["time_utc"],
+                "home_team_id": match["home_team_id"],
+                "away_team_id": match["away_team_id"],
+                "round": match["round"],
+                "group": match.get("group"),
+                "venue_id": match.get("venue_id"),
+                "quiz": match.get("quiz"),
+                "locked": True,
+                "prediction_count": len(rows),
+                "home_win_count": outcomes["home"],
+                "draw_count": outcomes["draw"],
+                "away_win_count": outcomes["away"],
+                "quiz_answer_count": len(sorted_quiz_rows),
+                "leeuwtjes_count": len(leeuwtje_user_ids),
+            },
+            "score_groups": score_groups,
+            "quiz_answer_groups": quiz_answer_groups,
+            "predictions": rows,
+        },
+        None,
+    )
 
 
 def top_daily_scores_with_ties(
@@ -7644,6 +7859,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         predictions,
         quiz_predictions,
         leeuwtje_match_ids,
+        striker_picks,
     )
     group_stage_ids = {match["id"] for match in data["matches"] if match["round"] == "Group Stage"}
     group_stage_predictions = sum(1 for match_id in predictions if match_id in group_stage_ids)
@@ -8405,6 +8621,21 @@ def logout():
 def pool():
     data = load_world_cup_data()
     return jsonify(user_pool_state(current_user(), data))
+
+
+@app.get("/api/matchday/matches/<match_id>")
+def matchday_match(match_id: str):
+    _user, error_response = require_current_user()
+    if error_response:
+        return error_response
+    data = load_world_cup_data()
+    detail, error = matchday_match_detail(data, match_id)
+    if error == "not_found":
+        return jsonify({"error": "Match not found."}), 404
+    if error == "not_locked":
+        return jsonify({"error": "Predictions are not locked for this match yet."}), 403
+    assert detail is not None
+    return jsonify(detail)
 
 
 @app.get("/api/admin/users")

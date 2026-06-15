@@ -6,6 +6,7 @@ const AMSTERDAM_TZ = "Europe/Amsterdam";
 const NETHERLANDS_ID = "ned";
 const TROPHY_SRC = "/world-cup-trophy.svg";
 const POINTS_POPOVER_EVENT = "wk-points-popover-open";
+const DISMISSED_BADGE_NOTIFICATIONS_KEY = "wk-dismissed-badge-notifications";
 const TEAM_FLAG_CODES = {
   alg: "dz",
   arg: "ar",
@@ -56,6 +57,32 @@ const TEAM_FLAG_CODES = {
   usa: "us",
   uzb: "uz",
 };
+
+function badgeNotificationKey(notification) {
+  const badgeKeys = (notification?.badges ?? [])
+    .map((badge) => badge.key ?? badge.label)
+    .filter(Boolean)
+    .sort();
+  if (badgeKeys.length) return badgeKeys.join("|");
+  return `${notification?.title ?? ""}|${notification?.body ?? ""}`;
+}
+
+function readDismissedBadgeNotificationKeys() {
+  try {
+    return JSON.parse(
+      window.localStorage.getItem(DISMISSED_BADGE_NOTIFICATIONS_KEY) ?? "[]",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeDismissedBadgeNotificationKeys(keys) {
+  window.localStorage.setItem(
+    DISMISSED_BADGE_NOTIFICATIONS_KEY,
+    JSON.stringify(Array.from(keys)),
+  );
+}
 
 function escapeDate(match) {
   return new Date(`${match.date}T${match.time_utc}:00Z`);
@@ -196,6 +223,7 @@ function viewFromRoute(pathname) {
   const path = normalizeRoute(pathname);
   if (/^\/profile\/\d+$/.test(path)) return "profile";
   if (/^\/teams\/[a-z0-9-]+$/i.test(path)) return "team";
+  if (/^\/matchday\/[a-z0-9-]+$/i.test(path)) return "matchdayMatch";
   if (path === VIEW_ROUTES.pool) return "adjust";
   return ROUTE_VIEWS[path] ?? null;
 }
@@ -216,9 +244,20 @@ function teamRoute(teamId) {
   return `/teams/${teamId}`;
 }
 
-function routeForView(view, profileId = "", teamId = "") {
+function matchdayMatchIdFromRoute(pathname) {
+  return normalizeRoute(pathname).match(/^\/matchday\/([a-z0-9-]+)$/i)?.[1] ?? "";
+}
+
+function matchdayMatchRoute(matchId) {
+  return `/matchday/${matchId}`;
+}
+
+function routeForView(view, profileId = "", teamId = "", matchdayMatchId = "") {
   if (view === "profile" && profileId) return profileRoute(profileId);
   if (view === "team" && teamId) return teamRoute(teamId);
+  if (view === "matchdayMatch" && matchdayMatchId) {
+    return matchdayMatchRoute(matchdayMatchId);
+  }
   return VIEW_ROUTES[view] ?? VIEW_ROUTES.leaderboard;
 }
 
@@ -1388,6 +1427,17 @@ function pointRows(points) {
     ["Leeuwtje", points?.leeuwtje_points ?? 0],
     ["Quiz", points?.quiz_points ?? 0],
   ].filter(([, value]) => Number(value) > 0);
+  for (const scorer of points?.striker_scorers ?? []) {
+    const goals = Number(scorer.goals ?? 0);
+    const suffix = goals > 1 ? ` x${goals}` : "";
+    rows.push([`Striker: ${scorer.name}${suffix}`, scorer.points ?? 0]);
+  }
+  if (
+    !points?.striker_scorers?.length &&
+    Number(points?.striker_points ?? 0) > 0
+  ) {
+    rows.push(["Strikers", points.striker_points]);
+  }
   if (!rows.length && Number(points?.score_points) > 0) {
     if (points.score_kind === "exact") {
       rows.push(...splitExactScorePoints(points.score_points));
@@ -4614,7 +4664,7 @@ function MatchdayPredictionModal({
   );
 }
 
-function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
+function MatchdayPage({ pool, teams, venues, onPoolUpdate, onMatch }) {
   const summary = pool.matchday;
   const [activeMatch, setActiveMatch] = useState(null);
 
@@ -4626,7 +4676,11 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
   }
 
   function openMatch(match) {
-    if (match.has_my_prediction || match.locked) return;
+    if (match.locked) {
+      onMatch?.(match.id ?? match.match_id);
+      return;
+    }
+    if (match.has_my_prediction) return;
     setActiveMatch({ ...match, id: match.id ?? match.match_id });
   }
 
@@ -4651,7 +4705,7 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
           {summary?.matches?.map((rawMatch) => {
             const match = { ...rawMatch, id: rawMatch.id ?? rawMatch.match_id };
             const venue = venues.get(match.venue_id);
-            const canOpen = !match.has_my_prediction && !match.locked;
+            const canOpen = match.locked || !match.has_my_prediction;
             const matchStatusMessage = statusMessage(match);
             return (
               <button
@@ -4706,6 +4760,150 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
         onClose={() => setActiveMatch(null)}
         onPoolUpdate={onPoolUpdate}
       />
+    </div>
+  );
+}
+
+function MatchdayPredictionRow({ prediction, match, teams }) {
+  return (
+    <li className="matchday-prediction-row">
+      <div className="matchday-prediction-user">
+        <ProfileAvatar player={prediction} size="small" />
+        <span>
+          <strong>{prediction.name}</strong>
+          <em>
+            {prediction.quiz_answer
+              ? `Quiz: ${prediction.quiz_answer}`
+              : "Geen quizantwoord"}
+          </em>
+        </span>
+      </div>
+      <strong className="matchday-prediction-score">
+        <TeamLabel id={match.home_team_id} teams={teams} />{" "}
+        {prediction.home_score} - {prediction.away_score}{" "}
+        <TeamLabel id={match.away_team_id} teams={teams} />
+      </strong>
+      {prediction.leeuwtje && (
+        <b className="leeuwtje-mini" title="Leeuwtje ingezet">
+          L
+        </b>
+      )}
+    </li>
+  );
+}
+
+function MatchdayMatchPage({ matchId, teams, venues, onBack }) {
+  const [detail, setDetail] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDetail() {
+      setLoading(true);
+      setError("");
+      try {
+        const result = await apiJson(`/api/matchday/matches/${matchId}`);
+        if (!cancelled) setDetail(result);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    if (matchId) loadDetail();
+    return () => {
+      cancelled = true;
+    };
+  }, [matchId]);
+
+  if (loading) {
+    return <div className="loading compact">Loading match predictions...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="matchday-detail-layout">
+        <button className="text-button" type="button" onClick={onBack}>
+          Terug naar matchday
+        </button>
+        <div className="load-error">{error}</div>
+      </div>
+    );
+  }
+
+  const match = detail?.match;
+  if (!match) {
+    return (
+      <div className="matchday-detail-layout">
+        <button className="text-button" type="button" onClick={onBack}>
+          Terug naar matchday
+        </button>
+        <div className="empty compact">Wedstrijd niet gevonden.</div>
+      </div>
+    );
+  }
+
+  const venue = venues.get(match.venue_id);
+  return (
+    <div className="matchday-detail-layout">
+      <button className="text-button" type="button" onClick={onBack}>
+        Terug naar matchday
+      </button>
+      <section className="matchday-detail-hero">
+        <div className="matchday-detail-time">
+          <span>{formatDate(match, true)}</span>
+          <strong>{formatTime(match)}</strong>
+          <em>{venue?.city ?? "Venue to confirm"}</em>
+        </div>
+        <div className="matchday-detail-teams">
+          <TeamBadge id={match.home_team_id} teams={teams} />
+          <span>vs</span>
+          <TeamBadge id={match.away_team_id} teams={teams} align="right" />
+        </div>
+        <div className="matchday-detail-outcomes">
+          <OutcomeBreakdown match={match} teams={teams} />
+          <div className="matchday-stats">
+            <span>{match.prediction_count} voorspellingen</span>
+            <span>{match.quiz_answer_count} quiz</span>
+            <span>{match.leeuwtjes_count} Leeuwtjes</span>
+          </div>
+        </div>
+      </section>
+
+      {match.quiz && (
+        <section className="matchday-quiz-question">
+          <span>Quizvraag</span>
+          <strong>{match.quiz.question}</strong>
+        </section>
+      )}
+
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <h3>Voorspellingen</h3>
+            <p>Scores, quizantwoorden en Leeuwtjes per speler.</p>
+          </div>
+          <span className="pill">{detail.predictions?.length ?? 0} spelers</span>
+        </div>
+        <div className="panel-body">
+          {!detail.predictions?.length && (
+            <div className="empty compact">Nog geen voorspellingen.</div>
+          )}
+          {!!detail.predictions?.length && (
+            <ul className="matchday-prediction-table">
+              {detail.predictions.map((prediction) => (
+                <MatchdayPredictionRow
+                  prediction={prediction}
+                  match={match}
+                  teams={teams}
+                  key={prediction.user_id}
+                />
+              ))}
+            </ul>
+          )}
+        </div>
+      </article>
     </div>
   );
 }
@@ -6473,6 +6671,7 @@ function NotificationBell({
   onToggle,
   onPredictions,
   onNotificationAction,
+  onCelebrateBadge,
 }) {
   const count = notifications.reduce(
     (total, notification) => total + notification.count,
@@ -6514,6 +6713,9 @@ function NotificationBell({
                   "notification-item",
                   notification.type === "broadcast" ? "is-broadcast" : "",
                   notification.type === "sync_issue" ? "is-sync-issue" : "",
+                  notification.type === "badge_unlocked"
+                    ? "is-badge-unlocked"
+                    : "",
                   notification.severity
                     ? `severity-${notification.severity}`
                     : "",
@@ -6523,6 +6725,17 @@ function NotificationBell({
               >
                 <strong>{notification.title}</strong>
                 <p>{notification.body}</p>
+                {notification.type === "badge_unlocked" ? (
+                  <button
+                    className="badge-celebrate-button"
+                    type="button"
+                    onClick={() => onCelebrateBadge?.(notification)}
+                    aria-label="Vier badge"
+                    title="Vier badge"
+                  >
+                    <span aria-hidden="true">🎉</span>
+                  </button>
+                ) : null}
                 {notification.items?.length ? (
                   <div className="notification-actions">
                     {notification.items.map((item) => (
@@ -6577,6 +6790,62 @@ function NotificationBell({
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+function ConfettiBurst({ active }) {
+  if (!active) return null;
+  const pieces = Array.from({ length: 72 }, (_, index) => ({
+    id: index,
+    left: `${(index * 37) % 100}%`,
+    delay: `${(index % 12) * 0.045}s`,
+    duration: `${1.9 + (index % 7) * 0.13}s`,
+    color: [
+      "#f36c21",
+      "#21468b",
+      "#ae1c28",
+      "#00a7b5",
+      "#8cc63f",
+      "#f7c948",
+      "#d7257b",
+    ][index % 7],
+    drift: `${((index % 13) - 6) * 9}px`,
+    rotate: `${(index * 29) % 180}deg`,
+  }));
+  return (
+    <div className="confetti-layer" aria-hidden="true">
+      {pieces.map((piece) => (
+        <span
+          key={piece.id}
+          style={{
+            left: piece.left,
+            animationDelay: piece.delay,
+            animationDuration: piece.duration,
+            background: piece.color,
+            "--drift": piece.drift,
+            transform: `rotate(${piece.rotate})`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function BadgeReveal({ badge }) {
+  if (!badge) return null;
+  return (
+    <div className="badge-reveal-layer" aria-live="polite" aria-atomic="true">
+      <article className={`badge-reveal-card is-${badge.family ?? "trophy"}`}>
+        <span className="badge-reveal-mark" aria-hidden="true">
+          {badge.mark ?? "B"}
+        </span>
+        <div>
+          <p>Badge unlocked</p>
+          <h2>{badge.label ?? "Nieuwe badge"}</h2>
+          {badge.detail && <span>{badge.detail}</span>}
+        </div>
+      </article>
     </div>
   );
 }
@@ -6639,10 +6908,18 @@ function App() {
   const [selectedTeamId, setSelectedTeamId] = useState(() =>
     teamIdFromRoute(window.location.pathname),
   );
+  const [selectedMatchdayMatchId, setSelectedMatchdayMatchId] = useState(() =>
+    matchdayMatchIdFromRoute(window.location.pathname),
+  );
   const [now, setNow] = useState(() => new Date());
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
   const [predictionFocusTarget, setPredictionFocusTarget] = useState(null);
+  const [celebrationBadge, setCelebrationBadge] = useState(null);
+  const [confettiActive, setConfettiActive] = useState(false);
+  const [dismissedBadgeNotificationKeys, setDismissedBadgeNotificationKeys] =
+    useState(() => new Set(readDismissedBadgeNotificationKeys()));
+  const celebrationTimerRef = useRef(null);
 
   function replacePath(path) {
     if (normalizeRoute(window.location.pathname) !== path) {
@@ -6653,7 +6930,12 @@ function App() {
   function navigateToView(nextView, options = {}) {
     setNotificationsOpen(false);
     setView(nextView);
-    const route = routeForView(nextView, selectedProfileId, selectedTeamId);
+    const route = routeForView(
+      nextView,
+      selectedProfileId,
+      selectedTeamId,
+      selectedMatchdayMatchId,
+    );
     const historyMethod = options.replace ? "replaceState" : "pushState";
     if (normalizeRoute(window.location.pathname) !== route) {
       window.history[historyMethod]({}, "", route);
@@ -6681,6 +6963,42 @@ function App() {
     navigateToPredictionTarget(item);
   }
 
+  function celebrateBadge(notification) {
+    const badge = notification?.badges?.[0] ?? {
+      label: notification?.title ?? "Badge unlocked",
+      detail: notification?.body ?? "",
+      family: "trophy",
+      mark: "B",
+    };
+    const notificationKey = badgeNotificationKey(notification);
+    setDismissedBadgeNotificationKeys((current) => {
+      const next = new Set(current);
+      if (notificationKey) next.add(notificationKey);
+      writeDismissedBadgeNotificationKeys(next);
+      return next;
+    });
+    setPool((current) =>
+      current
+        ? {
+            ...current,
+            notifications: (current.notifications ?? []).filter(
+              (item) =>
+                item.type !== "badge_unlocked" ||
+                badgeNotificationKey(item) !== notificationKey,
+            ),
+          }
+        : current,
+    );
+    window.clearTimeout(celebrationTimerRef.current);
+    setNotificationsOpen(false);
+    setCelebrationBadge(badge);
+    setConfettiActive(true);
+    celebrationTimerRef.current = window.setTimeout(() => {
+      setConfettiActive(false);
+      setCelebrationBadge(null);
+    }, 3600);
+  }
+
   function navigateToProfile(userId) {
     const profileId = String(userId);
     setSelectedProfileId(profileId);
@@ -6701,17 +7019,36 @@ function App() {
     }
   }
 
+  function navigateToMatchdayMatch(matchId) {
+    const nextMatchId = String(matchId);
+    setSelectedMatchdayMatchId(nextMatchId);
+    setView("matchdayMatch");
+    const route = matchdayMatchRoute(nextMatchId);
+    if (normalizeRoute(window.location.pathname) !== route) {
+      window.history.pushState({}, "", route);
+    }
+  }
+
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 30000);
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(
+    () => () => {
+      window.clearTimeout(celebrationTimerRef.current);
+    },
+    [],
+  );
+
   useEffect(() => {
     function handlePopState() {
       const profileId = profileIdFromRoute(window.location.pathname);
       const teamId = teamIdFromRoute(window.location.pathname);
+      const matchdayMatchId = matchdayMatchIdFromRoute(window.location.pathname);
       setSelectedProfileId(profileId);
       setSelectedTeamId(teamId);
+      setSelectedMatchdayMatchId(matchdayMatchId);
       if (pool?.me) {
         const nextView = authenticatedViewFromRoute(
           pool,
@@ -6720,9 +7057,9 @@ function App() {
         setView(nextView);
         if (
           normalizeRoute(window.location.pathname) !==
-          routeForView(nextView, profileId, teamId)
+          routeForView(nextView, profileId, teamId, matchdayMatchId)
         ) {
-          replacePath(routeForView(nextView, profileId, teamId));
+          replacePath(routeForView(nextView, profileId, teamId, matchdayMatchId));
         }
         return;
       }
@@ -6760,14 +7097,18 @@ function App() {
           );
           const profileId = profileIdFromRoute(window.location.pathname);
           const teamId = teamIdFromRoute(window.location.pathname);
+          const matchdayMatchId = matchdayMatchIdFromRoute(
+            window.location.pathname,
+          );
           setSelectedProfileId(profileId);
           setSelectedTeamId(teamId);
+          setSelectedMatchdayMatchId(matchdayMatchId);
           setView(nextView);
           if (
             normalizeRoute(window.location.pathname) !==
-            routeForView(nextView, profileId, teamId)
+            routeForView(nextView, profileId, teamId, matchdayMatchId)
           ) {
-            replacePath(routeForView(nextView, profileId, teamId));
+            replacePath(routeForView(nextView, profileId, teamId, matchdayMatchId));
           }
         }
       } catch (error) {
@@ -6796,6 +7137,16 @@ function App() {
     if (!data) return [];
     return data.matches.slice().sort((a, b) => escapeDate(a) - escapeDate(b));
   }, [data]);
+
+  const visibleNotifications = useMemo(
+    () =>
+      (pool?.notifications ?? []).filter(
+        (notification) =>
+          notification.type !== "badge_unlocked" ||
+          !dismissedBadgeNotificationKeys.has(badgeNotificationKey(notification)),
+      ),
+    [pool?.notifications, dismissedBadgeNotificationKeys],
+  );
 
   async function handleLogin() {
     setLoadError("");
@@ -6975,6 +7326,8 @@ function App() {
 
   return (
     <>
+      <ConfettiBurst active={confettiActive} />
+      <BadgeReveal badge={celebrationBadge} />
       <header className="app-header">
         <button
           className="brand-lockup"
@@ -6990,11 +7343,12 @@ function App() {
         </button>
         <div className="header-actions">
           <NotificationBell
-            notifications={pool.notifications ?? []}
+            notifications={visibleNotifications}
             open={notificationsOpen}
             onToggle={() => setNotificationsOpen((current) => !current)}
             onPredictions={() => navigateToView("adjust")}
             onNotificationAction={handleNotificationAction}
+            onCelebrateBadge={celebrateBadge}
           />
           <button
             className="faq-button"
@@ -7074,7 +7428,9 @@ function App() {
         <nav className="tabs" aria-label="Dashboard views">
           {navItems.map((item) => {
             const active =
-              view === item || (view === "team" && item === "teams");
+              view === item ||
+              (view === "team" && item === "teams") ||
+              (view === "matchdayMatch" && item === "matchday");
             return (
               <button
                 key={item}
@@ -7125,6 +7481,18 @@ function App() {
               teams={maps.teams}
               venues={maps.venues}
               onPoolUpdate={updatePoolOnly}
+              onMatch={navigateToMatchdayMatch}
+            />
+          </section>
+        )}
+
+        {view === "matchdayMatch" && (
+          <section className="view is-active">
+            <MatchdayMatchPage
+              matchId={selectedMatchdayMatchId}
+              teams={maps.teams}
+              venues={maps.venues}
+              onBack={() => navigateToView("matchday")}
             />
           </section>
         )}
