@@ -1,14 +1,12 @@
-# Implementation Plan: API Data Sync + Participant Experience Updates
+# Implementation Plan: API Data Sync + Automatic Quiz Resolver
 
-**Branch**: `main` | **Date**: 2026-06-11 | **Spec**: `specs/002-api-data-sync/spec.md`
+**Branch**: `main` | **Date**: 2026-06-15 | **Spec**: `specs/002-api-data-sync/spec.md`
 
-**Input**: Feature specification from `specs/002-api-data-sync/spec.md`, plus scope expansion requested on 2026-06-11 for Talpa account creation, prize-pot participation choice, and clearer prediction pick display/edit behavior.
-
-**Note**: This plan stops before implementation. Generate and review `tasks.md` before running implementation.
+**Input**: Feature specification from `specs/002-api-data-sync/spec.md`, expanded on 2026-06-15 to add automatic quiz-answer resolution from synced football facts.
 
 ## Summary
 
-Keep the API data sync architecture from the original feature while adding three participant-facing updates in the same Flask/Vite application: account creation must accept only `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com` addresses, every logged-in participant must be asked through notifications whether they join the optional EUR 10 prize pot, and the prediction pick component must separate view mode from edit mode while showing richer player/team context with flags.
+Extend the existing provider-backed result sync so quiz questions can opt into deterministic automatic labeling. Each API-answerable quiz question gets explicit resolver metadata that maps the question to normalized match facts such as goals, cards, penalties, substitutions, clean sheets, or team/player statistics. Provider-backed quiz labels are stored separately from participant predictions, manual quiz labels remain highest priority, unsupported questions remain manual, and computed quiz points are recalculated whenever automatic labels are created or changed.
 
 ## Technical Context
 
@@ -16,19 +14,19 @@ Keep the API data sync architecture from the original feature while adding three
 
 **Primary Dependencies**: Flask 3.1.1, psycopg 3.2.13, React, React DOM, Vite
 
-**Storage**: Existing SQLite local / Postgres production tables. Existing tables include `users`, prediction tables, notification tables, `api_football_*`, `match_results`, `match_events`, `match_clean_sheets`, `player_match_stats`, `quiz_label_overrides`, and `label_audit_log`. New or extended storage is planned for provider-agnostic sync attempts, admin sync notifications, stored computed points, prize-pot participation choices, and richer top-scorer/striker pick metadata where needed.
+**Storage**: Existing SQLite local / Postgres production tables. Existing tables include `users`, prediction tables, notification tables, `api_football_*`, `match_results`, `match_events`, `match_clean_sheets`, `player_match_stats`, `quiz_label_overrides`, `label_audit_log`, `provider_sync_attempts`, `computed_points`, and `admin_sync_notifications`. Automatic quiz labels should extend the existing quiz-label domain without mutating participant `quiz_predictions`.
 
-**Testing**: Existing checks via `npm run build`, `npm run py:check`, and `npm run check`; targeted Python unit/integration coverage should be added for sync candidate selection, manual-override precedence, computed point persistence, Talpa email validation, prize-pot notification state, and prediction pick save/view behavior.
+**Testing**: Existing checks via `.venv/bin/python -m unittest discover backend -p '*_test.py'`, `npm run build`, `npm run py:check`, and `npm run check`; targeted backend coverage should be added for each resolver family, manual override precedence, insufficient-facts behavior, and computed quiz point recalculation after automatic labels.
 
-**Target Platform**: Web app running locally via Flask/Vite and production via Vercel serverless Python plus Vite static frontend
+**Target Platform**: Web app running locally via Flask/Vite and production via Vercel serverless Python plus Vite static frontend.
 
-**Project Type**: Full-stack web application with monolithic Flask backend and single-file React frontend
+**Project Type**: Full-stack web application with monolithic Flask backend and single-file React frontend.
 
-**Performance Goals**: Result sync requests only due matches and never re-fetches unrelated history; leaderboard/profile reads should use stored computed points; prize-pot notifications and profile badges should add no noticeable overhead to `/api/pool` or profile payloads.
+**Performance Goals**: Quiz resolver runs only after provider/manual fact changes and should add no provider calls during participant reads. Resolver work is per-match and bounded by a single fixture's normalized facts.
 
-**Constraints**: Preserve participant prediction data; keep provider calls out of normal participant views; preserve permanent raw provider history; manual overrides must not be overwritten by provider updates; account creation must enforce the exact Talpa Network or Talpa Studios email convention; prize-pot payment is outside the app; avoid new dependencies unless clearly justified.
+**Constraints**: Do not parse quiz question prose to infer answers. Use explicit resolver metadata. Keep provider calls out of participant views. Manual quiz labels must win over automatic labels. Unsupported or low-confidence questions must remain unresolved rather than guessed. Participant prediction rows must not be changed by resolver output.
 
-**Scale/Scope**: Existing 2026 World Cup tournament data, post-match result sync, rare squad sync, admin label/editor flows, scoring labels, leaderboard/profile scoring output, admin and participant notification-bell infrastructure, login/account creation, public profiles, and prediction pick components.
+**Scale/Scope**: Existing 2026 World Cup quiz set, match result sync, admin label/editor flows, scoring labels, leaderboard/profile stored computed points, and admin notifications.
 
 ## Constitution Check
 
@@ -37,19 +35,18 @@ Keep the API data sync architecture from the original feature while adding three
 The current constitution file is still a placeholder and defines no enforceable project-specific gates. General Spec Kit gates apply:
 
 - Feature spec exists and has no unresolved `[NEEDS CLARIFICATION]` markers: PASS
-- Requirements quality checklist exists and is complete for the original sync scope: PASS
 - Plan avoids implementation before task generation: PASS
 - No known privacy/security violation introduced by design: PASS
-- Provider data and manual override updates are explicitly barred from mutating participant prediction rows: PASS
-- Prize-pot participation is an explicit opt-in/opt-out user choice and does not handle payment in app: PASS
-- Email account creation is constrained to the requested Talpa Network or Talpa Studios convention: PASS
+- Participant prediction rows are explicitly not mutated by provider sync, manual overrides, automatic quiz labels, or computed scoring updates: PASS
+- Manual admin quiz labels remain higher priority than provider-backed automatic quiz labels: PASS
+- Participant reads do not trigger provider retrieval or quiz resolution side effects: PASS
 
 Post-design re-check:
 
 - Research decisions resolve technical unknowns: PASS
-- Data model identifies new and existing entities, including prize-pot participation and prediction pick display metadata: PASS
-- Contracts define sync, admin notification, computed scoring, account creation, prize-pot notification, and prediction pick behavior: PASS
-- Quickstart defines validation and manual review paths for sync and participant UX updates: PASS
+- Data model identifies quiz resolver rule, automatic quiz label, and quiz resolution attempt/status: PASS
+- Contracts define resolver metadata, sync behavior, admin review, and scoring behavior: PASS
+- Quickstart defines validation and manual review paths for automatic quiz labels: PASS
 
 ## Project Structure
 
@@ -73,9 +70,9 @@ specs/002-api-data-sync/
 
 ```text
 backend/
-├── app.py                  # Current monolith: auth, routes, DB setup, scoring, provider sync, notifications
+├── app.py                  # Current monolith: auth, routes, DB setup, scoring, provider sync, quiz labels, notifications
 ├── worldcup-2026.json      # Static match schedule and lock timing source
-├── quiz-2026.json          # Static quiz fallback data
+├── quiz-2026.json          # Static quiz metadata plus planned auto_label resolver metadata
 └── team-profiles-2026.json # Static/synced team profile fallback data
 
 api/
@@ -91,18 +88,17 @@ specs/002-api-data-sync/
 └── ...                     # Feature planning artifacts
 ```
 
-**Structure Decision**: Keep the current monolithic backend and single-file React frontend for this implementation scope. Add clearer internal service/helper boundaries inside `backend/app.py` for auth validation, prize-pot notification state, sync, and scoring before considering module extraction. Frontend changes should reuse the existing notification bell, profile panels, winner/top-scorer/striker controls, and route structure.
+**Structure Decision**: Keep the current monolithic backend and single-file React frontend for this planning scope. Add clearer internal helper boundaries inside `backend/app.py` for quiz resolver rule parsing, normalized fact access, automatic label persistence, and computed point recalculation before considering physical module extraction.
 
 ## Complexity Tracking
 
-This feature intentionally adds data-model complexity for sync attempts, stored computed points, prize-pot participation, and richer pick display state.
+This expansion adds structured resolver metadata and provider-backed quiz labels, but keeps the implementation inside existing backend and admin label boundaries.
 
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
-| Provider-agnostic sync attempt records | Needed to model per-match attempts, failure notifications, and future provider support | Continuing only with `api_football_requests` records provider calls but not app-level scheduling, attempt windows, or skipped/missing-link outcomes |
-| Stored computed points | Needed for consistent leaderboard/profile reads and auditability after manual/provider facts change | Recomputing all points on every read makes source/fact interactions harder to audit and can produce inconsistent views during changes |
-| Prize-pot participation records | Needed to ask each participant once and show each participant's choice on profiles | A transient notification-only answer would be lost and could not be shown to others |
-| Rich pick metadata for display | Needed to show full player names plus country flags in view mode | Storing/displaying only plain names makes the striker/top-scorer picks unclear and visually weak |
+| Explicit resolver metadata on quiz questions | Needed to map each Dutch quiz question to deterministic normalized facts without guessing from prose | Natural-language parsing is brittle and would produce unreviewable scoring surprises |
+| Provider-backed automatic quiz label state | Needed to distinguish automatic labels from manual admin overrides and static fallback labels | Writing automatic answers directly into static quiz JSON is not possible in production and would lose source/audit context |
+| Resolver status/attempt visibility | Needed to show admins why a quiz remains manual, unsupported, or waiting for facts | Silent skips would recreate the same operational confusion as missed scorer labels |
 
 ## Phase 0: Research Summary
 
@@ -110,18 +106,13 @@ Research output: `specs/002-api-data-sync/research.md`
 
 Key decisions:
 
-- Keep provider calls out of normal participant requests.
-- Introduce a provider boundary inside the backend before considering physical module extraction.
-- Model result sync as scheduled per-match attempt windows rather than a broad completed-history scan.
-- Keep squad sync separate and rare.
-- Retain raw provider payloads permanently and use normalized current facts for scoring.
-- Represent manual overrides as source-prioritized current facts with audit history and reversal.
-- Store computed points for scored categories and recompute only affected users/categories when facts change.
-- Notify admins through existing notification-bell infrastructure when sync cannot retrieve or link data.
-- Enforce `firstname.lastname@talpanetwork.com` or `firstname.lastname@talpastudios.com` for account creation and login normalization.
-- Use the existing notification bell to ask each participant whether they join the optional EUR 10 prize pot until they answer.
-- Store prize-pot choice on the user/profile domain and expose it on profiles.
-- Make tournament pick components view-first, with explicit edit actions before selections become adjustable.
+- Use explicit quiz resolver metadata, not natural-language question parsing.
+- Run quiz resolution after normalized provider facts are stored, not from participant page loads.
+- Store provider-backed automatic quiz labels separately from manual quiz overrides and keep manual precedence.
+- Start with a conservative resolver registry for high-confidence rule families: goal timing, team scoring, player scoring, cards, penalties, clean sheets, substitutions, and statistics-backed rules when provider facts exist.
+- Leave ambiguous, subjective, or low-confidence quiz questions unresolved for manual admin labeling.
+- Recompute stored quiz points after automatic quiz labels are inserted or changed.
+- Surface unsupported or insufficient-fact states to admins without exposing provider internals to normal participants.
 
 ## Phase 1: Design Summary
 
@@ -133,24 +124,31 @@ Design outputs:
 
 Design notes:
 
-- Existing `api_football_*` tables remain valid provider-specific inputs and raw history, but the new planning layer should not expose API-Football naming to participant-facing code.
-- `match_results`, `match_events`, `match_clean_sheets`, `player_match_stats`, and `quiz_label_overrides` continue as current facts, with source metadata strengthened where needed.
-- New sync attempt records track due windows, attempt status, provider, target type, match/team id, and failure reason.
-- Computed point records store category-level scoring output with source fact revision metadata.
-- Account creation should update `TALPA_EMAIL_PATTERN`, backend validation copy, frontend validation copy, placeholders, and admin defaults to accept only the Talpa Network and Talpa Studios domains.
-- Prize-pot participation should be modeled as a persistent per-user choice with `undecided`, `joined`, and `declined` states. Olivier Thijsen is the organizer/payee context, but payment remains outside the app.
-- Profile payloads should expose whether a participant joined the prize pot.
-- Prediction pick view mode should show champion flag, top scorer name with flag/country, and each striker's full name with flag/country. Clicks in view mode should not modify picks; an edit button switches to editable controls subject to lock rules.
+- `backend/quiz-2026.json` should gain optional `auto_label` metadata per quiz. The metadata should include a `kind`, parameters, and expected answer mapping where needed.
+- Resolver helpers should read normalized facts already written by provider sync: `match_results`, `match_events`, `match_clean_sheets`, `player_match_stats`, and future team-stat rows if added.
+- Automatic labels should use a source such as `api-football` and should not overwrite manual labels in `quiz_label_overrides`.
+- Existing `apply_quiz_label_overrides()` should continue to produce the effective scoring labels, extended as needed to apply automatic labels below manual labels.
+- Admin label UI can show automatic source/status in the existing label editor payload, but manual override and reversal remain the authoritative editing flow.
+- Computed points should be recalculated only when automatic quiz labels change or when a manual override changes the effective label.
 
 ## Validation Strategy
 
 Automated validation after implementation:
 
 ```bash
-python3 -m unittest discover backend -p '*_test.py'
+.venv/bin/python -m unittest discover backend -p '*_test.py'
 npm run build
 npm run py:check
 npm run check
 ```
+
+Targeted backend tests should cover:
+
+- Resolver metadata parsing and unsupported-rule rejection.
+- Goal-before-minute, first-goal bucket, last-goal-after-minute, both-teams-score, team-scores, player-scores, penalty, card, clean-sheet, and statistics-backed resolver rules.
+- Resolver skipped when required facts are missing.
+- Manual quiz override wins over automatic provider label.
+- Automatic label update triggers computed quiz point recalculation.
+- Participant `/api/world-cup`, `/api/pool`, and profile reads do not trigger provider calls or resolver writes.
 
 Manual review scenarios are documented in `specs/002-api-data-sync/quickstart.md`.

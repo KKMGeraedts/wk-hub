@@ -128,6 +128,36 @@ Expected result: retrieval failures are admin-visible and participant-safe.
 
 Expected result: leaderboard and profile scoring agree after recalculation.
 
+### Scenario 7A: Automatic quiz label from provider facts
+
+1. Add an `auto_label` resolver rule to a quiz question, such as `goal_before_minute` with `minute: 10`.
+2. Sync a linked finished match whose provider-backed goal events satisfy the rule.
+3. Confirm an automatic quiz label is stored with source `api-football`.
+4. Confirm the effective quiz label has the resolved `correct_answers`.
+5. Confirm `computed_points` rows for `quiz_points` are recalculated.
+6. Load leaderboard and profile pages and confirm quiz points agree.
+
+Expected result: API-answerable quiz questions are labeled and scored without manual admin entry.
+
+### Scenario 7B: Manual quiz override wins over automatic label
+
+1. Save a manual quiz label for a match as an admin.
+2. Sync provider facts for the same match where the quiz resolver would produce a different answer.
+3. Confirm the automatic label may be stored for audit/review, but the effective scoring label remains manual.
+4. Confirm computed quiz points reflect the manual answer.
+
+Expected result: admin quiz labels remain authoritative.
+
+### Scenario 7C: Unsupported or insufficient quiz facts remain manual
+
+1. Add or select a quiz question with no supported resolver rule, or one that requires statistics the provider did not return.
+2. Sync the match.
+3. Confirm no scoring quiz label is guessed.
+4. Confirm admin review can see unsupported or insufficient-facts status where implemented.
+5. Save a manual label and confirm quiz points recalculate.
+
+Expected result: automatic resolution is conservative and never guesses low-confidence answers.
+
 ### Scenario 8: Talpa account creation
 
 1. Open the login page.
@@ -183,8 +213,9 @@ Expected result: existing plain-name predictions remain valid even when player m
 ## Production Notes
 
 - Production still depends on `DATABASE_URL` or `POSTGRES_URL`.
-- Vercel cron timing is approximate. The cron may run more often than match windows; app-level sync candidate selection enforces the 15-minute and 2-hour match windows and records terminal attempts.
+- Vercel cron timing is approximate. The cron may run more often than match windows; app-level sync candidate selection enforces the 5-minute, 15-minute, and 2-hour post-match windows and records terminal attempts.
 - Result sync fetches only the relevant due match fixtures. Squad sync remains a separate rare job.
 - Provider errors should be logged and surfaced to admins, not normal participants.
+- Automatic quiz resolution should run only after normalized facts are stored and should not run from participant-facing reads.
 - Prize-pot payment collection remains outside the app; the app stores only join/decline state.
 - Talpa email validation should be reviewed carefully before deploy because changing accepted domains can affect existing users.

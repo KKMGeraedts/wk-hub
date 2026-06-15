@@ -100,7 +100,7 @@ Config:
 - `API_FOOTBALL_DAILY_LIMIT`, default `90`
 - `API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE`, default `6`, because squads use one `players/squads` call and one `coachs` call per team
 - `API_FOOTBALL_SQUAD_REFRESH_HOURS`, default `24`
-- Result sync windows are app-defined at approximately 5 minutes, 15 minutes, and 2 hours after the expected match end. The expected end is controlled by `API_FOOTBALL_POSTMATCH_BUFFER_MINUTES`, default `135` minutes after kickoff. The Vercel result cron is configured to run every 5 minutes in UTC so those windows are picked up promptly; this requires a Vercel plan that supports more-than-daily cron frequency.
+- Result sync windows are app-defined at approximately 5 minutes, 15 minutes, and 2 hours after the expected match end. The expected end is controlled by `API_FOOTBALL_POSTMATCH_BUFFER_MINUTES`, default `135` minutes after kickoff. The Vercel result cron runs daily at 08:00 UTC on Hobby; use the protected admin sync endpoint for manual or match-specific syncs outside that daily run.
 - Scoring fact changes recompute stored leaderboard point categories. Leaderboard and profile responses read those stored rows when present and fall back to live calculation for not-yet-computed categories.
 
 ## Newsletter Refresh

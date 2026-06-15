@@ -3051,8 +3051,21 @@ def synced_result_rows() -> dict[str, Any]:
         rows = execute(
             conn,
             """
-            SELECT match_id, status_short, synced_at
-            FROM match_results
+            SELECT mr.match_id,
+                   mr.status_short,
+                   mr.home_score,
+                   mr.away_score,
+                   mr.synced_at,
+                   COUNT(
+                       CASE WHEN LOWER(me.event_type) = 'goal' THEN 1 END
+                   ) AS goal_event_count
+            FROM match_results mr
+            LEFT JOIN match_events me ON me.match_id = mr.match_id
+            GROUP BY mr.match_id,
+                     mr.status_short,
+                     mr.home_score,
+                     mr.away_score,
+                     mr.synced_at
             """,
         ).fetchall()
     return {row["match_id"]: row for row in rows}
@@ -3061,6 +3074,20 @@ def synced_result_rows() -> dict[str, Any]:
 def match_has_final_result(match_id: str, rows: dict[str, Any]) -> bool:
     row = rows.get(match_id)
     return bool(row and row["status_short"] in API_FOOTBALL_FINAL_STATUSES)
+
+
+def match_has_required_result_facts(match_id: str, rows: dict[str, Any]) -> bool:
+    row = rows.get(match_id)
+    if not row or row["status_short"] not in API_FOOTBALL_FINAL_STATUSES:
+        return False
+    home_score = int_or_none(row["home_score"])
+    away_score = int_or_none(row["away_score"])
+    if home_score is None or away_score is None:
+        return False
+    total_goals = max(0, home_score) + max(0, away_score)
+    if total_goals == 0:
+        return True
+    return int(row["goal_event_count"] or 0) >= total_goals
 
 
 def missing_result_match_ids(
@@ -3075,7 +3102,7 @@ def missing_result_match_ids(
         if match.get("home_team_id")
         and match.get("away_team_id")
         and match_kickoff(match) + API_FOOTBALL_POSTMATCH_BUFFER <= current
-        and not match_has_final_result(match["id"], result_rows)
+        and not match_has_required_result_facts(match["id"], result_rows)
     ]
 
 
@@ -3107,15 +3134,30 @@ def due_api_football_match_attempts(
             result_rows = execute(
                 conn,
                 """
-                SELECT match_id
-                FROM match_results
-                WHERE status_short IN (?, ?, ?)
-                  AND home_score IS NOT NULL
-                  AND away_score IS NOT NULL
+                SELECT mr.match_id,
+                       mr.status_short,
+                       mr.home_score,
+                       mr.away_score,
+                       COUNT(
+                           CASE WHEN LOWER(me.event_type) = 'goal' THEN 1 END
+                       ) AS goal_event_count
+                FROM match_results mr
+                LEFT JOIN match_events me ON me.match_id = mr.match_id
+                WHERE mr.status_short IN (?, ?, ?)
+                  AND mr.home_score IS NOT NULL
+                  AND mr.away_score IS NOT NULL
+                GROUP BY mr.match_id,
+                         mr.status_short,
+                         mr.home_score,
+                         mr.away_score
                 """,
                 tuple(API_FOOTBALL_FINAL_STATUSES),
             ).fetchall()
-            results_by_match = {row["match_id"]: row for row in result_rows}
+            results_by_match = {
+                row["match_id"]: row
+                for row in result_rows
+                if match_has_required_result_facts(row["match_id"], {row["match_id"]: row})
+            }
             for match in data["matches"]:
                 if match_id and match["id"] != match_id:
                     continue

@@ -12,7 +12,7 @@
   "crons": [
     {
       "path": "/api/cron/api-football-sync",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/api-football-squad-sync",

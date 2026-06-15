@@ -76,6 +76,44 @@ Validation:
 - Manual facts must not be overwritten by provider data unless the manual override is reversed.
 - Partial facts can be stored when complete facts are unavailable.
 
+### Static Quiz Definition
+
+Represents a quiz question attached to a match.
+
+Current storage: `backend/quiz-2026.json`
+
+Existing fields:
+
+- `question`
+- `type`: `yes_no`, `choice`, `open`, or existing quiz type values
+- `choices`
+- `correct_answer` or `correct_answers`
+- optional point fields such as `choice_points` or `dynamic_choice_points`
+
+Planned extension:
+
+- `auto_label`: optional resolver metadata used only for automatic labeling.
+
+Example:
+
+```json
+{
+  "question": "Komt er een doelpunt in de eerste 10 minuten?",
+  "type": "yes_no",
+  "choices": ["ja", "nee"],
+  "auto_label": {
+    "kind": "goal_before_minute",
+    "minute": 10
+  }
+}
+```
+
+Validation:
+
+- `auto_label.kind` must map to a known resolver.
+- Required parameters depend on resolver kind.
+- Missing or invalid metadata means the question remains manual/static; it must not be guessed from question prose.
+
 ### Label Audit Log
 
 Records admin changes to scoring labels.
@@ -206,6 +244,95 @@ Validation:
 - One current computed row per user/scope/category.
 - Affected rows must be recalculated after scoring facts change for done matches.
 - Incomplete categories should remain absent or pending rather than using incorrect points.
+
+### Automatic Quiz Label
+
+Represents a provider-backed quiz answer produced by a deterministic resolver.
+
+Recommended storage:
+
+- Either extend `quiz_label_overrides` with source-aware rows and precedence support, or add a focused provider-backed table such as `quiz_auto_labels`.
+- Manual quiz labels must remain distinguishable from automatic provider-backed labels.
+
+Fields:
+
+- `match_id`
+- `provider_key`: initially `api-football`
+- `resolver_kind`
+- `resolver_params_json`
+- `correct_answers_json`
+- `confidence`: `high`, `unsupported`, `insufficient_facts`, or `failed`
+- `facts_revision_key`
+- `source`: initially `api-football`
+- `raw_evidence_json`: compact facts used to justify the label, not full raw provider payload
+- `resolved_at`
+- `updated_at`
+
+Relationships:
+
+- References app match ids through `match_id`.
+- Reads normalized facts from `match_results`, `match_events`, `match_clean_sheets`, `player_match_stats`, and future team-stat tables.
+- Feeds effective quiz labels below manual `quiz_label_overrides`.
+
+Validation:
+
+- Automatic labels must not write participant `quiz_predictions`.
+- Automatic labels must not overwrite or replace manual quiz overrides.
+- A label with `confidence` other than `high` must not score participants.
+- Updating a high-confidence automatic label must trigger computed quiz point recalculation.
+
+State transitions:
+
+1. `unsupported`: no known resolver for metadata or question intentionally manual.
+2. `insufficient_facts`: resolver exists but required normalized facts are missing.
+3. `high`: resolver produced a scoring label.
+4. `failed`: resolver encountered invalid facts or an unexpected processing error.
+
+### Quiz Resolver Rule
+
+Machine-readable rule metadata that associates a quiz question with normalized facts.
+
+Recommended storage: optional `auto_label` object in `backend/quiz-2026.json`.
+
+Fields:
+
+- `kind`: resolver identifier, for example `goal_before_minute`, `first_goal_minute_bucket`, `team_scores`, `player_scores`, `penalty_awarded`, `card_count_over`, `team_stat_over`, or `clean_sheet`.
+- `team_id`: optional app team id for team-specific questions.
+- `player_name` or `player_id`: optional player selector where squad metadata is reliable.
+- `minute`: optional timing threshold.
+- `threshold`: optional numeric threshold.
+- `stat`: optional provider-normalized statistic key.
+- `choices`: optional answer mapping when quiz choices are not simple `ja`/`nee`.
+
+Validation:
+
+- Resolver metadata must be deterministic and testable.
+- Unsupported resolver kinds remain manual and should surface admin review status.
+- Rules should use app team ids and normalized player names/ids where possible, not provider display strings alone.
+
+### Quiz Resolution Attempt
+
+Operational status for resolver execution.
+
+Recommended storage:
+
+- Can be implemented as fields on `quiz_auto_labels`, or as a focused history/status table if audit needs grow.
+
+Fields:
+
+- `id`
+- `match_id`
+- `provider_key`
+- `resolver_kind`
+- `status`: `resolved`, `unsupported`, `insufficient_facts`, `skipped_manual_override`, `failed`
+- `message`
+- `related_sync_attempt_id`
+- `created_at`
+
+Validation:
+
+- Normal participants must not see provider errors or resolver stack traces.
+- Admins should be able to see whether a quiz is automatic, manual, unsupported, or waiting for facts.
 
 ### Admin Sync Notification
 

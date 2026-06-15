@@ -148,6 +148,24 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 
 ---
 
+### User Story 9 - Automatically resolve API-answerable quiz labels (Priority: P2)
+
+As an admin, I want quiz questions that can be answered from synced football facts to be labeled automatically, so that participants receive quiz points promptly without manually reviewing every match.
+
+**Why this priority**: Quiz scoring currently depends on static labels or manual admin overrides. Several quiz questions can be answered from provider-backed match results, goal events, card events, substitutions, and team/player statistics after sync. Making those mappings explicit reduces manual work while keeping ambiguous questions under admin control.
+
+**Independent Test**: Can be tested by syncing a finished match with a quiz resolver rule, confirming the provider-backed quiz label is saved, computed quiz points are recalculated, and a manual quiz override still takes precedence.
+
+**Acceptance Scenarios**:
+
+1. **Given** a match has a quiz question with an automatic resolver rule, **When** provider facts needed by that resolver are stored, **Then** the system writes the resolved quiz answer as a provider-backed quiz label.
+2. **Given** a quiz question has no resolver rule or lacks the needed provider facts, **When** sync completes, **Then** the quiz remains unresolved and admins can still label it manually.
+3. **Given** an admin has manually overridden a quiz answer, **When** provider sync later resolves the same quiz, **Then** the manual quiz label remains the scoring label.
+4. **Given** an automatic quiz label changes after a later provider payload, **When** the new label is saved, **Then** stored computed quiz points are recalculated.
+5. **Given** the resolver cannot confidently answer a question, **When** sync completes, **Then** it must not guess; it should record an admin-visible pending or unsupported status where useful.
+
+---
+
 ### Edge Cases
 
 - A match goes to extra time or penalties, and the first post-match sync occurs before complete provider labels are available.
@@ -166,6 +184,10 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - A player shares a name with another player from a different country.
 - A selected striker/top-scorer name no longer appears in synced squad metadata.
 - A participant opens the tournament pick component on mobile and long names must still fit without overlapping.
+- A quiz question is answerable only if provider statistics are present, but the provider returns score and events without statistics.
+- A provider-backed quiz label changes between the early and later post-match sync attempts.
+- An admin manual quiz override exists before an automatic resolver produces an answer.
+- A quiz question is ambiguous in natural language and should remain manual rather than being guessed from provider data.
 
 ## Requirements *(mandatory)*
 
@@ -212,6 +234,13 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - **FR-039**: Champion picks MUST be shown with the team flag wherever the tournament-pick summary is displayed.
 - **FR-040**: Top-scorer and striker picks MUST show full player names and country flag/country in view mode where metadata is available.
 - **FR-041**: Top-scorer and striker pick storage/display MUST remain backwards compatible with existing plain-name predictions.
+- **FR-042**: The system MUST support explicit quiz resolver metadata that associates a quiz question with a deterministic resolver rule and resolver parameters.
+- **FR-043**: Quiz resolvers MUST use normalized app-owned facts derived from provider data rather than calling the provider from participant-facing routes.
+- **FR-044**: The system MUST save automatic quiz labels with a source distinct from manual overrides, initially `api-football`.
+- **FR-045**: Manual quiz labels MUST take precedence over automatic provider-backed quiz labels.
+- **FR-046**: Automatic quiz label updates MUST trigger stored computed point recalculation for quiz categories.
+- **FR-047**: The system MUST leave unsupported or low-confidence quiz questions unresolved for manual admin labeling rather than guessing.
+- **FR-048**: Resolver behavior MUST be testable per rule type, including at least goal timing, team scoring, player scoring, card, penalty, and statistics-backed rules where provider facts exist.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -228,14 +257,17 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - **Prize Pot Notification**: Participant-facing notification that asks undecided users whether to join or decline the prize pot.
 - **Tournament Pick Summary**: View-mode presentation of champion, top-scorer, and striker picks with flags/country metadata and an explicit edit affordance.
 - **Player Pick Metadata**: Optional player identity context used to render full name and country flag/country for top-scorer and striker picks while preserving plain-name fallback behavior.
+- **Quiz Resolver Rule**: Machine-readable metadata on a quiz question that names the resolver kind and parameters needed to derive the correct answer from normalized match facts.
+- **Automatic Quiz Label**: Provider-backed quiz answer produced by a resolver, stored separately from participant predictions and lower priority than manual overrides.
+- **Quiz Resolution Attempt**: Operational record or status indicating whether a resolver answered, skipped, lacked facts, or failed for a match quiz.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: For a completed match with valid provider linkage, no unrelated match is requested during either scheduled post-match result sync attempt.
-- **SC-002**: For a completed match with provider data available, current result facts are available for scoring after the first or second scheduled post-match sync attempt.
-- **SC-003**: For a match with provider data corrected between sync attempts, provider-backed current facts reflect the newer data after the second attempt unless manually overridden.
+- **SC-001**: For a completed match with valid provider linkage, no unrelated match is requested during any scheduled post-match result sync attempt.
+- **SC-002**: For a completed match with provider data available, current result facts are available for scoring after a scheduled post-match sync attempt.
+- **SC-003**: For a match with provider data corrected between sync attempts, provider-backed current facts reflect the newer data after a later planned attempt unless manually overridden.
 - **SC-004**: 100% of manual override saves create an audit record containing actor, timestamp, previous value, and new value.
 - **SC-005**: 100% of raw provider payloads received through sync attempts remain retrievable for audit.
 - **SC-006**: Leaderboard and profile point totals match the same stored computed point records after a scoring recalculation.
@@ -245,6 +277,9 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - **SC-010**: Profile views show each participant's saved prize-pot participation state.
 - **SC-011**: In tournament pick view mode, champion, top-scorer, and striker summaries can be inspected without changing stored predictions.
 - **SC-012**: Tournament pick summaries show flags for champion picks and full player name plus country flag/country for top-scorer and striker picks when metadata is available.
+- **SC-013**: For quiz questions with supported resolver rules and complete provider facts, automatic quiz labels are available after sync without admin entry.
+- **SC-014**: Manual quiz overrides remain the scoring source for 100% of quizzes where a manual override exists.
+- **SC-015**: Leaderboard quiz points update after automatic quiz labels are created or changed.
 
 ## Assumptions
 
@@ -258,3 +293,5 @@ As a participant, I want the champion, top-scorer, and striker picks to be easy 
 - Existing accounts from previous Talpa email conventions may require migration or compatibility handling during implementation.
 - Prize-pot payment collection and reconciliation happen outside the app with Olivier Thijsen and are intentionally not modeled as payment state.
 - Player country metadata should come from existing static/synced team profile or squad data where possible, with plain-name fallback when unavailable.
+- Automatic quiz resolution should start with deterministic rule metadata rather than natural-language parsing of quiz question text.
+- Some quiz questions will remain manual because provider data cannot answer them reliably.

@@ -59,11 +59,11 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
     def test_timedelta_import_available_for_sync_windows(self) -> None:
         self.assertEqual(timedelta(minutes=15).total_seconds(), 900)
 
-    def test_vercel_result_cron_runs_often_enough_for_sync_windows(self) -> None:
+    def test_vercel_crons_are_hobby_plan_compatible(self) -> None:
         config = json.loads((Path(__file__).resolve().parent.parent / "vercel.json").read_text())
         crons = {item["path"]: item["schedule"] for item in config["crons"]}
 
-        self.assertEqual(crons["/api/cron/api-football-sync"], "*/5 * * * *")
+        self.assertEqual(crons["/api/cron/api-football-sync"], "0 8 * * *")
         self.assertEqual(crons["/api/cron/api-football-squad-sync"], "30 8 * * *")
         self.assertEqual(crons["/api/cron/newsletters-refresh"], "0 7 * * *")
 
@@ -491,12 +491,68 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 """,
                 ("m001", wk_app.API_FOOTBALL_PROVIDER_KEY),
             )
+            for index, player_name in enumerate(("One", "Two", "Three"), start=1):
+                wk_app.execute(
+                    conn,
+                    """
+                    INSERT INTO match_events (
+                        match_id, provider_event_key, event_type, player_name, raw_json
+                    )
+                    VALUES (?, ?, 'Goal', ?, '{}')
+                    """,
+                    ("m001", f"provider:event:{index}", player_name),
+                )
             conn.commit()
             return wk_app.due_api_football_match_attempts(data, limit=1)
 
         candidates = self.run_with_temp_db(scenario)
 
         self.assertEqual(candidates, [])
+
+    def test_final_result_with_missing_goal_events_is_retried_as_backlog(self) -> None:
+        kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(hours=3)
+        match = make_match("m001", kickoff)
+        data = {"matches": [match], "teams": []}
+
+        def scenario(conn):
+            for attempt_kind in (
+                wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH,
+                wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH,
+                wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
+            ):
+                attempt_id = wk_app.create_provider_sync_attempt(
+                    conn,
+                    provider_key=wk_app.API_FOOTBALL_PROVIDER_KEY,
+                    target_type=wk_app.SYNC_TARGET_MATCH_RESULT,
+                    target_id="m001",
+                    attempt_kind=attempt_kind,
+                    scheduled_for=wk_app.result_sync_scheduled_for(match, attempt_kind),
+                    status=wk_app.SYNC_STATUS_SUCCEEDED,
+                )
+                wk_app.finish_provider_sync_attempt(
+                    conn,
+                    attempt_id,
+                    status=wk_app.SYNC_STATUS_SUCCEEDED,
+                )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_results (
+                    match_id, source, status_short, home_score, away_score
+                )
+                VALUES (?, ?, 'FT', 2, 1)
+                """,
+                ("m001", wk_app.API_FOOTBALL_PROVIDER_KEY),
+            )
+            conn.commit()
+            missing_ids = wk_app.missing_result_match_ids(data)
+            candidates = wk_app.due_api_football_match_attempts(data, limit=1)
+            return missing_ids, candidates
+
+        missing_ids, candidates = self.run_with_temp_db(scenario)
+
+        self.assertEqual(missing_ids, ["m001"])
+        self.assertEqual(candidates[0]["attempt_kind"], wk_app.SYNC_ATTEMPT_MISSING_DATA_RETRY)
 
     def test_backlog_missing_link_notifies_admins_and_remains_retryable(self) -> None:
         kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(hours=3)

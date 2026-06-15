@@ -26,7 +26,7 @@
 
 - Daily completed-history sweep: rejected because it asks the provider for too much unrelated history and updates late.
 - Continuous live polling: rejected because live data is out of scope and user preference is post-match only.
-- Ongoing final-result rechecks: rejected because user preference is exactly the two attempts unless future manual correction scope is added.
+- Ongoing final-result rechecks: rejected because user preference is a bounded set of planned post-match attempts unless facts are still missing or a manual correction scope is used.
 
 ## Decision: Keep squad sync separate and rare
 
@@ -128,3 +128,53 @@
 
 - Require player IDs for all existing picks immediately: rejected because it would require migrating or invalidating existing predictions.
 - Show flags only for champion teams: rejected because the requested improvement specifically includes strikers and top scorer names with flags/country.
+
+## Decision: Use explicit quiz resolver metadata rather than natural-language parsing
+
+**Rationale**: Quiz questions are written for humans in Dutch and are not a stable machine interface. A resolver rule such as `goal_before_minute` with parameters such as `minute: 10` is deterministic, testable, and reviewable. This lets the app clearly associate each question with the exact provider-backed facts needed to answer it.
+
+**Alternatives considered**:
+
+- Parse the question text and infer rule intent automatically: rejected because small wording changes could alter scoring behavior and make disputes hard to explain.
+- Manually label all quiz questions after every match: rejected because several questions are directly answerable from synced facts and should not require repetitive admin work.
+- Ask API-Football a quiz-specific question: rejected because the provider exposes raw football facts, not app-specific quiz semantics.
+
+## Decision: Resolve quizzes from normalized app facts after sync
+
+**Rationale**: The result sync already normalizes provider payloads into `match_results`, `match_events`, `match_clean_sheets`, and `player_match_stats`. Quiz resolution should consume those app-owned facts after they are stored, which keeps provider-specific shape behind the sync boundary and prevents participant reads from triggering external calls or writes.
+
+**Alternatives considered**:
+
+- Resolve directly from raw provider payload during request handling: rejected because it would couple scoring to provider payload shape and duplicate normalization logic.
+- Resolve during participant page loads: rejected because participant reads must remain side-effect free and provider independent.
+- Store only raw resolver output without normalized facts: rejected because admins need inspectable facts and existing scoring already reads normalized tables.
+
+## Decision: Manual quiz labels win over provider-backed automatic labels
+
+**Rationale**: Admin overrides are explicit scoring decisions. Automatic labels reduce work but should not overwrite a manual correction or a question that an admin intentionally interpreted differently.
+
+**Alternatives considered**:
+
+- Let latest provider-backed resolver output win: rejected because it could undo admin decisions silently.
+- Prevent admins from overriding automatic quiz labels: rejected because some questions are ambiguous or provider data can be incomplete.
+- Store automatic labels directly as manual overrides: rejected because source provenance would be lost.
+
+## Decision: Start with a conservative resolver registry
+
+**Rationale**: The first implementation should support only high-confidence rule families: goal timing, first/last scoring team, team scoring thresholds, player scoring, cards, penalties, clean sheets, substitutions where sufficient facts exist, and statistics-backed questions where the provider supplies the relevant stat. Unsupported or insufficient-fact questions should stay unresolved for manual labeling.
+
+**Alternatives considered**:
+
+- Implement every quiz question immediately: rejected because several questions require subjective, unavailable, or low-confidence facts such as FIFA man of the match, inside-post goals, or VAR-disallowed goals.
+- Treat missing provider facts as a negative answer: rejected because absence of data is not the same as a verified `nee`.
+- Use fuzzy matching for player/team names without metadata: rejected for initial scope because explicit team/player identifiers or normalized known names are safer for scoring.
+
+## Decision: Recompute stored quiz points when automatic labels change
+
+**Rationale**: Leaderboard and profile views read stored computed points when present. When a resolver creates or changes an effective quiz label, stored `quiz_points` must be refreshed so every surface agrees.
+
+**Alternatives considered**:
+
+- Wait for the next full result sync to recompute points: rejected because automatic quiz labels may be the only changed fact.
+- Recompute quiz points only on read: rejected because this feature already chose stored computed points for consistency and auditability.
+- Recompute only users who answered that match in the first pass: deferred because full recompute is simpler and current scale is small enough.

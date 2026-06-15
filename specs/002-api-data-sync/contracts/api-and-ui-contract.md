@@ -155,6 +155,117 @@ Rules:
 - Incomplete categories remain pending or absent until enough facts exist.
 - Leaderboard and profile totals must agree because they read the same stored computed rows.
 
+## Automatic Quiz Resolver Contract
+
+Automatic quiz resolution is part of the provider-backed scoring-label publication flow. It must not run from participant-facing reads.
+
+### Quiz metadata
+
+Quiz definitions in `backend/quiz-2026.json` may include optional resolver metadata:
+
+```json
+{
+  "question": "Komt er een doelpunt in de eerste 10 minuten?",
+  "type": "yes_no",
+  "choices": ["ja", "nee"],
+  "auto_label": {
+    "kind": "goal_before_minute",
+    "minute": 10
+  }
+}
+```
+
+Rules:
+
+- `auto_label.kind` must be a known resolver kind.
+- Resolver params must be explicit; the backend must not infer behavior from question prose.
+- Questions without valid `auto_label` metadata remain manual/static.
+
+### Resolver execution
+
+Resolver execution should happen after normalized provider facts are stored by:
+
+- scheduled result sync
+- manual result sync
+- manual fact reversal that restores provider facts, where relevant
+
+Resolver inputs:
+
+- `match_results`
+- `match_events`
+- `match_clean_sheets`
+- `player_match_stats`
+- future normalized team-stat rows if added
+
+Resolver outputs:
+
+```json
+{
+  "match_id": "m009",
+  "source": "api-football",
+  "resolver_kind": "goal_before_minute",
+  "correct_answers": ["ja"],
+  "confidence": "high",
+  "evidence": {
+    "first_goal_minute": 6,
+    "event_key": "6||25|637||Goal|Normal Goal||1"
+  }
+}
+```
+
+Rules:
+
+- High-confidence resolver output can create or update a provider-backed quiz label.
+- Unsupported or insufficient-fact output must not score participants.
+- Manual quiz overrides take precedence over automatic labels.
+- Automatic label changes trigger stored computed point recalculation.
+- Participant prediction rows are never changed.
+
+### Admin label payload
+
+Admin label/editor payloads may include resolver status for review:
+
+```json
+{
+  "match_id": "m009",
+  "quiz": {
+    "question": "Komt er een doelpunt in de eerste 10 minuten?",
+    "correct_answers": ["ja"],
+    "label_source": "api-football",
+    "auto_label": {
+      "resolver_kind": "goal_before_minute",
+      "confidence": "high",
+      "resolved_at": "2026-06-15T00:00:00Z"
+    },
+    "manual_override_active": false
+  }
+}
+```
+
+Rules:
+
+- Admins can still save a manual quiz label through the existing quiz label route.
+- When a manual override exists, admin payloads should make that precedence visible.
+- Normal participant payloads do not need resolver evidence.
+
+### Supported initial resolver families
+
+Implementation should start with deterministic rules only:
+
+- goal before/after minute
+- first or last goal minute bucket
+- first or last scoring team
+- both teams score
+- team scores or team score threshold
+- player scores or player scores threshold
+- penalty awarded/scored
+- yellow/red card threshold
+- clean sheet
+- team statistic threshold where normalized stats exist
+- substitution-related scoring only if substitution events and goal events are sufficient
+
+Questions such as man of the match, inside-post goals, subjective VAR interpretations, or bicycle kicks should remain manual unless provider facts can answer them reliably.
+
 ## Account Creation Contract
 
 ### Login / implicit account creation
