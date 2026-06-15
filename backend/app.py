@@ -165,6 +165,7 @@ API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get(
 API_FOOTBALL_PROVIDER_KEY = "api-football"
 SYNC_TARGET_MATCH_RESULT = "match_result"
 SYNC_TARGET_TEAM_SQUAD = "team_squad"
+SYNC_TARGET_STRIKER_PICK = "striker_pick"
 SYNC_ATTEMPT_EARLY_POST_MATCH = "early_post_match"
 SYNC_ATTEMPT_FIRST_POST_MATCH = "first_post_match"
 SYNC_ATTEMPT_SECOND_POST_MATCH = "second_post_match"
@@ -184,6 +185,8 @@ SYNC_STATUS_RUNNING = "running"
 SYNC_STATUS_SUCCEEDED = "succeeded"
 SYNC_STATUS_SKIPPED = "skipped"
 SYNC_STATUS_FAILED = "failed"
+SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD = "scorer_player_not_in_squad"
+SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD = "striker_pick_not_in_squad"
 SYNC_TERMINAL_STATUSES = {SYNC_STATUS_SUCCEEDED, SYNC_STATUS_SKIPPED, SYNC_STATUS_FAILED}
 RESULT_SYNC_EARLY_AFTER = timedelta(minutes=5)
 RESULT_SYNC_FIRST_AFTER = timedelta(minutes=15)
@@ -809,6 +812,183 @@ def active_admin_sync_notifications(conn: Any) -> list[dict[str, Any]]:
     return [json_ready(row) for row in rows]
 
 
+def squad_player_database(conn: Any) -> tuple[set[int], set[str]]:
+    rows = execute(
+        conn,
+        """
+        SELECT api_player_id, player_name
+        FROM team_squad_players
+        """,
+    ).fetchall()
+    api_ids = {
+        int(row["api_player_id"])
+        for row in rows
+        if row["api_player_id"] is not None
+    }
+    names = {
+        normalized_player_name(row["player_name"])
+        for row in rows
+        if normalized_player_name(row["player_name"])
+    }
+    return api_ids, names
+
+
+def player_matches_squad_database(
+    *,
+    api_player_id: Any | None,
+    player_name: Any,
+    squad_api_ids: set[int],
+    squad_names: set[str],
+) -> bool:
+    parsed_api_player_id = int_or_none(api_player_id)
+    if parsed_api_player_id is not None and parsed_api_player_id in squad_api_ids:
+        return True
+    normalized_name = normalized_player_name(player_name)
+    return bool(normalized_name and normalized_name in squad_names)
+
+
+def notification_target_id(*parts: Any) -> str:
+    return ":".join(compact_name(part).replace(" ", "-") for part in parts if compact_name(part))
+
+
+def scorer_player_rows_for_verification(conn: Any) -> list[dict[str, Any]]:
+    event_rows = execute(
+        conn,
+        """
+        SELECT match_id, local_team_id, api_player_id, player_name, 'event' AS source
+        FROM match_events
+        WHERE LOWER(event_type) = 'goal'
+          AND COALESCE(TRIM(player_name), '') <> ''
+        """,
+    ).fetchall()
+    stat_rows = execute(
+        conn,
+        """
+        SELECT match_id, local_team_id, api_player_id, player_name, 'stat' AS source
+        FROM player_match_stats
+        WHERE goals > 0
+          AND COALESCE(TRIM(player_name), '') <> ''
+        """,
+    ).fetchall()
+    seen: set[tuple[str, str]] = set()
+    rows: list[dict[str, Any]] = []
+    for row in [*event_rows, *stat_rows]:
+        key = (str(row["match_id"]), normalized_player_name(row["player_name"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(json_ready(row))
+    return rows
+
+
+def verify_player_database_matches(conn: Any) -> dict[str, int]:
+    squad_api_ids, squad_names = squad_player_database(conn)
+    invalid_targets: set[tuple[str, str, str]] = set()
+    invalid_strikers = 0
+    invalid_scorers = 0
+
+    striker_rows = execute(
+        conn,
+        """
+        SELECT users.id AS user_id, users.name AS user_name, users.email,
+               top_scorer_predictions.striker_name_1,
+               top_scorer_predictions.striker_name_2,
+               top_scorer_predictions.striker_name_3,
+               top_scorer_predictions.striker_name_4,
+               top_scorer_predictions.striker_name_5
+        FROM top_scorer_predictions
+        JOIN users ON users.id = top_scorer_predictions.user_id
+        """,
+    ).fetchall()
+    for row in striker_rows:
+        for player_name in striker_pick_names(row):
+            if player_matches_squad_database(
+                api_player_id=None,
+                player_name=player_name,
+                squad_api_ids=squad_api_ids,
+                squad_names=squad_names,
+            ):
+                continue
+            target_id = notification_target_id(row["user_id"], player_name)
+            if not target_id:
+                continue
+            invalid_targets.add(
+                (SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD, SYNC_TARGET_STRIKER_PICK, target_id)
+            )
+            invalid_strikers += 1
+            create_admin_sync_notification(
+                conn,
+                notification_type=SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD,
+                target_type=SYNC_TARGET_STRIKER_PICK,
+                target_id=target_id,
+                title="Striker pick is not in the player database",
+                body=(
+                    f"{row['user_name']} picked '{player_name}' as a striker, but that "
+                    "name does not match any player in the synced squad database."
+                ),
+            )
+
+    for row in scorer_player_rows_for_verification(conn):
+        if player_matches_squad_database(
+            api_player_id=row.get("api_player_id"),
+            player_name=row.get("player_name"),
+            squad_api_ids=squad_api_ids,
+            squad_names=squad_names,
+        ):
+            continue
+        target_id = notification_target_id(row.get("match_id"), row.get("player_name"))
+        if not target_id:
+            continue
+        invalid_targets.add(
+            (
+                SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD,
+                SYNC_TARGET_MATCH_RESULT,
+                target_id,
+            )
+        )
+        invalid_scorers += 1
+        create_admin_sync_notification(
+            conn,
+            notification_type=SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD,
+            target_type=SYNC_TARGET_MATCH_RESULT,
+            target_id=target_id,
+            title="Goal scorer is not in the player database",
+            body=(
+                f"Match {row.get('match_id')} has scorer '{row.get('player_name')}', "
+                "but that name/id does not match any player in the synced squad database."
+            ),
+        )
+
+    active_rows = execute(
+        conn,
+        """
+        SELECT type, target_type, target_id
+        FROM admin_sync_notifications
+        WHERE is_active = 1
+          AND type IN (?, ?)
+        """,
+        (
+            SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD,
+            SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD,
+        ),
+    ).fetchall()
+    for row in active_rows:
+        key = (row["type"], row["target_type"], row["target_id"])
+        if key in invalid_targets:
+            continue
+        resolve_admin_sync_notification(
+            conn,
+            notification_type=row["type"],
+            target_type=row["target_type"],
+            target_id=row["target_id"],
+        )
+
+    return {
+        "invalid_striker_picks": invalid_strikers,
+        "invalid_goal_scorers": invalid_scorers,
+    }
+
+
 def upsert_computed_point(
     conn: Any,
     *,
@@ -944,6 +1124,7 @@ def apply_stored_leaderboard_points(
 def recompute_all_computed_points(data: dict[str, Any]) -> None:
     rows = build_leaderboard(data, use_computed_points=False)
     with get_db() as conn:
+        verify_player_database_matches(conn)
         delete_computed_points(conn, scope_type="leaderboard", scope_id="current")
         for row in rows:
             user_id = int(row["user_id"])
@@ -4134,6 +4315,7 @@ def run_api_football_squad_sync(
         }
 
     synced = []
+    player_verification = None
     with get_db() as conn:
         for item in candidates:
             local_team_id = item["team"]["id"]
@@ -4149,6 +4331,7 @@ def run_api_football_squad_sync(
                     conn, local_team_id, api_team_id, squad_payload, coach_payload
                 )
             )
+        player_verification = verify_player_database_matches(conn)
 
     return {
         "ok": True,
@@ -4156,6 +4339,7 @@ def run_api_football_squad_sync(
         "synced": synced,
         "skipped": skipped,
         "linking": linking,
+        "player_database_verification": player_verification,
         "requests_today": api_football_request_count_today(),
         "daily_limit": API_FOOTBALL_DAILY_LIMIT,
     }
@@ -7364,7 +7548,9 @@ def admin_update_player_stat_labels(match_id: str):
             (match_id,),
         ).fetchall()
         label_audit(conn, admin["id"], "player_stats", match_id, before, after, reason=reason)
-    return jsonify(admin_labels_payload(load_world_cup_data()))
+    updated_data = load_world_cup_data()
+    recompute_all_computed_points(updated_data)
+    return jsonify(admin_labels_payload(updated_data))
 
 
 def admin_broadcast_payload(limit: int = 25) -> dict[str, Any]:
@@ -8286,6 +8472,8 @@ def save_predictions():
                     "DELETE FROM top_scorer_predictions WHERE user_id = ?",
                     (user["id"],),
                 )
+        if top_scorer_submitted or strikers_submitted:
+            verify_player_database_matches(conn)
 
     logger.info(
         (

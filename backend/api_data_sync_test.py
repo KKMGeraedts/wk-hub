@@ -1442,6 +1442,121 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             any(item["type"] == "sync_issue" for item in player_state["notifications"])
         )
 
+    def test_unmatched_striker_pick_notifies_admins_until_player_exists(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Player', 'player@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO top_scorer_predictions (
+                    user_id, player_name, striker_name_1, striker_name_2
+                )
+                VALUES (1, 'Cody Gakpo', 'Cody Gakpo', 'Typo Scorer')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
+                """,
+            )
+            first = wk_app.verify_player_database_matches(conn)
+            first_notifications = wk_app.active_admin_sync_notifications(conn)
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('usa', '2', 2, 'Typo Scorer', '{}')
+                """,
+            )
+            second = wk_app.verify_player_database_matches(conn)
+            second_notifications = wk_app.active_admin_sync_notifications(conn)
+            return first, first_notifications, second, second_notifications
+
+        first, first_notifications, second, second_notifications = self.run_with_temp_db(scenario)
+
+        self.assertEqual(first["invalid_striker_picks"], 1)
+        self.assertTrue(
+            any(
+                item["type"] == wk_app.SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD
+                for item in first_notifications
+            ),
+            first_notifications,
+        )
+        self.assertEqual(second["invalid_striker_picks"], 0)
+        self.assertFalse(
+            any(
+                item["type"] == wk_app.SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD
+                for item in second_notifications
+            ),
+            second_notifications,
+        )
+
+    def test_unmatched_match_scorer_notifies_admins_until_player_exists(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES ('m001', 'provider:event:1', 'Goal', 'Unknown Hero', '{}')
+                """,
+            )
+            first = wk_app.verify_player_database_matches(conn)
+            first_notifications = wk_app.active_admin_sync_notifications(conn)
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('usa', '2', 2, 'Unknown Hero', '{}')
+                """,
+            )
+            second = wk_app.verify_player_database_matches(conn)
+            second_notifications = wk_app.active_admin_sync_notifications(conn)
+            return first, first_notifications, second, second_notifications
+
+        first, first_notifications, second, second_notifications = self.run_with_temp_db(scenario)
+
+        self.assertEqual(first["invalid_goal_scorers"], 1)
+        self.assertTrue(
+            any(
+                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                for item in first_notifications
+            ),
+            first_notifications,
+        )
+        self.assertEqual(second["invalid_goal_scorers"], 0)
+        self.assertFalse(
+            any(
+                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                for item in second_notifications
+            ),
+            second_notifications,
+        )
+
     def test_world_cup_payload_hides_provider_failure_details(self) -> None:
         data = self.scoring_data(done=False)
 
