@@ -3808,6 +3808,23 @@ function AdminDataSyncPage({ onSyncComplete }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [syncStartedAt, setSyncStartedAt] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  const syncSteps = [
+    "Checking missing match results",
+    "Refreshing squad players",
+    "Verifying scorers",
+    "Recomputing points",
+  ];
+
+  useEffect(() => {
+    if (!busy || !syncStartedAt) return undefined;
+    const interval = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - syncStartedAt) / 1000));
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [busy, syncStartedAt]);
 
   function skippedMatchLabel(item) {
     const match = item.match || {};
@@ -3834,6 +3851,9 @@ function AdminDataSyncPage({ onSyncComplete }) {
   async function syncAllData() {
     setBusy(true);
     setError("");
+    setResult(null);
+    setElapsedSeconds(0);
+    setSyncStartedAt(Date.now());
     try {
       const response = await apiJson("/api/admin/api-football/data-sync", {
         method: "POST",
@@ -3847,8 +3867,26 @@ function AdminDataSyncPage({ onSyncComplete }) {
       setError(syncError.message);
     } finally {
       setBusy(false);
+      setSyncStartedAt(null);
     }
   }
+
+  const activeStepIndex = result
+    ? syncSteps.length - 1
+    : Math.min(syncSteps.length - 1, Math.floor(elapsedSeconds / 8));
+
+  const syncLog = result
+    ? [
+        `${result.match_ids?.length ?? 0} missing matches checked`,
+        `${result.synced?.length ?? 0} matches synced`,
+        `${result.squad_synced?.length ?? 0} squads refreshed`,
+        `${syncedSquadPlayers} squad players synced`,
+        result.player_database_verification
+          ? `${result.player_database_verification.invalid_goal_scorers ?? 0} unmatched goal scorers`
+          : null,
+        result.computed_points_updated ? "Points recomputed" : null,
+      ].filter(Boolean)
+    : [];
 
   return (
     <article className="panel admin-message-panel">
@@ -3867,6 +3905,38 @@ function AdminDataSyncPage({ onSyncComplete }) {
         >
           {busy ? "Syncing API-Football..." : "Sync match and squad data"}
         </button>
+        {(busy || result) && (
+          <div className="admin-sync-progress">
+            <div className="admin-sync-progress-header">
+              <strong>{busy ? "Sync running" : "Sync log"}</strong>
+              {busy && <span>{elapsedSeconds}s</span>}
+            </div>
+            <ol className="admin-sync-steps">
+              {syncSteps.map((step, index) => {
+                const status = result
+                  ? "done"
+                  : index < activeStepIndex
+                    ? "done"
+                    : index === activeStepIndex
+                      ? "active"
+                      : "pending";
+                return (
+                  <li className={`is-${status}`} key={step}>
+                    <span>{index + 1}</span>
+                    <strong>{step}</strong>
+                  </li>
+                );
+              })}
+            </ol>
+            {!!syncLog.length && (
+              <div className="admin-sync-log">
+                {syncLog.map((item) => (
+                  <span key={item}>{item}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {error && <div className="form-error">{error}</div>}
         {result && (
           <div className="admin-sync-result">
@@ -4165,7 +4235,6 @@ function OutcomeBreakdown({ match, teams }) {
 
 function DailyRecap({ recap }) {
   const topPlayers = recap?.top_players ?? [];
-  const topMovers = recap?.top_movers ?? [];
   const topWinners = recap?.top_winners ?? [];
   const topLosers = recap?.top_losers ?? [];
   const renderRankChanges = (players, emptyText) => (
@@ -4193,7 +4262,7 @@ function DailyRecap({ recap }) {
       <div className="panel-header">
         <div>
           <h3>Daily recap</h3>
-          <p>Dagscore, beweging, stijgers en dalers.</p>
+          <p>Dagscore, stijgers en dalers.</p>
         </div>
         <span className={recap?.available ? "pill green" : "pill"}>
           {recap?.available ? "Live" : "Nog leeg"}
@@ -4220,10 +4289,6 @@ function DailyRecap({ recap }) {
                 ))}
               </ol>
             )}
-          </section>
-          <section className="daily-recap-board">
-            <h4>Biggest movers</h4>
-            {renderRankChanges(topMovers, "Nog geen beweging.")}
           </section>
           <section className="daily-recap-board">
             <h4>Biggest winners</h4>

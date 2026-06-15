@@ -962,9 +962,11 @@ def get_db(*, schema: bool = False) -> Any:
     if IS_VERCEL:
         raise RuntimeError(CONFIG_ERROR or "Vercel deployments must use Postgres.")
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA journal_mode = WAL")
     return conn
 
 
@@ -1983,10 +1985,11 @@ def scorer_player_rows_for_verification(conn: Any) -> list[dict[str, Any]]:
         SELECT match_id, local_team_id, api_player_id, player_name, 'event' AS source
         FROM match_events
         WHERE LOWER(event_type) = 'goal'
-          AND LOWER(COALESCE(detail, '')) NOT LIKE '%own goal%'
-          AND LOWER(COALESCE(comments, '')) NOT LIKE '%own goal%'
+          AND LOWER(COALESCE(detail, '')) NOT LIKE ?
+          AND LOWER(COALESCE(comments, '')) NOT LIKE ?
           AND COALESCE(TRIM(player_name), '') <> ''
         """,
+        ("%own goal%", "%own goal%"),
     ).fetchall()
     stat_rows = execute(
         conn,
@@ -4000,6 +4003,7 @@ API_FOOTBALL_TEAM_ALIASES = {
     "bosnia herzegovina": "bih",
     "cabo verde": "cpv",
     "cape verde": "cpv",
+    "cape verde islands": "cpv",
     "congo dr": "cod",
     "curacao": "cuw",
     "czech republic": "cze",
@@ -4409,10 +4413,10 @@ def api_football_link_fixtures(data: dict[str, Any]) -> dict[str, Any]:
                 continue
 
             candidates = matches_by_pair.get(frozenset([home_local, away_local]), [])
+            fixture_date = api_fixture_datetime(fixture)
             if not candidates:
                 skipped += 1
                 continue
-            fixture_date = api_fixture_datetime(fixture)
             if fixture_date:
                 match = min(
                     candidates,
@@ -5637,22 +5641,23 @@ def run_api_football_squad_sync(
 
     synced = []
     player_verification = None
-    with get_db() as conn:
-        for item in candidates:
-            local_team_id = item["team"]["id"]
-            api_team_id = int(item["link"]["api_team_id"])
-            squad_payload = api_football_get("players/squads", {"team": api_team_id})
-            coach_payload = None
-            if include_coaches:
-                try:
-                    coach_payload = api_football_get("coachs", {"team": api_team_id})
-                except Exception as error:
-                    logger.warning("Could not sync coach for %s: %s", local_team_id, error)
+    for item in candidates:
+        local_team_id = item["team"]["id"]
+        api_team_id = int(item["link"]["api_team_id"])
+        squad_payload = api_football_get("players/squads", {"team": api_team_id})
+        coach_payload = None
+        if include_coaches:
+            try:
+                coach_payload = api_football_get("coachs", {"team": api_team_id})
+            except Exception as error:
+                logger.warning("Could not sync coach for %s: %s", local_team_id, error)
+        with get_db() as conn:
             synced.append(
                 store_api_football_team_profile_snapshot(
                     conn, local_team_id, api_team_id, squad_payload, coach_payload
                 )
             )
+    with get_db() as conn:
         player_verification = verify_player_database_matches(conn)
 
     return {

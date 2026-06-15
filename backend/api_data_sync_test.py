@@ -60,6 +60,18 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
     def test_timedelta_import_available_for_sync_windows(self) -> None:
         self.assertEqual(timedelta(minutes=15).total_seconds(), 900)
 
+    def test_local_sqlite_uses_long_busy_timeout_and_wal(self) -> None:
+        def scenario(_conn):
+            with wk_app.get_db() as conn:
+                busy_timeout = wk_app.execute(conn, "PRAGMA busy_timeout").fetchone()[0]
+                journal_mode = wk_app.execute(conn, "PRAGMA journal_mode").fetchone()[0]
+            return busy_timeout, journal_mode
+
+        busy_timeout, journal_mode = self.run_with_temp_db(scenario)
+
+        self.assertEqual(busy_timeout, 30000)
+        self.assertEqual(journal_mode, "wal")
+
     def test_vercel_crons_are_hobby_plan_compatible(self) -> None:
         config = json.loads((Path(__file__).resolve().parent.parent / "vercel.json").read_text())
         crons = {item["path"]: item["schedule"] for item in config["crons"]}
@@ -654,6 +666,70 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             [("cpv", "Ryan Mendes"), ("esp", "Lamine Yamal")],
         )
 
+    def test_squad_sync_does_not_hold_write_transaction_while_logging_requests(
+        self,
+    ) -> None:
+        data = {
+            "teams": [
+                {"id": "esp", "name": "Spain", "code": "ESP"},
+                {"id": "cpv", "name": "Cape Verde", "code": "CPV"},
+            ],
+            "matches": [],
+            "groups": [],
+            "venues": [],
+            "meta": {},
+        }
+        squad_payloads = {
+            9: {
+                "response": [
+                    {
+                        "team": {"id": 9},
+                        "players": [{"id": 101, "name": "Lamine Yamal"}],
+                    }
+                ]
+            },
+            1504: {
+                "response": [
+                    {
+                        "team": {"id": 1504},
+                        "players": [{"id": 202, "name": "Ryan Mendes"}],
+                    }
+                ]
+            },
+        }
+
+        def fake_get(endpoint, params):
+            wk_app.record_api_football_request(endpoint, params, 200, True)
+            return squad_payloads[params["team"]]
+
+        def scenario(conn):
+            wk_app.upsert_api_football_team_link(conn, "esp", 9, "Spain", "test")
+            wk_app.upsert_api_football_team_link(conn, "cpv", 1504, "Cabo Verde", "test")
+            conn.commit()
+            with patch.object(wk_app, "api_football_get", side_effect=fake_get):
+                result = wk_app.run_api_football_squad_sync(
+                    data,
+                    force=True,
+                    limit=48,
+                    include_coaches=False,
+                )
+            request_count = wk_app.execute(
+                conn,
+                "SELECT COUNT(*) AS count FROM api_football_requests",
+            ).fetchone()["count"]
+            return result, request_count
+
+        previous_key = wk_app.API_FOOTBALL_KEY
+        wk_app.API_FOOTBALL_KEY = "test-key"
+        try:
+            result, request_count = self.run_with_temp_db(scenario)
+        finally:
+            wk_app.API_FOOTBALL_KEY = previous_key
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(len(result["synced"]), 2)
+        self.assertEqual(request_count, 2)
+
     def test_no_attempt_due_before_early_window_or_after_all_terminal(self) -> None:
         kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
         match = make_match("m001", kickoff)
@@ -925,7 +1001,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(result["synced"][0]["home_score"], 2)
         self.assertEqual(result["skipped"], [])
 
-    def test_fixture_linking_accepts_cabo_verde_provider_name(self) -> None:
+    def test_fixture_linking_accepts_cape_verde_islands_provider_name(self) -> None:
         kickoff = datetime(2026, 6, 15, 16, 0, tzinfo=UTC)
         match = make_match("m013", kickoff, home_team_id="esp", away_team_id="cpv")
         data = {
@@ -942,7 +1018,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             "fixture": {"id": 456, "date": "2026-06-15T16:00:00+00:00"},
             "teams": {
                 "home": {"id": 9, "name": "Spain"},
-                "away": {"id": 1504, "name": "Cabo Verde"},
+                "away": {"id": 1533, "name": "Cape Verde Islands"},
             },
         }
 
@@ -965,7 +1041,118 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         self.assertEqual(linking["linked"], 1)
         self.assertEqual(links["m013"], 456)
-        self.assertEqual(team_link["api_team_name"], "Cabo Verde")
+        self.assertEqual(team_link["api_team_name"], "Cape Verde Islands")
+
+    def test_all_provider_world_cup_team_names_map_to_local_teams(self) -> None:
+        data = {
+            "teams": [
+                {"id": "alg", "name": "Algeria", "code": "ALG"},
+                {"id": "arg", "name": "Argentina", "code": "ARG"},
+                {"id": "aus", "name": "Australia", "code": "AUS"},
+                {"id": "aut", "name": "Austria", "code": "AUT"},
+                {"id": "bel", "name": "Belgium", "code": "BEL"},
+                {"id": "bih", "name": "Bosnia and Herzegovina", "code": "BIH"},
+                {"id": "bra", "name": "Brazil", "code": "BRA"},
+                {"id": "can", "name": "Canada", "code": "CAN"},
+                {"id": "civ", "name": "Cote d'Ivoire", "code": "CIV"},
+                {"id": "cod", "name": "DR Congo", "code": "COD"},
+                {"id": "col", "name": "Colombia", "code": "COL"},
+                {"id": "cpv", "name": "Cape Verde", "code": "CPV"},
+                {"id": "cro", "name": "Croatia", "code": "CRO"},
+                {"id": "cuw", "name": "Curacao", "code": "CUW"},
+                {"id": "cze", "name": "Czech Republic", "code": "CZE"},
+                {"id": "ecu", "name": "Ecuador", "code": "ECU"},
+                {"id": "egy", "name": "Egypt", "code": "EGY"},
+                {"id": "eng", "name": "England", "code": "ENG"},
+                {"id": "esp", "name": "Spain", "code": "ESP"},
+                {"id": "fra", "name": "France", "code": "FRA"},
+                {"id": "ger", "name": "Germany", "code": "GER"},
+                {"id": "gha", "name": "Ghana", "code": "GHA"},
+                {"id": "hai", "name": "Haiti", "code": "HAI"},
+                {"id": "irn", "name": "Iran", "code": "IRN"},
+                {"id": "irq", "name": "Iraq", "code": "IRQ"},
+                {"id": "jor", "name": "Jordan", "code": "JOR"},
+                {"id": "jpn", "name": "Japan", "code": "JPN"},
+                {"id": "kor", "name": "Korea Republic", "code": "KOR"},
+                {"id": "ksa", "name": "Saudi Arabia", "code": "KSA"},
+                {"id": "mar", "name": "Morocco", "code": "MAR"},
+                {"id": "mex", "name": "Mexico", "code": "MEX"},
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "nor", "name": "Norway", "code": "NOR"},
+                {"id": "nzl", "name": "New Zealand", "code": "NZL"},
+                {"id": "pan", "name": "Panama", "code": "PAN"},
+                {"id": "par", "name": "Paraguay", "code": "PAR"},
+                {"id": "por", "name": "Portugal", "code": "POR"},
+                {"id": "qat", "name": "Qatar", "code": "QAT"},
+                {"id": "rsa", "name": "South Africa", "code": "RSA"},
+                {"id": "sco", "name": "Scotland", "code": "SCO"},
+                {"id": "sen", "name": "Senegal", "code": "SEN"},
+                {"id": "sui", "name": "Switzerland", "code": "SUI"},
+                {"id": "swe", "name": "Sweden", "code": "SWE"},
+                {"id": "tun", "name": "Tunisia", "code": "TUN"},
+                {"id": "tur", "name": "Turkey", "code": "TUR"},
+                {"id": "uru", "name": "Uruguay", "code": "URU"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+                {"id": "uzb", "name": "Uzbekistan", "code": "UZB"},
+            ]
+        }
+        provider_names = {
+            "Algeria": "alg",
+            "Argentina": "arg",
+            "Australia": "aus",
+            "Austria": "aut",
+            "Belgium": "bel",
+            "Bosnia & Herzegovina": "bih",
+            "Brazil": "bra",
+            "Canada": "can",
+            "Cape Verde Islands": "cpv",
+            "Colombia": "col",
+            "Congo DR": "cod",
+            "Croatia": "cro",
+            "Curaçao": "cuw",
+            "Czechia": "cze",
+            "Ecuador": "ecu",
+            "Egypt": "egy",
+            "England": "eng",
+            "France": "fra",
+            "Germany": "ger",
+            "Ghana": "gha",
+            "Haiti": "hai",
+            "Iran": "irn",
+            "Iraq": "irq",
+            "Ivory Coast": "civ",
+            "Japan": "jpn",
+            "Jordan": "jor",
+            "Morocco": "mar",
+            "Mexico": "mex",
+            "Netherlands": "ned",
+            "New Zealand": "nzl",
+            "Norway": "nor",
+            "Panama": "pan",
+            "Paraguay": "par",
+            "Portugal": "por",
+            "Qatar": "qat",
+            "Saudi Arabia": "ksa",
+            "Scotland": "sco",
+            "Senegal": "sen",
+            "South Africa": "rsa",
+            "South Korea": "kor",
+            "Spain": "esp",
+            "Sweden": "swe",
+            "Switzerland": "sui",
+            "Tunisia": "tun",
+            "Türkiye": "tur",
+            "Uruguay": "uru",
+            "USA": "usa",
+            "Uzbekistan": "uzb",
+        }
+
+        mapped = {
+            provider_name: wk_app.local_team_id_from_name(provider_name, data)
+            for provider_name in provider_names
+        }
+
+        self.assertEqual(mapped, provider_names)
 
     def test_admin_sync_dry_run_accepts_match_id_without_provider_key(self) -> None:
         previous_token = wk_app.API_FOOTBALL_SYNC_TOKEN

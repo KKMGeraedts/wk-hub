@@ -2279,6 +2279,108 @@ tr.highlight td {
     background: #fff;
 }
 
+.admin-sync-progress {
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid #dfe5ed;
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.admin-sync-progress-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.admin-sync-progress-header span {
+    color: var(--muted);
+}
+
+.admin-sync-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.admin-sync-steps li {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-height: 44px;
+    padding: 8px;
+    border: 1px solid #dfe5ed;
+    border-radius: 8px;
+    color: var(--muted);
+    background: #f8fafc;
+}
+
+.admin-sync-steps li span {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    place-items: center;
+    border-radius: 999px;
+    background: #ffffff;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 950;
+}
+
+.admin-sync-steps li strong {
+    min-width: 0;
+    color: inherit;
+    font-size: 12px;
+    line-height: 1.2;
+}
+
+.admin-sync-steps li.is-done {
+    border-color: #cfeedd;
+    color: #2d7d46;
+    background: #f3fbf6;
+}
+
+.admin-sync-steps li.is-done span {
+    background: #dff5e8;
+    color: #2d7d46;
+}
+
+.admin-sync-steps li.is-active {
+    border-color: #fed7aa;
+    color: var(--orange-dark);
+    background: #fff7ed;
+}
+
+.admin-sync-steps li.is-active span {
+    background: #ffedd5;
+    color: var(--orange-dark);
+}
+
+.admin-sync-log {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.admin-sync-log span {
+    padding: 6px 9px;
+    border: 1px solid #dfe5ed;
+    border-radius: 999px;
+    background: #fff;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 850;
+}
+
 .admin-sync-details {
     display: grid;
     gap: 8px;
