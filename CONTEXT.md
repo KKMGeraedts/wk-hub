@@ -9,7 +9,7 @@ A trusted football fact used to compute participant points, such as a match resu
 _Avoid_: Raw provider data, LLM answer
 
 **Quiz Label**:
-The accepted answer for a match quiz question used during scoring. A quiz label can come from static quiz data, a deterministic resolver, an LLM-assisted resolver, or a manual admin override.
+The accepted answer for a match quiz question used during scoring. A quiz label can come from static quiz data, a deterministic resolver, a GenAI Job, or a manual admin override.
 _Avoid_: Quiz prediction, participant answer
 
 **Manual Override**:

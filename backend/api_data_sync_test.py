@@ -1061,6 +1061,68 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(goals, 2)
         self.assertEqual(points, 30)
 
+    def test_striker_points_match_initial_surname_goal_events(self) -> None:
+        kickoff = datetime.now(UTC) - timedelta(hours=3)
+        match = make_match("m012", kickoff, home_team_id="swe", away_team_id="tun")
+        match["status"] = "completed"
+        data = {"matches": [match]}
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Player', 'player@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO top_scorer_predictions (
+                    user_id, player_name, striker_name_1, striker_name_2,
+                    striker_name_3, striker_name_4, striker_name_5
+                )
+                VALUES (
+                    1, 'Alexander Isak', 'Omar Rekik', 'Mattias Svanberg',
+                    'Alexander Isak', 'Viktor Gyökeres', 'Yasin Ayari'
+                )
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES
+                    ('m012', 'provider:event:1', 'Goal', 'A. Isak', '{}'),
+                    ('m012', 'provider:event:2', 'Goal', 'O. Rekik', '{}'),
+                    ('m012', 'provider:event:3', 'Goal', 'V. Gyokeres', '{}'),
+                    ('m012', 'provider:event:4', 'Goal', 'Y. Ayari', '{}'),
+                    ('m012', 'provider:event:5', 'Goal', 'M. Svanberg', '{}'),
+                    ('m012', 'provider:event:6', 'Goal', 'Y. Ayari', '{}')
+                """
+            )
+            conn.commit()
+            row = wk_app.execute(
+                conn,
+                """
+                SELECT player_name, striker_name_1, striker_name_2, striker_name_3,
+                       striker_name_4, striker_name_5
+                FROM top_scorer_predictions
+                WHERE user_id = 1
+                """,
+            ).fetchone()
+            counts, points = wk_app.goal_counts_and_points_by_player(data)
+            return wk_app.striker_pick_score_rows(row, counts, points)
+
+        picks = self.run_with_temp_db(scenario)
+
+        points_by_name = {pick["name"]: pick["points"] for pick in picks}
+        goals_by_name = {pick["name"]: pick["goals"] for pick in picks}
+        self.assertEqual(goals_by_name["Yasin Ayari"], 2)
+        self.assertEqual(sum(points_by_name.values()), 36)
+
     def test_tournament_session_date_groups_overnight_matches(self) -> None:
         evening_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
         overnight_match = make_match("m002", datetime(2026, 6, 12, 1, 59, tzinfo=UTC))

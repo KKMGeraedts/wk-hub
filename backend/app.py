@@ -823,6 +823,21 @@ def player_initial_surname_key(value: Any) -> str:
     return f"{initials[0]}:{surname}"
 
 
+def player_counter_keys(value: Any) -> list[str]:
+    keys = []
+    normalized_name = normalized_player_name(value)
+    if normalized_name:
+        keys.append(normalized_name)
+    signature = player_initial_surname_key(value)
+    if signature and signature not in keys:
+        keys.append(signature)
+    return keys
+
+
+def player_counter_value(counter: Counter[str], player_name: Any) -> int:
+    return max((counter[key] for key in player_counter_keys(player_name)), default=0)
+
+
 def squad_player_database(conn: Any) -> tuple[set[int], set[str], set[str]]:
     rows = execute(
         conn,
@@ -2678,13 +2693,12 @@ def striker_pick_score_rows(
     points_by_player = goal_points if goal_points is not None else striker_goal_points_by_player()
     scored_rows = []
     for pick in striker_pick_rows(row):
-        normalized_name = normalized_player_name(pick["name"])
-        goals = counts[normalized_name]
+        goals = player_counter_value(counts, pick["name"])
         scored_rows.append(
             {
                 **pick,
                 "goals": goals,
-                "points": points_by_player[normalized_name],
+                "points": player_counter_value(points_by_player, pick["name"]),
             }
         )
     return scored_rows
@@ -2710,12 +2724,14 @@ def goal_counts_and_points_by_player(
         comments = normalize_answer(row["comments"])
         if "own goal" in detail or "own goal" in comments:
             continue
-        player_name = normalized_player_name(row["player_name"])
-        if player_name:
-            counts[player_name] += 1
+        keys = player_counter_keys(row["player_name"])
+        if keys:
             match = matches_by_id.get(row["match_id"]) if matches_by_id else None
             multiplier = float(score_rule_for_match(match).get("multiplier", 1.0)) if match else 1.0
-            points[player_name] += round_match_points(STRIKER_GOAL_POINTS * multiplier)
+            goal_points = round_match_points(STRIKER_GOAL_POINTS * multiplier)
+            for key in keys:
+                counts[key] += 1
+                points[key] += goal_points
     return counts, points
 
 
@@ -2747,9 +2763,9 @@ def striker_prediction_points(
     counts = goal_counts if goal_counts is not None else goal_counts_by_player()
     points_by_player = goal_points if goal_points is not None else striker_goal_points_by_player()
     return sum(
-        points_by_player[normalized_player_name(player_name)]
+        player_counter_value(points_by_player, player_name)
         for player_name in picks
-        if counts[normalized_player_name(player_name)]
+        if player_counter_value(counts, player_name)
     )
 
 
