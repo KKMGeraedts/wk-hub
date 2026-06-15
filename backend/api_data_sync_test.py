@@ -64,9 +64,10 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         config = json.loads((Path(__file__).resolve().parent.parent / "vercel.json").read_text())
         crons = {item["path"]: item["schedule"] for item in config["crons"]}
 
-        self.assertEqual(crons["/api/cron/api-football-sync"], "0 8 * * *")
-        self.assertEqual(crons["/api/cron/api-football-squad-sync"], "30 8 * * *")
+        self.assertEqual(crons["/api/cron/api-football-sync"], "0 6 * * *")
+        self.assertEqual(crons["/api/cron/api-football-squad-sync"], "0 6 * * *")
         self.assertEqual(crons["/api/cron/newsletters-refresh"], "0 7 * * *")
+        self.assertEqual(config["functions"]["api/index.py"]["maxDuration"], 300)
 
     def test_talpa_email_validation_for_new_accounts(self) -> None:
         self.assertEqual(
@@ -398,6 +399,261 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(due_without_first, [wk_app.SYNC_ATTEMPT_FIRST_POST_MATCH])
         self.assertEqual(due_with_first, [wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH])
 
+    def test_daily_sweep_catches_up_to_latest_elapsed_sync_window(self) -> None:
+        kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(hours=3)
+        match = make_match("m001", kickoff)
+        data = {"matches": [match], "teams": []}
+
+        def scenario(_conn):
+            regular = wk_app.due_api_football_match_attempts(data, limit=1)
+            daily = wk_app.due_api_football_match_attempts(data, daily_sweep=True, limit=1)
+            return regular, daily
+
+        regular, daily = self.run_with_temp_db(scenario)
+
+        self.assertEqual(regular[0]["attempt_kind"], wk_app.SYNC_ATTEMPT_EARLY_POST_MATCH)
+        self.assertEqual(daily[0]["attempt_kind"], wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH)
+
+    def test_daily_sweep_skips_matches_that_already_reached_latest_window(self) -> None:
+        kickoff = datetime.now(UTC) - wk_app.API_FOOTBALL_POSTMATCH_BUFFER - timedelta(hours=3)
+        match = make_match("m001", kickoff)
+        data = {"matches": [match], "teams": []}
+
+        def scenario(conn):
+            attempt_id = wk_app.create_provider_sync_attempt(
+                conn,
+                provider_key=wk_app.API_FOOTBALL_PROVIDER_KEY,
+                target_type=wk_app.SYNC_TARGET_MATCH_RESULT,
+                target_id="m001",
+                attempt_kind=wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH,
+                scheduled_for=wk_app.result_sync_scheduled_for(
+                    match, wk_app.SYNC_ATTEMPT_SECOND_POST_MATCH
+                ),
+                status=wk_app.SYNC_STATUS_SUCCEEDED,
+            )
+            wk_app.finish_provider_sync_attempt(
+                conn,
+                attempt_id,
+                status=wk_app.SYNC_STATUS_SUCCEEDED,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_results (
+                    match_id, source, status_short, home_score, away_score
+                )
+                VALUES (?, ?, 'FT', 1, 0)
+                """,
+                ("m001", wk_app.API_FOOTBALL_PROVIDER_KEY),
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES (?, 'provider:event:1', 'Goal', 'One', '{}')
+                """,
+                ("m001",),
+            )
+            conn.commit()
+            return wk_app.due_api_football_match_attempts(data, daily_sweep=True, limit=1)
+
+        candidates = self.run_with_temp_db(scenario)
+
+        self.assertEqual(candidates, [])
+
+    def test_cron_result_sync_uses_daily_sweep_mode(self) -> None:
+        previous_token = wk_app.API_FOOTBALL_SYNC_TOKEN
+        wk_app.API_FOOTBALL_SYNC_TOKEN = "test-token"
+        try:
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value={"matches": []}),
+                patch.object(
+                    wk_app,
+                    "run_api_football_completed_sync",
+                    return_value={"ok": True, "attempts": [], "synced": [], "skipped": []},
+                ) as sync_mock,
+            ):
+                response = wk_app.app.test_client().get(
+                    "/api/cron/api-football-sync",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            wk_app.API_FOOTBALL_SYNC_TOKEN = previous_token
+
+        self.assertEqual(response.status_code, 200)
+        sync_mock.assert_called_once_with({"matches": []}, daily_sweep=True)
+
+    def test_cron_squad_sync_refreshes_all_player_squads_without_coaches(self) -> None:
+        previous_token = wk_app.API_FOOTBALL_SYNC_TOKEN
+        wk_app.API_FOOTBALL_SYNC_TOKEN = "test-token"
+        try:
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value={"teams": []}),
+                patch.object(
+                    wk_app,
+                    "run_api_football_squad_sync",
+                    return_value={"ok": True, "synced": [], "skipped": []},
+                ) as sync_mock,
+            ):
+                response = wk_app.app.test_client().get(
+                    "/api/cron/api-football-squad-sync",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+        finally:
+            wk_app.API_FOOTBALL_SYNC_TOKEN = previous_token
+
+        self.assertEqual(response.status_code, 200)
+        sync_mock.assert_called_once_with(
+            {"teams": []},
+            force=True,
+            limit=48,
+            include_coaches=False,
+        )
+
+    def test_api_football_squad_limit_is_not_capped_by_recorded_request_count(self) -> None:
+        with patch.object(wk_app, "api_football_request_count_today", return_value=10_000):
+            limit = wk_app.api_football_squad_team_limit(
+                requested_limit=48,
+                include_coaches=True,
+            )
+
+        self.assertEqual(limit, 48)
+
+    def test_admin_data_sync_button_endpoint_runs_results_and_squads(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
+                """,
+            )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(
+                    wk_app, "load_world_cup_data", return_value={"matches": [], "teams": []}
+                ),
+                patch.object(
+                    wk_app,
+                    "run_missing_result_sync_batch",
+                    return_value={
+                        "ok": True,
+                        "dry_run": False,
+                        "match_ids": ["m001"],
+                        "results": [],
+                        "synced": [{"match_id": "m001"}],
+                        "attempts": [{"match_id": "m001"}],
+                        "skipped": [],
+                    },
+                ) as result_sync,
+                patch.object(
+                    wk_app,
+                    "run_api_football_squad_sync",
+                    return_value={
+                        "ok": True,
+                        "dry_run": False,
+                        "synced": [{"team_id": "esp", "players": 26}],
+                        "skipped": [],
+                        "player_database_verification": {"invalid_goal_scorers": 0},
+                    },
+                ) as squad_sync,
+                patch.object(wk_app, "recompute_all_computed_points") as recompute,
+            ):
+                response = client.post("/api/admin/api-football/data-sync", json={})
+            return response, result_sync, squad_sync, recompute
+
+        response, result_sync, squad_sync, recompute = self.run_with_temp_db(scenario)
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["synced"], [{"match_id": "m001"}])
+        self.assertEqual(payload["squad_synced"], [{"team_id": "esp", "players": 26}])
+        result_sync.assert_called_once_with({"matches": [], "teams": []}, dry_run=False)
+        squad_sync.assert_called_once_with(
+            {"matches": [], "teams": []},
+            force=True,
+            dry_run=False,
+            limit=48,
+            include_coaches=False,
+        )
+        recompute.assert_called_once()
+
+    def test_players_only_squad_sync_populates_all_due_player_rows(self) -> None:
+        data = {
+            "teams": [
+                {"id": "esp", "name": "Spain", "code": "ESP"},
+                {"id": "cpv", "name": "Cape Verde", "code": "CPV"},
+            ],
+            "matches": [],
+            "groups": [],
+            "venues": [],
+            "meta": {},
+        }
+        squad_payloads = {
+            9: {
+                "response": [
+                    {
+                        "team": {"id": 9},
+                        "players": [{"id": 101, "name": "Lamine Yamal"}],
+                    }
+                ]
+            },
+            1504: {
+                "response": [
+                    {
+                        "team": {"id": 1504},
+                        "players": [{"id": 202, "name": "Ryan Mendes"}],
+                    }
+                ]
+            },
+        }
+
+        def fake_get(endpoint, params):
+            self.assertEqual(endpoint, "players/squads")
+            return squad_payloads[params["team"]]
+
+        def scenario(conn):
+            wk_app.upsert_api_football_team_link(conn, "esp", 9, "Spain", "test")
+            wk_app.upsert_api_football_team_link(conn, "cpv", 1504, "Cabo Verde", "test")
+            conn.commit()
+            with patch.object(wk_app, "api_football_get", side_effect=fake_get):
+                result = wk_app.run_api_football_squad_sync(
+                    data,
+                    force=True,
+                    limit=48,
+                    include_coaches=False,
+                )
+            rows = wk_app.execute(
+                conn,
+                """
+                SELECT local_team_id, player_name
+                FROM team_squad_players
+                ORDER BY local_team_id, player_name
+                """,
+            ).fetchall()
+            return result, rows
+
+        previous_key = wk_app.API_FOOTBALL_KEY
+        wk_app.API_FOOTBALL_KEY = "test-key"
+        try:
+            result, rows = self.run_with_temp_db(scenario)
+        finally:
+            wk_app.API_FOOTBALL_KEY = previous_key
+
+        self.assertTrue(result["ok"])
+        self.assertFalse(result["include_coaches"])
+        self.assertEqual(len(result["synced"]), 2)
+        self.assertEqual(
+            [(row["local_team_id"], row["player_name"]) for row in rows],
+            [("cpv", "Ryan Mendes"), ("esp", "Lamine Yamal")],
+        )
+
     def test_no_attempt_due_before_early_window_or_after_all_terminal(self) -> None:
         kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
         match = make_match("m001", kickoff)
@@ -668,6 +924,48 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(result["synced"][0]["match_id"], "m001")
         self.assertEqual(result["synced"][0]["home_score"], 2)
         self.assertEqual(result["skipped"], [])
+
+    def test_fixture_linking_accepts_cabo_verde_provider_name(self) -> None:
+        kickoff = datetime(2026, 6, 15, 16, 0, tzinfo=UTC)
+        match = make_match("m013", kickoff, home_team_id="esp", away_team_id="cpv")
+        data = {
+            "matches": [match],
+            "teams": [
+                {"id": "esp", "name": "Spain", "code": "ESP"},
+                {"id": "cpv", "name": "Cape Verde", "code": "CPV"},
+            ],
+            "groups": [],
+            "venues": [],
+            "meta": {},
+        }
+        fixture = {
+            "fixture": {"id": 456, "date": "2026-06-15T16:00:00+00:00"},
+            "teams": {
+                "home": {"id": 9, "name": "Spain"},
+                "away": {"id": 1504, "name": "Cabo Verde"},
+            },
+        }
+
+        def scenario(_conn):
+            with patch.object(wk_app, "api_football_get", return_value={"response": [fixture]}):
+                linking = wk_app.api_football_link_fixtures(data)
+            links = wk_app.api_football_fixture_links()
+            with wk_app.get_db() as conn:
+                team_link = wk_app.execute(
+                    conn,
+                    """
+                    SELECT local_team_id, api_team_name
+                    FROM api_football_team_links
+                    WHERE local_team_id = 'cpv'
+                    """,
+                ).fetchone()
+            return linking, links, team_link
+
+        linking, links, team_link = self.run_with_temp_db(scenario)
+
+        self.assertEqual(linking["linked"], 1)
+        self.assertEqual(links["m013"], 456)
+        self.assertEqual(team_link["api_team_name"], "Cabo Verde")
 
     def test_admin_sync_dry_run_accepts_match_id_without_provider_key(self) -> None:
         previous_token = wk_app.API_FOOTBALL_SYNC_TOKEN
@@ -1134,7 +1432,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     ('m012', 'provider:event:4', 'Goal', 'Y. Ayari', '{}'),
                     ('m012', 'provider:event:5', 'Goal', 'M. Svanberg', '{}'),
                     ('m012', 'provider:event:6', 'Goal', 'Y. Ayari', '{}')
-                """
+                """,
             )
             conn.commit()
             row = wk_app.execute(
@@ -1167,11 +1465,11 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             wk_app.tournament_session_date(evening_match),
             wk_app.tournament_session_date(overnight_match),
         )
-        self.assertEqual(
+        self.assertNotEqual(
             wk_app.tournament_session_date(evening_match),
             wk_app.tournament_session_date(four_oclock_match),
         )
-        self.assertEqual(
+        self.assertNotEqual(
             wk_app.tournament_session_date(evening_match),
             wk_app.tournament_session_date(west_coast_late_match),
         )
@@ -1221,6 +1519,56 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             [moment["match_id"] for moment in recap["moments"]],
             ["m001", "m002"],
         )
+
+    def test_matchday_summary_uses_us_timezone_playing_window(self) -> None:
+        evening_match = make_match("m001", datetime(2026, 6, 11, 16, 0, tzinfo=UTC))
+        overnight_match = make_match("m002", datetime(2026, 6, 12, 1, 30, tzinfo=UTC))
+        daytime_match = make_match("m003", datetime(2026, 6, 12, 10, 0, tzinfo=UTC))
+        next_evening_match = make_match("m004", datetime(2026, 6, 12, 16, 0, tzinfo=UTC))
+        data = {
+            "matches": [evening_match, overnight_match, daytime_match, next_evening_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        summary = self.run_with_temp_db(
+            lambda _conn: wk_app.build_matchday_summary(
+                data,
+                now=datetime(2026, 6, 11, 18, 0, tzinfo=UTC),
+            )
+        )
+
+        self.assertEqual([match["id"] for match in summary["matches"]], ["m001", "m002"])
+
+    def test_matchday_summary_stays_on_evening_session_after_midnight(self) -> None:
+        evening_match = make_match("m001", datetime(2026, 6, 11, 16, 0, tzinfo=UTC))
+        overnight_match = make_match("m002", datetime(2026, 6, 11, 23, 30, tzinfo=UTC))
+        next_evening_match = make_match("m003", datetime(2026, 6, 12, 16, 0, tzinfo=UTC))
+        data = {
+            "matches": [evening_match, overnight_match, next_evening_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        summary = self.run_with_temp_db(
+            lambda _conn: wk_app.build_matchday_summary(
+                data,
+                now=datetime(2026, 6, 11, 23, 45, tzinfo=UTC),
+            )
+        )
+
+        self.assertEqual(summary["date"], "2026-06-11")
+        self.assertEqual([match["id"] for match in summary["matches"]], ["m001", "m002"])
 
     def test_daily_recap_movers_use_target_session_only(self) -> None:
         previous_match = make_match("m000", datetime(2026, 6, 10, 19, 0, tzinfo=UTC))
@@ -1281,6 +1629,54 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(movers["Chris"], 2)
         self.assertEqual(movers["Anna"], -1)
         self.assertEqual(movers["Bram"], -1)
+        self.assertEqual([row["name"] for row in recap["top_winners"]], ["Chris"])
+        self.assertEqual([row["name"] for row in recap["top_losers"]], ["Anna", "Bram"])
+
+    def test_leaderboard_leeuwtjes_show_available_not_future_assignments(self) -> None:
+        completed_match = make_match("m001", datetime(2026, 6, 11, 18, 0, tzinfo=UTC))
+        future_match = make_match("m002", datetime(2026, 6, 12, 18, 0, tzinfo=UTC))
+        completed_match["status"] = "completed"
+        completed_match["home_score"] = 1
+        completed_match["away_score"] = 0
+        data = {
+            "matches": [completed_match, future_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Anna', 'anna@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO leeuwtje_predictions (user_id, match_id)
+                VALUES (1, 'm001'), (1, 'm002')
+                """,
+            )
+            conn.commit()
+            return wk_app.build_leaderboard(
+                data,
+                now=datetime(2026, 6, 12, 12, 0, tzinfo=UTC),
+                use_computed_points=False,
+            )[0]
+
+        row = self.run_with_temp_db(scenario)
+
+        self.assertEqual(row["leeuwtjes_used"], 1)
+        self.assertEqual(row["leeuwtjes_assigned"], 2)
+        self.assertEqual(row["leeuwtjes_available"], 4)
+        self.assertEqual(row["leeuwtjes_total"], 5)
 
     def seed_scoring_user(self, conn) -> None:
         wk_app.execute(
@@ -1642,9 +2038,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         first, second = self.run_with_temp_db(scenario)
 
         genai_first = [
-            item
-            for item in first
-            if item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED
+            item for item in first if item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED
         ]
         self.assertEqual(len(genai_first), 1)
         self.assertEqual(genai_first[0]["title"], "Quiz GenAI still needs review")
@@ -1940,6 +2334,151 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             second_notifications,
         )
 
+    def test_match_scorer_can_match_static_team_profile_squad_without_synced_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_path = Path(tmpdir) / "team-profiles.json"
+            profiles_path.write_text(
+                json.dumps(
+                    {
+                        "teams": [
+                            {
+                                "id": "rsa",
+                                "squad": [
+                                    {"name": "Evidence Makgopa", "position": "Forward"},
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def scenario(conn):
+                wk_app.execute(
+                    conn,
+                    """
+                    INSERT INTO match_events (
+                        match_id, provider_event_key, event_type, player_name, raw_json
+                    )
+                    VALUES ('m001', 'provider:event:1', 'Goal', 'E. Makgopa', '{}')
+                    """,
+                )
+                with patch.object(wk_app, "TEAM_PROFILES_PATH", profiles_path):
+                    result = wk_app.verify_player_database_matches(conn)
+                    notifications = wk_app.active_admin_sync_notifications(conn)
+                return result, notifications
+
+            result, notifications = self.run_with_temp_db(scenario)
+
+        self.assertEqual(result["invalid_goal_scorers"], 0)
+        self.assertFalse(
+            any(
+                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                for item in notifications
+            ),
+            notifications,
+        )
+
+    def test_single_token_scorer_can_match_unique_static_profile_first_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_path = Path(tmpdir) / "team-profiles.json"
+            profiles_path.write_text(
+                json.dumps(
+                    {
+                        "teams": [
+                            {
+                                "id": "par",
+                                "squad": [
+                                    {"name": "Mauricio Magalhães", "position": "Midfielder"},
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def scenario(conn):
+                wk_app.execute(
+                    conn,
+                    """
+                    INSERT INTO match_events (
+                        match_id, provider_event_key, event_type, player_name, raw_json
+                    )
+                    VALUES ('m001', 'provider:event:1', 'Goal', 'Mauricio', '{}')
+                    """,
+                )
+                with patch.object(wk_app, "TEAM_PROFILES_PATH", profiles_path):
+                    return wk_app.verify_player_database_matches(conn)
+
+            result = self.run_with_temp_db(scenario)
+
+        self.assertEqual(result["invalid_goal_scorers"], 0)
+
+    def test_scorer_can_match_static_profile_name_order_variant(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_path = Path(tmpdir) / "team-profiles.json"
+            profiles_path.write_text(
+                json.dumps(
+                    {
+                        "teams": [
+                            {
+                                "id": "kor",
+                                "squad": [
+                                    {"name": "In-beom Hwang", "position": "Midfielder"},
+                                    {"name": "Hyeon-gyu Oh", "position": "Forward"},
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def scenario(conn):
+                wk_app.execute(
+                    conn,
+                    """
+                    INSERT INTO match_events (
+                        match_id, provider_event_key, event_type, player_name, raw_json
+                    )
+                    VALUES ('m001', 'provider:event:1', 'Goal', 'Hwang In-Beom', '{}'),
+                           ('m001', 'provider:event:2', 'Goal', 'Oh Hyeon-Gyu', '{}')
+                    """,
+                )
+                with patch.object(wk_app, "TEAM_PROFILES_PATH", profiles_path):
+                    return wk_app.verify_player_database_matches(conn)
+
+            result = self.run_with_temp_db(scenario)
+
+        self.assertEqual(result["invalid_goal_scorers"], 0)
+
+    def test_own_goal_players_are_not_verified_as_goal_scorers(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, detail, player_name, raw_json
+                )
+                VALUES ('m001', 'provider:event:1', 'Goal', 'Own Goal', 'Unknown Defender', '{}')
+                """,
+            )
+            result = wk_app.verify_player_database_matches(conn)
+            notifications = wk_app.active_admin_sync_notifications(conn)
+            return result, notifications
+
+        result, notifications = self.run_with_temp_db(scenario)
+
+        self.assertEqual(result["invalid_goal_scorers"], 0)
+        self.assertFalse(
+            any(
+                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                for item in notifications
+            ),
+            notifications,
+        )
+
     def test_player_genai_runs_only_after_deterministic_matching_fails(self) -> None:
         def scenario(conn):
             wk_app.execute(
@@ -2018,6 +2557,51 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(accepted["matched_candidate"]["player_name"], "Cody Gakpo")
         self.assertFalse(rejected["accepted"])
         self.assertEqual(rejected["failure_code"], "candidate_outside_shortlist")
+
+    def test_player_genai_candidates_use_static_and_synced_player_database(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            profiles_path = Path(tmpdir) / "team-profiles.json"
+            profiles_path.write_text(
+                json.dumps(
+                    {
+                        "teams": [
+                            {
+                                "id": "rsa",
+                                "squad": [
+                                    {"name": "Evidence Makgopa", "position": "Forward"},
+                                ],
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            def scenario(conn):
+                wk_app.execute(
+                    conn,
+                    """
+                    INSERT INTO team_squad_players (
+                        local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                    )
+                    VALUES ('rsa', '202', 202, 'Ronwen Williams', '{}')
+                    """,
+                )
+                with patch.object(wk_app, "TEAM_PROFILES_PATH", profiles_path):
+                    return wk_app.build_player_genai_input(
+                        conn,
+                        target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                        target_id="m001:e-makgopa",
+                        raw_player_name="E. Makgopa",
+                        match_id="m001",
+                        local_team_id="rsa",
+                    )
+
+            job_input = self.run_with_temp_db(scenario)
+
+        candidates = {item["player_name"]: item for item in job_input["candidates"]}
+        self.assertEqual(candidates["Evidence Makgopa"]["source"], "static_profile")
+        self.assertEqual(candidates["Ronwen Williams"]["source"], "api_football")
 
     def test_player_genai_rejects_ambiguous_no_match_low_confidence_and_invalid(self) -> None:
         def scenario(conn):
@@ -2215,9 +2799,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     client.get("/api/pool").status_code,
                     client.get("/api/profiles/1/predictions").status_code,
                 ]
-            row = wk_app.execute(
-                conn, "SELECT COUNT(*) AS count FROM genai_job_results"
-            ).fetchone()
+            row = wk_app.execute(conn, "SELECT COUNT(*) AS count FROM genai_job_results").fetchone()
             return statuses, row["count"]
 
         statuses, result_count = self.run_with_temp_db(scenario)
@@ -2384,7 +2966,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     ('swe', '3', 3, 'A. Isak', '{}'),
                     ('swe', '4', 4, 'V. Gyokeres', '{}'),
                     ('swe', '5', 5, 'Y. Ayari', '{}')
-                """
+                """,
             )
             wk_app.execute(
                 conn,
@@ -2398,7 +2980,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     ('m012', 'provider:event:3', 'Goal', 'Alexander Isak', '{}'),
                     ('m012', 'provider:event:4', 'Goal', 'Viktor Gyökeres', '{}'),
                     ('m012', 'provider:event:5', 'Goal', 'Yasin Ayari', '{}')
-                """
+                """,
             )
             result = wk_app.verify_player_database_matches(conn)
             notifications = wk_app.active_admin_sync_notifications(conn)
@@ -2426,7 +3008,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES
                     ('team', '1', 1, 'A. Smith', '{}'),
                     ('team', '2', 2, 'Adam Smith', '{}')
-                """
+                """,
             )
             wk_app.execute(
                 conn,
@@ -2435,7 +3017,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     match_id, provider_event_key, event_type, player_name, raw_json
                 )
                 VALUES ('m001', 'provider:event:1', 'Goal', 'Alex Smith', '{}')
-                """
+                """,
             )
             result = wk_app.verify_player_database_matches(conn)
             notifications = wk_app.active_admin_sync_notifications(conn)

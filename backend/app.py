@@ -144,6 +144,8 @@ PREDICTION_LOCK_BEFORE_KICKOFF = timedelta(hours=1)
 # Overnight gaps are ~6-8h; the daytime gap to the next evening session is much
 # larger, so this threshold cleanly separates one matchday from the next.
 MATCHDAY_SESSION_GAP = timedelta(hours=12)
+MATCHDAY_SESSION_START_HOUR = 18
+MATCHDAY_SESSION_END_HOUR = 4
 NETHERLANDS_TEAM_ID = "ned"
 AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 LEEUWTJES_LIMIT = 5
@@ -161,7 +163,7 @@ API_FOOTBALL_BASE_URL = os.environ.get(
 API_FOOTBALL_KEY = os.environ.get("API_FOOTBALL_KEY", "")
 API_FOOTBALL_LEAGUE_ID = int(os.environ.get("API_FOOTBALL_LEAGUE_ID", "1"))
 API_FOOTBALL_SEASON = int(os.environ.get("API_FOOTBALL_SEASON", "2026"))
-API_FOOTBALL_DAILY_LIMIT = int(os.environ.get("API_FOOTBALL_DAILY_LIMIT", "90"))
+API_FOOTBALL_DAILY_LIMIT = None
 API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE = int(os.environ.get("API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE", "6"))
 API_FOOTBALL_SQUAD_REFRESH_HOURS = int(os.environ.get("API_FOOTBALL_SQUAD_REFRESH_HOURS", "24"))
 API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get("CRON_SECRET", "")
@@ -509,9 +511,7 @@ def quiz_genai_evidence_ids(job_input: dict[str, Any]) -> set[tuple[str, str]]:
     return allowed
 
 
-def validate_quiz_genai_output(
-    output: Any, job_input: dict[str, Any]
-) -> dict[str, Any]:
+def validate_quiz_genai_output(output: Any, job_input: dict[str, Any]) -> dict[str, Any]:
     def rejected(code: str, message: str) -> dict[str, Any]:
         return {
             "accepted": False,
@@ -1030,6 +1030,18 @@ def due_result_sync_attempt_kinds(
     return []
 
 
+def latest_due_result_sync_attempt_kind(match: dict[str, Any], now: datetime) -> str | None:
+    if not match.get("home_team_id") or not match.get("away_team_id"):
+        return None
+    if now >= result_sync_scheduled_for(match, SYNC_ATTEMPT_SECOND_POST_MATCH):
+        return SYNC_ATTEMPT_SECOND_POST_MATCH
+    if now >= result_sync_scheduled_for(match, SYNC_ATTEMPT_FIRST_POST_MATCH):
+        return SYNC_ATTEMPT_FIRST_POST_MATCH
+    if now >= result_sync_scheduled_for(match, SYNC_ATTEMPT_EARLY_POST_MATCH):
+        return SYNC_ATTEMPT_EARLY_POST_MATCH
+    return None
+
+
 def terminal_sync_attempt_kinds(
     conn: Any,
     *,
@@ -1429,11 +1441,7 @@ def parse_mistral_json_response(payload: dict[str, Any]) -> dict[str, Any]:
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     if isinstance(content, list):
-        content = "".join(
-            str(part.get("text", ""))
-            for part in content
-            if isinstance(part, dict)
-        )
+        content = "".join(str(part.get("text", "")) for part in content if isinstance(part, dict))
     if not isinstance(content, str) or not content.strip():
         raise GenAIProviderError("missing_content")
     try:
@@ -1526,34 +1534,102 @@ def player_counter_value(counter: Counter[str], player_name: Any) -> int:
     return max((counter[key] for key in player_counter_keys(player_name)), default=0)
 
 
-def squad_player_database(conn: Any) -> tuple[set[int], set[str], set[str]]:
+def player_name_match_keys(player_name: Any) -> set[str]:
+    normalized = normalized_player_name(player_name)
+    if not normalized:
+        return set()
+    keys = {normalized}
+    tokens = normalized.split()
+    if len(tokens) > 1:
+        keys.add(" ".join([tokens[-1], *tokens[:-1]]))
+    return keys
+
+
+def static_squad_player_rows() -> list[dict[str, Any]]:
+    if not TEAM_PROFILES_PATH.exists():
+        return []
+    try:
+        with TEAM_PROFILES_PATH.open(encoding="utf-8") as profiles_file:
+            profiles_data = json.load(profiles_file)
+    except Exception:
+        logger.exception("Could not load static squad player database")
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for team in profiles_data.get("teams", []):
+        if not isinstance(team, dict):
+            continue
+        local_team_id = clean_text(team.get("id"))
+        for player in team.get("squad") or []:
+            if not isinstance(player, dict):
+                continue
+            player_name = clean_text(player.get("name"))
+            if player_name and local_team_id:
+                rows.append(
+                    {
+                        "local_team_id": local_team_id,
+                        "provider_player_key": compact_name(player_name),
+                        "api_player_id": None,
+                        "player_name": player_name,
+                        "source": "static_profile",
+                    }
+                )
+    return rows
+
+
+def synced_squad_player_rows(conn: Any) -> list[dict[str, Any]]:
     rows = execute(
         conn,
         """
-        SELECT api_player_id, player_name
+        SELECT local_team_id, provider_player_key, api_player_id, player_name
         FROM team_squad_players
         """,
     ).fetchall()
-    api_ids = {
-        int(row["api_player_id"])
+    return [
+        {
+            "local_team_id": row["local_team_id"],
+            "provider_player_key": row["provider_player_key"],
+            "api_player_id": row["api_player_id"],
+            "player_name": row["player_name"],
+            "source": "api_football",
+        }
         for row in rows
-        if row["api_player_id"] is not None
+    ]
+
+
+def canonical_squad_player_rows(conn: Any) -> list[dict[str, Any]]:
+    rows_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in static_squad_player_rows():
+        rows_by_key[(row["local_team_id"], normalized_player_name(row["player_name"]))] = row
+    for row in synced_squad_player_rows(conn):
+        rows_by_key[(row["local_team_id"], normalized_player_name(row["player_name"]))] = row
+    return list(rows_by_key.values())
+
+
+def squad_player_database(conn: Any) -> tuple[set[int], set[str], set[str], set[str]]:
+    player_rows = canonical_squad_player_rows(conn)
+    api_ids = {int(row["api_player_id"]) for row in player_rows if row["api_player_id"] is not None}
+    player_names = {
+        clean_text(row["player_name"]) for row in player_rows if clean_text(row["player_name"])
     }
-    names = {
-        normalized_player_name(row["player_name"])
-        for row in rows
-        if normalized_player_name(row["player_name"])
-    }
+    names = {key for player_name in player_names for key in player_name_match_keys(player_name)}
     signature_counts = Counter(
         signature
-        for row in rows
-        for signature in [player_initial_surname_key(row["player_name"])]
+        for player_name in player_names
+        for signature in [player_initial_surname_key(player_name)]
         if signature
     )
-    unique_signatures = {
-        signature for signature, count in signature_counts.items() if count == 1
+    single_token_counts = Counter(
+        tokens[0]
+        for player_name in player_names
+        for tokens in [normalized_player_name(player_name).split()]
+        if len(tokens) > 1
+    )
+    unique_signatures = {signature for signature, count in signature_counts.items() if count == 1}
+    unique_single_tokens = {
+        token for token, count in single_token_counts.items() if token and count == 1
     }
-    return api_ids, names, unique_signatures
+    return api_ids, names, unique_signatures, unique_single_tokens
 
 
 def player_matches_squad_database(
@@ -1563,12 +1639,20 @@ def player_matches_squad_database(
     squad_api_ids: set[int],
     squad_names: set[str],
     squad_initial_surname_keys: set[str],
+    squad_single_token_keys: set[str] | None = None,
 ) -> bool:
     parsed_api_player_id = int_or_none(api_player_id)
     if parsed_api_player_id is not None and parsed_api_player_id in squad_api_ids:
         return True
     normalized_name = normalized_player_name(player_name)
     if normalized_name and normalized_name in squad_names:
+        return True
+    tokens = normalized_name.split()
+    if (
+        squad_single_token_keys is not None
+        and len(tokens) == 1
+        and tokens[0] in squad_single_token_keys
+    ):
         return True
     signature = player_initial_surname_key(player_name)
     return bool(signature and signature in squad_initial_surname_keys)
@@ -1581,6 +1665,7 @@ def player_genai_should_run(
     squad_api_ids: set[int],
     squad_names: set[str],
     squad_initial_surname_keys: set[str],
+    squad_single_token_keys: set[str] | None = None,
 ) -> bool:
     return not player_matches_squad_database(
         api_player_id=api_player_id,
@@ -1588,6 +1673,7 @@ def player_genai_should_run(
         squad_api_ids=squad_api_ids,
         squad_names=squad_names,
         squad_initial_surname_keys=squad_initial_surname_keys,
+        squad_single_token_keys=squad_single_token_keys,
     )
 
 
@@ -1601,22 +1687,20 @@ def player_genai_candidate_shortlist(
     local_team_id: str | None = None,
     limit: int = 12,
 ) -> list[dict[str, Any]]:
-    params: tuple[Any, ...] = ()
-    where_clause = ""
-    if clean_text(local_team_id):
-        where_clause = "WHERE local_team_id = ?"
-        params = (clean_text(local_team_id),)
-    rows = execute(
-        conn,
-        f"""
-        SELECT local_team_id, provider_player_key, api_player_id, player_name
-        FROM team_squad_players
-        {where_clause}
-        ORDER BY player_name, local_team_id, provider_player_key
-        LIMIT {int(limit)}
-        """,
-        params,
-    ).fetchall()
+    team_filter = clean_text(local_team_id)
+    rows = [
+        row
+        for row in canonical_squad_player_rows(conn)
+        if not team_filter or row["local_team_id"] == team_filter
+    ]
+    rows = sorted(
+        rows,
+        key=lambda row: (
+            normalize_identity(row["player_name"]),
+            row["local_team_id"],
+            row["provider_player_key"],
+        ),
+    )[: int(limit)]
     return [
         {
             "candidate_id": player_candidate_id(row),
@@ -1624,6 +1708,7 @@ def player_genai_candidate_shortlist(
             "player_name": row["player_name"],
             "local_team_id": row["local_team_id"],
             "provider_player_key": row["provider_player_key"],
+            "source": row["source"],
         }
         for row in rows
     ]
@@ -1649,9 +1734,7 @@ def build_player_genai_input(
     }
 
 
-def validate_player_genai_output(
-    output: Any, job_input: dict[str, Any]
-) -> dict[str, Any]:
+def validate_player_genai_output(output: Any, job_input: dict[str, Any]) -> dict[str, Any]:
     def rejected(code: str, message: str) -> dict[str, Any]:
         return {
             "accepted": False,
@@ -1900,6 +1983,8 @@ def scorer_player_rows_for_verification(conn: Any) -> list[dict[str, Any]]:
         SELECT match_id, local_team_id, api_player_id, player_name, 'event' AS source
         FROM match_events
         WHERE LOWER(event_type) = 'goal'
+          AND LOWER(COALESCE(detail, '')) NOT LIKE '%own goal%'
+          AND LOWER(COALESCE(comments, '')) NOT LIKE '%own goal%'
           AND COALESCE(TRIM(player_name), '') <> ''
         """,
     ).fetchall()
@@ -1924,7 +2009,12 @@ def scorer_player_rows_for_verification(conn: Any) -> list[dict[str, Any]]:
 
 
 def verify_player_database_matches(conn: Any) -> dict[str, int]:
-    squad_api_ids, squad_names, squad_initial_surname_keys = squad_player_database(conn)
+    (
+        squad_api_ids,
+        squad_names,
+        squad_initial_surname_keys,
+        squad_single_token_keys,
+    ) = squad_player_database(conn)
     invalid_targets: set[tuple[str, str, str]] = set()
     invalid_strikers = 0
     invalid_scorers = 0
@@ -1950,6 +2040,7 @@ def verify_player_database_matches(conn: Any) -> dict[str, int]:
                 squad_api_ids=squad_api_ids,
                 squad_names=squad_names,
                 squad_initial_surname_keys=squad_initial_surname_keys,
+                squad_single_token_keys=squad_single_token_keys,
             ):
                 continue
             target_id = notification_target_id(row["user_id"], player_name)
@@ -1984,6 +2075,7 @@ def verify_player_database_matches(conn: Any) -> dict[str, int]:
             squad_api_ids=squad_api_ids,
             squad_names=squad_names,
             squad_initial_surname_keys=squad_initial_surname_keys,
+            squad_single_token_keys=squad_single_token_keys,
         ):
             continue
         target_id = notification_target_id(row.get("match_id"), row.get("player_name"))
@@ -3906,6 +3998,7 @@ API_FOOTBALL_TEAM_ALIASES = {
     "bosnia herz egovina": "bih",
     "bosnia and herzegovina": "bih",
     "bosnia herzegovina": "bih",
+    "cabo verde": "cpv",
     "cape verde": "cpv",
     "congo dr": "cod",
     "curacao": "cuw",
@@ -4006,10 +4099,6 @@ def record_api_football_request(
 def api_football_get(endpoint: str, params: dict[str, Any]) -> dict[str, Any]:
     if not API_FOOTBALL_KEY:
         raise RuntimeError("API_FOOTBALL_KEY is not configured.")
-    if api_football_request_count_today() >= API_FOOTBALL_DAILY_LIMIT:
-        raise RuntimeError(
-            f"API-Football daily request limit reached ({API_FOOTBALL_DAILY_LIMIT})."
-        )
 
     query = urlencode({key: value for key, value in params.items() if value is not None})
     url = f"{API_FOOTBALL_BASE_URL}/{endpoint.lstrip('/')}"
@@ -4052,6 +4141,8 @@ def api_football_status() -> dict[str, Any]:
         ).fetchone()
         player_row = execute(conn, "SELECT COUNT(*) AS count FROM team_squad_players").fetchone()
         coach_row = execute(conn, "SELECT COUNT(*) AS count FROM team_coaches").fetchone()
+        canonical_player_count = len(canonical_squad_player_rows(conn))
+        static_player_count = len(static_squad_player_rows())
         latest_request = execute(
             conn,
             """
@@ -4074,6 +4165,8 @@ def api_football_status() -> dict[str, Any]:
         "synced_results": int(result_row["count"] if result_row else 0),
         "synced_squads": int(squad_row["count"] if squad_row else 0),
         "squad_players": int(player_row["count"] if player_row else 0),
+        "static_squad_players": static_player_count,
+        "canonical_squad_players": canonical_player_count,
         "coaches": int(coach_row["count"] if coach_row else 0),
         "latest_request": dict(latest_request) if latest_request else None,
     }
@@ -4393,6 +4486,21 @@ def api_football_fixture_links() -> dict[str, int]:
 
 # Provider-agnostic sync orchestration boundary. Functions in this section work
 # with app match/team IDs, sync attempts, current facts, and admin notifications.
+def match_summary(match: dict[str, Any], data: dict[str, Any]) -> dict[str, Any]:
+    teams_by_id = {team["id"]: team for team in data.get("teams", [])}
+    home_team = teams_by_id.get(match.get("home_team_id"), {})
+    away_team = teams_by_id.get(match.get("away_team_id"), {})
+    return {
+        "match_id": match.get("id"),
+        "match_number": match.get("match_number"),
+        "home_team_id": match.get("home_team_id"),
+        "away_team_id": match.get("away_team_id"),
+        "home_team_name": home_team.get("name") or match.get("home_team_id"),
+        "away_team_name": away_team.get("name") or match.get("away_team_id"),
+        "kickoff_utc": iso_utc(match_kickoff(match)),
+    }
+
+
 def synced_result_rows() -> dict[str, Any]:
     with get_db() as conn:
         rows = execute(
@@ -4467,6 +4575,7 @@ def due_api_football_match_attempts(
     data: dict[str, Any],
     force: bool = False,
     dry_run: bool = False,
+    daily_sweep: bool = False,
     limit: int = API_FOOTBALL_MAX_BATCH_SIZE,
     match_id: str | None = None,
     now: datetime | None = None,
@@ -4523,6 +4632,25 @@ def due_api_football_match_attempts(
         if force and match_id:
             attempt_kind = SYNC_ATTEMPT_MANUAL
             scheduled_for = current
+        elif daily_sweep:
+            terminal_attempt_kinds = terminal_by_match.get(match["id"], set())
+            has_result = match["id"] in results_by_match
+            latest_due_kind = latest_due_result_sync_attempt_kind(match, current)
+            if latest_due_kind is None:
+                continue
+            if (
+                not has_result
+                and SYNC_ATTEMPT_EARLY_POST_MATCH in terminal_attempt_kinds
+                and SYNC_ATTEMPT_FIRST_POST_MATCH in terminal_attempt_kinds
+                and SYNC_ATTEMPT_SECOND_POST_MATCH in terminal_attempt_kinds
+            ):
+                attempt_kind = SYNC_ATTEMPT_MISSING_DATA_RETRY
+                scheduled_for = current
+            elif latest_due_kind in terminal_attempt_kinds:
+                continue
+            else:
+                attempt_kind = latest_due_kind
+                scheduled_for = result_sync_scheduled_for(match, attempt_kind)
         else:
             terminal_attempt_kinds = terminal_by_match.get(match["id"], set())
             due_kinds = due_result_sync_attempt_kinds(
@@ -4905,6 +5033,7 @@ def run_api_football_completed_sync(
     data: dict[str, Any],
     force: bool = False,
     dry_run: bool = False,
+    daily_sweep: bool = False,
     limit: int = API_FOOTBALL_MAX_BATCH_SIZE,
     match_id: str | None = None,
 ) -> dict[str, Any]:
@@ -4913,6 +5042,7 @@ def run_api_football_completed_sync(
         data,
         force=force,
         dry_run=dry_run,
+        daily_sweep=daily_sweep,
         limit=limit,
         match_id=match_id,
     )
@@ -4937,9 +5067,11 @@ def run_api_football_completed_sync(
             "target_type": SYNC_TARGET_MATCH_RESULT,
             "target_id": item["match_id"],
             "match_id": item["match_id"],
+            "match": match_summary(item["match"], data),
             "attempt_kind": item["attempt_kind"],
             "scheduled_for": iso_utc(item["scheduled_for"]),
             "reason": "missing_api_football_fixture_link",
+            "message": "No API-Football fixture link exists for this match.",
         }
         for item in candidates
         if item["match_id"] not in links
@@ -5319,6 +5451,14 @@ def due_api_football_teams(
     return due
 
 
+def api_football_squad_team_limit(
+    *,
+    requested_limit: int,
+    include_coaches: bool,
+) -> int:
+    return max(1, min(48, int(requested_limit)))
+
+
 def coach_name(coach: dict[str, Any]) -> str:
     name = clean_text(coach.get("name"))
     if name:
@@ -5443,11 +5583,15 @@ def run_api_football_squad_sync(
     force: bool = False,
     dry_run: bool = False,
     limit: int = API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE,
+    include_coaches: bool = True,
 ) -> dict[str, Any]:
     if not API_FOOTBALL_KEY:
         return {"ok": False, "error": "API_FOOTBALL_KEY is not configured."}
 
-    limit = max(1, min(48, int(limit)))
+    limit = api_football_squad_team_limit(
+        requested_limit=max(1, int(limit)),
+        include_coaches=include_coaches,
+    )
     links = api_football_team_links()
     linking = None
     if len(links) < len(data.get("teams", [])):
@@ -5460,7 +5604,13 @@ def run_api_football_squad_sync(
         linking = next_linking
         links = api_football_team_links()
 
-    candidates = due_api_football_teams(data, force=force, limit=limit)
+    limit = api_football_squad_team_limit(
+        requested_limit=max(1, int(limit)),
+        include_coaches=include_coaches,
+    )
+    candidates = due_api_football_teams(data, force=force, limit=max(1, limit))
+    if limit == 0:
+        candidates = []
     skipped = [
         {"team_id": team["id"], "reason": "missing_api_football_team_link"}
         for team in data.get("teams", [])
@@ -5480,6 +5630,9 @@ def run_api_football_squad_sync(
             ],
             "skipped": skipped,
             "linking": linking,
+            "include_coaches": include_coaches,
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
         }
 
     synced = []
@@ -5489,11 +5642,12 @@ def run_api_football_squad_sync(
             local_team_id = item["team"]["id"]
             api_team_id = int(item["link"]["api_team_id"])
             squad_payload = api_football_get("players/squads", {"team": api_team_id})
-            try:
-                coach_payload = api_football_get("coachs", {"team": api_team_id})
-            except Exception as error:
-                logger.warning("Could not sync coach for %s: %s", local_team_id, error)
-                coach_payload = None
+            coach_payload = None
+            if include_coaches:
+                try:
+                    coach_payload = api_football_get("coachs", {"team": api_team_id})
+                except Exception as error:
+                    logger.warning("Could not sync coach for %s: %s", local_team_id, error)
             synced.append(
                 store_api_football_team_profile_snapshot(
                     conn, local_team_id, api_team_id, squad_payload, coach_payload
@@ -5507,6 +5661,7 @@ def run_api_football_squad_sync(
         "synced": synced,
         "skipped": skipped,
         "linking": linking,
+        "include_coaches": include_coaches,
         "player_database_verification": player_verification,
         "requests_today": api_football_request_count_today(),
         "daily_limit": API_FOOTBALL_DAILY_LIMIT,
@@ -5519,16 +5674,21 @@ def local_match_date(match: dict[str, Any]) -> Any:
 
 def tournament_session_date(match: dict[str, Any]) -> Any:
     local_kickoff = match_kickoff(match).astimezone(AMSTERDAM_TZ)
-    if local_kickoff.hour < 12:
+    if local_kickoff.hour < MATCHDAY_SESSION_END_HOUR:
         return local_kickoff.date() - timedelta(days=1)
     return local_kickoff.date()
 
 
 def current_tournament_session_date(current: datetime) -> Any:
     local_current = current.astimezone(AMSTERDAM_TZ)
-    if local_current.hour < 12:
+    if local_current.hour < MATCHDAY_SESSION_END_HOUR:
         return local_current.date() - timedelta(days=1)
     return local_current.date()
+
+
+def is_matchday_window_match(match: dict[str, Any]) -> bool:
+    local_hour = match_kickoff(match).astimezone(AMSTERDAM_TZ).hour
+    return local_hour >= MATCHDAY_SESSION_START_HOUR or local_hour < MATCHDAY_SESSION_END_HOUR
 
 
 def score_rule_for_match(match: dict[str, Any]) -> dict[str, Any]:
@@ -6457,6 +6617,7 @@ def build_leaderboard(
 
     goal_counts, striker_goal_points = goal_counts_and_points_by_player(data)
     leaderboard = []
+    current = now or utc_now()
     for user in users:
         points = 0
         match_score_points = 0
@@ -6471,6 +6632,11 @@ def build_leaderboard(
         }
         user_quiz_predictions = quiz_by_user.get(user["id"], {})
         user_leeuwtjes = leeuwtjes_by_user.get(user["id"], set())
+        user_consumed_leeuwtjes = {
+            match_id
+            for match_id in user_leeuwtjes
+            if matches.get(match_id) is not None and match_kickoff(matches[match_id]) <= current
+        }
         user_prediction_ids = {prediction["match_id"] for prediction in user_predictions}
         group_stage_predictions = sum(
             1 for match_id in user_prediction_ids if match_id in group_stage_ids
@@ -6616,7 +6782,10 @@ def build_leaderboard(
                 "match_score_points": match_score_points,
                 "group_position_points": group_position_points,
                 "group_positions_correct": correct_group_positions,
-                "leeuwtjes_used": len(user_leeuwtjes),
+                "leeuwtjes_used": len(user_consumed_leeuwtjes),
+                "leeuwtjes_assigned": len(user_leeuwtjes),
+                "leeuwtjes_available": max(0, LEEUWTJES_LIMIT - len(user_consumed_leeuwtjes)),
+                "leeuwtjes_total": LEEUWTJES_LIMIT,
                 "leeuwtje_points": leeuwtje_points,
                 "predictions_count": len(user_predictions),
                 "group_stage_predictions": group_stage_predictions,
@@ -6975,35 +7144,29 @@ def build_matchday_summary(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     current = now or utc_now()
-    today = current.astimezone(AMSTERDAM_TZ).date()
-    matches_with_dates = [(local_match_date(match), match) for match in data["matches"]]
+    current_session = current_tournament_session_date(current)
+    matches_with_dates = [
+        (tournament_session_date(match), match)
+        for match in data["matches"]
+        if is_matchday_window_match(match)
+    ]
     match_dates = sorted({match_date for match_date, _ in matches_with_dates})
-    target_date = today if today in match_dates else None
+    target_date = current_session if current_session in match_dates else None
     if target_date is None:
-        target_date = next((match_date for match_date in match_dates if match_date > today), None)
+        target_date = next(
+            (match_date for match_date in match_dates if match_date > current_session), None
+        )
     if target_date is None and match_dates:
         target_date = match_dates[-1]
 
     if target_date is None:
         return {"available": False, "matches": []}
 
-    # Build the matchday as a "playing session": start from the target date's
-    # matches, then keep absorbing later matches while the gap to the previous
-    # kickoff stays under MATCHDAY_SESSION_GAP. This rolls overnight matches that
-    # fall on the next calendar day (Dutch time) into the same matchday, while the
-    # large daytime gap stops the session before the next evening's matches.
     ordered = sorted(matches_with_dates, key=lambda item: match_kickoff(item[1]))
     target_matches = []
-    previous_kickoff: datetime | None = None
     for match_date, match in ordered:
-        if match_date < target_date:
+        if match_date != target_date:
             continue
-        kickoff = match_kickoff(match)
-        if match_date > target_date and (
-            previous_kickoff is None or kickoff - previous_kickoff >= MATCHDAY_SESSION_GAP
-        ):
-            break
-        previous_kickoff = kickoff
         if match.get("home_team_id") and match.get("away_team_id"):
             target_matches.append(match)
     target_ids = {match["id"] for match in target_matches}
@@ -7068,7 +7231,7 @@ def build_matchday_summary(
     return {
         "available": True,
         "date": target_date.isoformat(),
-        "is_today": target_date == today,
+        "is_today": target_date == current_session,
         "matches": matches,
     }
 
@@ -7087,11 +7250,7 @@ def top_daily_scores_with_ties(
         )
         if points > 0
     ]
-    if len(sorted_scores) > limit:
-        cutoff_points = sorted_scores[limit - 1][1]
-        sorted_scores = [
-            (user_id, points) for user_id, points in sorted_scores if points >= cutoff_points
-        ]
+    sorted_scores = sorted_scores[:limit]
 
     ranked_scores = []
     previous_points = None
@@ -7237,21 +7396,51 @@ def daily_movers_with_ties(
             }
         )
 
-    sorted_movers = sorted(
-        movers,
-        key=lambda row: (
-            -abs(int(row["rank_movement"])),
-            -int(row["rank_movement"]),
-            int(row["rank"]),
-            normalize_identity(row["name"]),
-        ),
-    )
-    if len(sorted_movers) > limit:
-        cutoff_movement = abs(int(sorted_movers[limit - 1]["rank_movement"]))
-        sorted_movers = [
-            row for row in sorted_movers if abs(int(row["rank_movement"])) >= cutoff_movement
-        ]
-    return sorted_movers
+    return sorted_rank_changes(movers, mode="absolute", limit=limit)
+
+
+def sorted_rank_changes(
+    movers: list[dict[str, Any]],
+    *,
+    mode: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    if mode == "up":
+        filtered = [row for row in movers if int(row["rank_movement"]) > 0]
+
+        def up_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
+            return (
+                -int(row["rank_movement"]),
+                int(row["rank"]),
+                normalize_identity(row["name"]),
+            )
+
+        sorted_rows = sorted(filtered, key=up_sort_key)
+    elif mode == "down":
+        filtered = [row for row in movers if int(row["rank_movement"]) < 0]
+
+        def down_sort_key(row: dict[str, Any]) -> tuple[int, int, str]:
+            return (
+                int(row["rank_movement"]),
+                int(row["rank"]),
+                normalize_identity(row["name"]),
+            )
+
+        sorted_rows = sorted(filtered, key=down_sort_key)
+    else:
+        filtered = movers
+
+        def absolute_sort_key(row: dict[str, Any]) -> tuple[int, int, int, str]:
+            return (
+                -abs(int(row["rank_movement"])),
+                -int(row["rank_movement"]),
+                int(row["rank"]),
+                normalize_identity(row["name"]),
+            )
+
+        sorted_rows = sorted(filtered, key=absolute_sort_key)
+
+    return sorted_rows[:limit]
 
 
 def build_daily_recap(
@@ -7277,6 +7466,8 @@ def build_daily_recap(
             "moments": [],
             "top_players": [],
             "top_movers": [],
+            "top_winners": [],
+            "top_losers": [],
         }
 
     target_date = max(tournament_session_date(match) for match in completed_matches)
@@ -7337,7 +7528,7 @@ def build_daily_recap(
     if daily_points:
         top_user_id, top_points = daily_points.most_common(1)[0]
     top_players = top_daily_scores_with_ties(daily_points, user_names, user_pictures)
-    top_movers = daily_movers_with_ties(
+    rank_changes = daily_movers_with_ties(
         data,
         list(users),
         by_user,
@@ -7346,7 +7537,11 @@ def build_daily_recap(
         viewership_winners,
         target_date,
         user_pictures,
+        limit=len(users),
     )
+    top_movers = sorted_rank_changes(rank_changes, mode="absolute", limit=5)
+    top_winners = sorted_rank_changes(rank_changes, mode="up", limit=3)
+    top_losers = sorted_rank_changes(rank_changes, mode="down", limit=3)
 
     moments = []
     for match in sorted(target_matches, key=match_kickoff):
@@ -7373,6 +7568,8 @@ def build_daily_recap(
         ),
         "top_players": top_players,
         "top_movers": top_movers,
+        "top_winners": top_winners,
+        "top_losers": top_losers,
     }
 
 
@@ -7837,9 +8034,7 @@ def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
     results = {row["match_id"]: row for row in result_rows}
     quizzes = {row["match_id"]: row for row in quiz_rows}
     auto_quizzes = {row["match_id"]: row for row in quiz_auto_rows}
-    player_links = {
-        (row["target_type"], row["target_id"]): row for row in player_link_rows
-    }
+    player_links = {(row["target_type"], row["target_id"]): row for row in player_link_rows}
     events_by_match: dict[str, list[dict[str, Any]]] = {}
     for row in event_rows:
         event = dict(row)
@@ -8998,6 +9193,29 @@ def api_football_admin_sync():
     return jsonify(result), status_code
 
 
+def run_missing_result_sync_batch(data: dict[str, Any], dry_run: bool = False) -> dict[str, Any]:
+    match_ids = missing_result_match_ids(data)
+    results = [
+        run_api_football_completed_sync(
+            data,
+            force=True,
+            dry_run=dry_run,
+            limit=1,
+            match_id=match_id,
+        )
+        for match_id in match_ids
+    ]
+    return {
+        "ok": all(item.get("ok") for item in results),
+        "dry_run": dry_run,
+        "match_ids": match_ids,
+        "results": results,
+        "synced": [synced_item for item in results for synced_item in item.get("synced", [])],
+        "attempts": [attempt_item for item in results for attempt_item in item.get("attempts", [])],
+        "skipped": [skipped_item for item in results for skipped_item in item.get("skipped", [])],
+    }
+
+
 @app.post("/api/admin/api-football/missing-results/sync")
 def api_football_admin_missing_results_sync():
     _admin, error_response = require_admin_user()
@@ -9006,42 +9224,68 @@ def api_football_admin_missing_results_sync():
     payload = request.get_json(silent=True) or {}
     dry_run = bool(payload.get("dry_run", False))
     data = load_world_cup_data()
-    match_ids = missing_result_match_ids(data)
+    match_ids: list[str] = []
     try:
-        results = [
-            run_api_football_completed_sync(
-                data,
-                force=True,
-                dry_run=dry_run,
-                limit=1,
-                match_id=match_id,
-            )
-            for match_id in match_ids
-        ]
+        result = run_missing_result_sync_batch(data, dry_run=dry_run)
+        match_ids = result["match_ids"]
         if not dry_run:
             recompute_all_computed_points(load_world_cup_data())
-        result = {
-            "ok": all(item.get("ok") for item in results),
-            "dry_run": dry_run,
-            "match_ids": match_ids,
-            "results": results,
-            "synced": [synced_item for item in results for synced_item in item.get("synced", [])],
-            "attempts": [
-                attempt_item for item in results for attempt_item in item.get("attempts", [])
-            ],
-            "skipped": [
-                skipped_item for item in results for skipped_item in item.get("skipped", [])
-            ],
-            "computed_points_updated": not dry_run,
-            "requests_today": api_football_request_count_today(),
-            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
-        }
+        result["computed_points_updated"] = not dry_run
+        result["requests_today"] = api_football_request_count_today()
+        result["daily_limit"] = API_FOOTBALL_DAILY_LIMIT
     except Exception as error:
         logger.exception("API-Football missing-result sync failed")
         result = {
             "ok": False,
             "error": str(error),
             "match_ids": match_ids,
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+    status_code = 200 if result.get("ok") else 503
+    return jsonify(result), status_code
+
+
+@app.post("/api/admin/api-football/data-sync")
+def api_football_admin_data_sync():
+    _admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    payload = request.get_json(silent=True) or {}
+    dry_run = bool(payload.get("dry_run", False))
+    data = load_world_cup_data()
+    try:
+        result_sync = run_missing_result_sync_batch(data, dry_run=dry_run)
+        squad_sync = run_api_football_squad_sync(
+            data,
+            force=True,
+            dry_run=dry_run,
+            limit=48,
+            include_coaches=False,
+        )
+        if not dry_run:
+            recompute_all_computed_points(load_world_cup_data())
+        result = {
+            "ok": bool(result_sync.get("ok")) and bool(squad_sync.get("ok")),
+            "dry_run": dry_run,
+            "result_sync": result_sync,
+            "squad_sync": squad_sync,
+            "match_ids": result_sync.get("match_ids", []),
+            "synced": result_sync.get("synced", []),
+            "attempts": result_sync.get("attempts", []),
+            "skipped": result_sync.get("skipped", []),
+            "squad_synced": squad_sync.get("synced", []),
+            "squad_skipped": squad_sync.get("skipped", []),
+            "player_database_verification": squad_sync.get("player_database_verification"),
+            "computed_points_updated": not dry_run,
+            "requests_today": api_football_request_count_today(),
+            "daily_limit": API_FOOTBALL_DAILY_LIMIT,
+        }
+    except Exception as error:
+        logger.exception("API-Football admin data sync failed")
+        result = {
+            "ok": False,
+            "error": str(error),
             "requests_today": api_football_request_count_today(),
             "daily_limit": API_FOOTBALL_DAILY_LIMIT,
         }
@@ -9062,6 +9306,7 @@ def api_football_admin_squad_sync():
             force=bool(payload.get("force", False)),
             dry_run=bool(payload.get("dry_run", False)),
             limit=int(payload.get("limit", API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE)),
+            include_coaches=bool(payload.get("include_coaches", True)),
         )
     except Exception as error:
         logger.exception("API-Football squad sync failed")
@@ -9104,7 +9349,7 @@ def api_football_cron_sync():
         return token_error
     data = load_world_cup_data()
     try:
-        result = run_api_football_completed_sync(data)
+        result = run_api_football_completed_sync(data, daily_sweep=True)
     except Exception as error:
         logger.exception("API-Football cron sync failed")
         result = {
@@ -9124,7 +9369,12 @@ def api_football_squad_cron_sync():
         return token_error
     data = load_world_cup_data()
     try:
-        result = run_api_football_squad_sync(data)
+        result = run_api_football_squad_sync(
+            data,
+            force=True,
+            limit=48,
+            include_coaches=False,
+        )
     except Exception as error:
         logger.exception("API-Football squad cron sync failed")
         result = {

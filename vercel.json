@@ -5,6 +5,7 @@
   "outputDirectory": "frontend/dist",
   "functions": {
     "api/index.py": {
+      "maxDuration": 300,
       "includeFiles": "backend/*.json",
       "excludeFiles": "{frontend/**,node_modules/**,backend/__pycache__/**,**/*.pyc}"
     }
@@ -12,11 +13,11 @@
   "crons": [
     {
       "path": "/api/cron/api-football-sync",
-      "schedule": "0 8 * * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/api-football-squad-sync",
-      "schedule": "30 8 * * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/cron/newsletters-refresh",
