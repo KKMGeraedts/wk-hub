@@ -4269,6 +4269,25 @@ def apply_synced_match_results(data: dict[str, Any]) -> None:
 
 
 def apply_synced_team_profiles(data: dict[str, Any]) -> None:
+    def player_merge_key(player: Any) -> str:
+        if not isinstance(player, dict):
+            return ""
+        normalized = unicodedata.normalize("NFKD", str(player.get("name") or ""))
+        without_marks = "".join(char for char in normalized if not unicodedata.combining(char))
+        return re.sub(r"[^a-z0-9]", "", without_marks.casefold())
+
+    def merged_squad(synced_players: list[dict[str, Any]], fallback_players: Any) -> list[Any]:
+        merged: list[Any] = list(synced_players)
+        seen = {key for key in (player_merge_key(player) for player in merged) if key}
+        if isinstance(fallback_players, list):
+            for player in fallback_players:
+                key = player_merge_key(player)
+                if not key or key in seen:
+                    continue
+                merged.append(player)
+                seen.add(key)
+        return merged
+
     try:
         with get_db() as conn:
             player_rows = execute(
@@ -4341,7 +4360,7 @@ def apply_synced_team_profiles(data: dict[str, Any]) -> None:
 
         profile = dict(team.get("profile") or team.get("team_profile") or {})
         if players:
-            profile["squad"] = players
+            profile["squad"] = merged_squad(players, profile.get("squad"))
         if coaches:
             profile["head_coach"] = coaches[0]
             profile["coaching_staff"] = coaches
@@ -5737,21 +5756,21 @@ def local_match_date(match: dict[str, Any]) -> Any:
 
 def tournament_session_date(match: dict[str, Any]) -> Any:
     local_kickoff = match_kickoff(match).astimezone(AMSTERDAM_TZ)
-    if local_kickoff.hour < MATCHDAY_SESSION_END_HOUR:
+    if local_kickoff.hour <= MATCHDAY_SESSION_END_HOUR:
         return local_kickoff.date() - timedelta(days=1)
     return local_kickoff.date()
 
 
 def current_tournament_session_date(current: datetime) -> Any:
     local_current = current.astimezone(AMSTERDAM_TZ)
-    if local_current.hour < MATCHDAY_SESSION_END_HOUR:
+    if local_current.hour <= MATCHDAY_SESSION_END_HOUR:
         return local_current.date() - timedelta(days=1)
     return local_current.date()
 
 
 def is_matchday_window_match(match: dict[str, Any]) -> bool:
     local_hour = match_kickoff(match).astimezone(AMSTERDAM_TZ).hour
-    return local_hour >= MATCHDAY_SESSION_START_HOUR or local_hour < MATCHDAY_SESSION_END_HOUR
+    return local_hour >= MATCHDAY_SESSION_START_HOUR or local_hour <= MATCHDAY_SESSION_END_HOUR
 
 
 def score_rule_for_match(match: dict[str, Any]) -> dict[str, Any]:
@@ -7649,6 +7668,14 @@ def daily_movers_with_ties(
     return sorted_rank_changes(movers, mode="absolute", limit=limit)
 
 
+def leaderboard_rank_changes(
+    leaderboard: list[dict[str, Any]],
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    movers = [row for row in leaderboard if abs(int(row.get("rank_movement") or 0)) > 0]
+    return sorted_rank_changes(movers, mode="absolute", limit=limit)
+
+
 def sorted_rank_changes(
     movers: list[dict[str, Any]],
     *,
@@ -7778,17 +7805,20 @@ def build_daily_recap(
     if daily_points:
         top_user_id, top_points = daily_points.most_common(1)[0]
     top_players = top_daily_scores_with_ties(daily_points, user_names, user_pictures)
-    rank_changes = daily_movers_with_ties(
-        data,
-        list(users),
-        by_user,
-        quiz_by_user,
-        leeuwtjes_by_user,
-        viewership_winners,
-        target_date,
-        user_pictures,
-        limit=len(users),
-    )
+    if leaderboard:
+        rank_changes = leaderboard_rank_changes(leaderboard, limit=len(leaderboard))
+    else:
+        rank_changes = daily_movers_with_ties(
+            data,
+            list(users),
+            by_user,
+            quiz_by_user,
+            leeuwtjes_by_user,
+            viewership_winners,
+            target_date,
+            user_pictures,
+            limit=len(users),
+        )
     top_movers = sorted_rank_changes(rank_changes, mode="absolute", limit=5)
     top_winners = sorted_rank_changes(rank_changes, mode="up", limit=3)
     top_losers = sorted_rank_changes(rank_changes, mode="down", limit=3)

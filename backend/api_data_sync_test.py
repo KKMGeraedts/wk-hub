@@ -1688,7 +1688,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             wk_app.tournament_session_date(evening_match),
             wk_app.tournament_session_date(overnight_match),
         )
-        self.assertNotEqual(
+        self.assertEqual(
             wk_app.tournament_session_date(evening_match),
             wk_app.tournament_session_date(four_oclock_match),
         )
@@ -2041,6 +2041,72 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(movers["Bram"], -1)
         self.assertEqual([row["name"] for row in recap["top_winners"]], ["Chris"])
         self.assertEqual([row["name"] for row in recap["top_losers"]], ["Anna", "Bram"])
+
+    def test_daily_recap_movers_match_supplied_leaderboard_movements(self) -> None:
+        target_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
+        target_match["status"] = "completed"
+        target_match["home_score"] = 1
+        target_match["away_score"] = 0
+        data = {
+            "matches": [target_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+        leaderboard = [
+            {
+                "user_id": 1,
+                "name": "Karel",
+                "rank": 4,
+                "rank_previous": 9,
+                "rank_movement": 5,
+            },
+            {
+                "user_id": 2,
+                "name": "Olivier",
+                "rank": 2,
+                "rank_previous": 1,
+                "rank_movement": -1,
+            },
+        ]
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES
+                    (1, 'Karel', 'karel@example.com', 'x', 0),
+                    (2, 'Olivier', 'olivier@example.com', 'x', 0)
+                """,
+            )
+            conn.commit()
+            return wk_app.build_daily_recap(
+                data,
+                now=datetime(2026, 6, 12, 4, 30, tzinfo=UTC),
+                leaderboard=leaderboard,
+            )
+
+        recap = self.run_with_temp_db(scenario)
+
+        self.assertEqual(
+            [
+                (row["name"], row["rank_previous"], row["rank"], row["rank_movement"])
+                for row in recap["top_winners"]
+            ],
+            [("Karel", 9, 4, 5)],
+        )
+        self.assertEqual(
+            [
+                (row["name"], row["rank_previous"], row["rank"], row["rank_movement"])
+                for row in recap["top_losers"]
+            ],
+            [("Olivier", 1, 2, -1)],
+        )
 
     def test_leaderboard_leeuwtjes_show_available_not_future_assignments(self) -> None:
         completed_match = make_match("m001", datetime(2026, 6, 11, 18, 0, tzinfo=UTC))

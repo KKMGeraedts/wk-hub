@@ -625,6 +625,9 @@ function topScorerOptions(data) {
 
 function normalizedPlayerPickName(value) {
   return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/gi, "")
     .trim()
     .toLocaleLowerCase();
 }
@@ -4671,23 +4674,24 @@ function MatchdayPredictionModal({
   );
 }
 
-function MatchdayPage({ pool, teams, venues, onPoolUpdate, onMatch }) {
+function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
   const summary = pool.matchday;
   const [activeMatch, setActiveMatch] = useState(null);
 
   function statusMessage(match) {
-    if (match.has_my_prediction) return "Je voorspelling is ingevuld.";
-    if (match.locked)
-      return "Je voorspelling mist, maar deze wedstrijd is gesloten.";
+    if (match.locked && match.has_my_prediction) {
+      return "Je voorspelling is gesloten. Klik om je voorspelling te bekijken.";
+    }
+    if (match.locked) {
+      return "Deze wedstrijd is gesloten. Klik om je voorspelling te bekijken.";
+    }
+    if (match.has_my_prediction) {
+      return "Je voorspelling is ingevuld. Klik om hem te wijzigen.";
+    }
     return "Je voorspelling mist nog. Klik op deze wedstrijd om hem in te vullen.";
   }
 
   function openMatch(match) {
-    if (match.locked) {
-      onMatch?.(match.id ?? match.match_id);
-      return;
-    }
-    if (match.has_my_prediction) return;
     setActiveMatch({ ...match, id: match.id ?? match.match_id });
   }
 
@@ -4712,15 +4716,13 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate, onMatch }) {
           {summary?.matches?.map((rawMatch) => {
             const match = { ...rawMatch, id: rawMatch.id ?? rawMatch.match_id };
             const venue = venues.get(match.venue_id);
-            const canOpen = match.locked || !match.has_my_prediction;
             const matchStatusMessage = statusMessage(match);
             return (
               <button
-                className={`matchday-card ${match.has_my_prediction ? "is-predicted" : "is-missing"} ${canOpen ? "is-clickable" : ""}`}
+                className={`matchday-card ${match.has_my_prediction ? "is-predicted" : "is-missing"} is-clickable`}
                 key={match.match_id}
                 type="button"
                 onClick={() => openMatch(match)}
-                aria-disabled={!canOpen}
               >
                 <span
                   className={
@@ -7535,7 +7537,6 @@ function App() {
               teams={maps.teams}
               venues={maps.venues}
               onPoolUpdate={updatePoolOnly}
-              onMatch={navigateToMatchdayMatch}
             />
           </section>
         )}
