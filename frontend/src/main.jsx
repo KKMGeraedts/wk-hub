@@ -1525,6 +1525,7 @@ function MatchCard({
   onClosePoints,
   locked,
   onPrediction,
+  onMatch,
 }) {
   const venue = venues.get(match.venue_id);
   const venueLabel =
@@ -1614,6 +1615,11 @@ function MatchCard({
         )}
         <span className="pill">{group}</span>
         <span className="broadcast-pill">{broadcaster.name}</span>
+        {locked && (
+          <button className="match-link" type="button" onClick={onMatch}>
+            Analyse
+          </button>
+        )}
         <a
           className="match-link"
           href={broadcaster.url}
@@ -1627,7 +1633,7 @@ function MatchCard({
   );
 }
 
-function Schedule({ matches, teams, venues, pool, onPoolUpdate }) {
+function Schedule({ matches, teams, venues, pool, onPoolUpdate, onMatch }) {
   const [activeMatch, setActiveMatch] = useState(null);
   const [openPointsId, setOpenPointsId] = useState(null);
   const popoverScope = useMemo(() => `schedule-${Math.random().toString(36).slice(2)}`, []);
@@ -1685,6 +1691,7 @@ function Schedule({ matches, teams, venues, pool, onPoolUpdate }) {
         onClosePoints={() => setOpenPointsId(null)}
         locked={locked}
         onPrediction={() => setActiveMatch({ ...match, locked })}
+        onMatch={() => onMatch?.(match.id)}
       />
     );
   };
@@ -4764,7 +4771,14 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate, onMatch }) {
   );
 }
 
-function MatchdayPredictionRow({ prediction, match, teams }) {
+function MatchdayPredictionRow({
+  prediction,
+  match,
+  teams,
+  pointsOpen,
+  onTogglePoints,
+  onClosePoints,
+}) {
   return (
     <li className="matchday-prediction-row">
       <div className="matchday-prediction-user">
@@ -4783,6 +4797,15 @@ function MatchdayPredictionRow({ prediction, match, teams }) {
         {prediction.home_score} - {prediction.away_score}{" "}
         <TeamLabel id={match.away_team_id} teams={teams} />
       </strong>
+      {prediction.points && (
+        <PointsPopoverAnchor
+          label={`${prediction.points.total_points ?? 0} pts`}
+          points={prediction.points}
+          open={pointsOpen}
+          onToggle={onTogglePoints}
+          onClose={onClosePoints}
+        />
+      )}
       {prediction.leeuwtje && (
         <b className="leeuwtje-mini" title="Leeuwtje ingezet">
           L
@@ -4796,6 +4819,21 @@ function MatchdayMatchPage({ matchId, teams, venues, onBack }) {
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [openPointsId, setOpenPointsId] = useState(null);
+  const popoverScope = useMemo(
+    () => `match-analysis-${Math.random().toString(36).slice(2)}`,
+    [],
+  );
+
+  useEffect(() => {
+    function closeOtherPopover(event) {
+      if (event.detail?.scope !== popoverScope) setOpenPointsId(null);
+    }
+    window.addEventListener(POINTS_POPOVER_EVENT, closeOtherPopover);
+    return () => {
+      window.removeEventListener(POINTS_POPOVER_EVENT, closeOtherPopover);
+    };
+  }, [popoverScope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4897,6 +4935,22 @@ function MatchdayMatchPage({ matchId, teams, venues, onBack }) {
                   prediction={prediction}
                   match={match}
                   teams={teams}
+                  pointsOpen={openPointsId === prediction.user_id}
+                  onTogglePoints={() => {
+                    setOpenPointsId((current) => {
+                      const next =
+                        current === prediction.user_id ? null : prediction.user_id;
+                      if (next) {
+                        window.dispatchEvent(
+                          new CustomEvent(POINTS_POPOVER_EVENT, {
+                            detail: { scope: popoverScope },
+                          }),
+                        );
+                      }
+                      return next;
+                    });
+                  }}
+                  onClosePoints={() => setOpenPointsId(null)}
                   key={prediction.user_id}
                 />
               ))}
@@ -7619,6 +7673,7 @@ function App() {
               venues={maps.venues}
               pool={pool}
               onPoolUpdate={updatePoolOnly}
+              onMatch={navigateToMatchdayMatch}
             />
           </section>
         )}

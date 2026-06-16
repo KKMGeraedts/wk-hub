@@ -7363,17 +7363,46 @@ def matchday_match_detail(
             "SELECT user_id FROM leeuwtje_predictions WHERE match_id = ?",
             (match_id,),
         ).fetchall()
+        top_scorer_rows = execute(
+            conn,
+            """
+            SELECT user_id, player_name, player_name_2, player_name_3,
+                   striker_name_1, striker_name_2, striker_name_3,
+                   striker_name_4, striker_name_5
+            FROM top_scorer_predictions
+            """,
+        ).fetchall()
 
     users_by_id = {row["id"]: row for row in users}
     quiz_by_user = {row["user_id"]: row["answer"] for row in quiz_rows}
     leeuwtje_user_ids = {row["user_id"] for row in leeuwtje_rows}
     outcomes = Counter(outcome_bucket(prediction) for prediction in predictions)
+    predictions_by_user = {
+        row["user_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
+        for row in predictions
+    }
+    quiz_by_user_points = {
+        row["user_id"]: {"answer": row["answer"] or "", "viewership_prediction": None}
+        for row in quiz_rows
+    }
+    striker_picks_by_user = {row["user_id"]: striker_pick_names(row) for row in top_scorer_rows}
 
     rows = []
     for prediction in predictions:
         user = users_by_id.get(prediction["user_id"])
         if user is None:
             continue
+        points_by_match = user_match_points_by_match(
+            data,
+            {match_id: predictions_by_user[user["id"]]},
+            (
+                {match_id: quiz_by_user_points[user["id"]]}
+                if user["id"] in quiz_by_user_points
+                else {}
+            ),
+            [match_id] if user["id"] in leeuwtje_user_ids else [],
+            striker_picks_by_user.get(user["id"], []),
+        )
         rows.append(
             {
                 "user_id": user["id"],
@@ -7385,6 +7414,7 @@ def matchday_match_detail(
                 "outcome": outcome_bucket(prediction),
                 "leeuwtje": user["id"] in leeuwtje_user_ids,
                 "quiz_answer": quiz_by_user.get(user["id"]),
+                "points": points_by_match.get(match_id),
             }
         )
 

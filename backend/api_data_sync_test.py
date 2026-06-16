@@ -1898,6 +1898,88 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             ["ja", "nee"],
         )
 
+    def test_matchday_match_detail_includes_points_after_result_sync(self) -> None:
+        match = make_match("m001", datetime(2026, 6, 11, 20, 0, tzinfo=UTC))
+        match["status"] = "completed"
+        match["home_score"] = 1
+        match["away_score"] = 0
+        match["quiz"] = {
+            "question": "Scoort Nederland?",
+            "type": "yes_no",
+            "choices": ["ja", "nee"],
+            "correct_answers": ["ja"],
+        }
+        data = {
+            "matches": [match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Anna', 'anna@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES (1, 'm001', 1, 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO quiz_predictions (user_id, match_id, answer)
+                VALUES (1, 'm001', 'ja')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                "INSERT INTO leeuwtje_predictions (user_id, match_id) VALUES (1, 'm001')",
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO top_scorer_predictions (
+                    user_id, player_name, striker_name_1
+                ) VALUES (1, 'Other Player', 'Cody Gakpo')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, player_name, event_type, raw_json
+                ) VALUES ('m001', 'goal-1', 'Cody Gakpo', 'Goal', '{}')
+                """,
+            )
+            conn.commit()
+            return wk_app.matchday_match_detail(
+                data,
+                "m001",
+                now=datetime(2026, 6, 11, 21, 30, tzinfo=UTC),
+            )
+
+        detail, error = self.run_with_temp_db(scenario)
+
+        self.assertIsNone(error)
+        points = detail["predictions"][0]["points"]
+        self.assertEqual(points["score_points"], 12)
+        self.assertEqual(points["leeuwtje_points"], 12)
+        self.assertEqual(points["quiz_points"], 3)
+        self.assertEqual(points["striker_points"], 6)
+        self.assertEqual(points["total_points"], 33)
+        self.assertEqual(points["striker_scorers"][0]["name"], "Cody Gakpo")
+
     def test_daily_recap_movers_use_target_session_only(self) -> None:
         previous_match = make_match("m000", datetime(2026, 6, 10, 19, 0, tzinfo=UTC))
         target_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))

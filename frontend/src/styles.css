@@ -1519,7 +1519,7 @@ tr.highlight td {
 
 .matchday-prediction-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(170px, auto) auto;
+    grid-template-columns: minmax(0, 1fr) minmax(170px, auto) auto auto;
     gap: 12px;
     align-items: center;
     min-height: 58px;
@@ -1567,6 +1567,10 @@ tr.highlight td {
     font-size: 16px;
     font-weight: 950;
     white-space: nowrap;
+}
+
+.matchday-prediction-row .points-popover-anchor {
+    justify-self: end;
 }
 
 .leeuwtje-mini {
@@ -3643,6 +3647,8 @@ tr.highlight td {
     border-radius: 999px;
     background: #ffffff;
     color: var(--blue);
+    cursor: pointer;
+    font: inherit;
     font-size: 12px;
     font-weight: 900;
     text-decoration: none;
@@ -5381,6 +5387,9 @@ tr.highlight td {
     }
     .matchday-prediction-score {
         grid-column: 1 / -1;
+        justify-self: start;
+    }
+    .matchday-prediction-row .points-popover-anchor {
         justify-self: start;
     }
     .team-profile-grid,
