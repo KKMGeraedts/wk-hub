@@ -1202,6 +1202,42 @@ tr.highlight td {
     gap: 12px;
 }
 
+.matchday-session-date {
+    display: inline-block;
+    margin-left: 8px;
+    color: var(--orange-dark);
+    font-weight: 900;
+}
+
+.matchday-session-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+}
+
+.matchday-arrow {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #ffffff;
+    color: var(--orange-dark);
+    font-size: 24px;
+    font-weight: 950;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.matchday-arrow:disabled {
+    cursor: not-allowed;
+    color: var(--muted);
+    opacity: 0.45;
+}
+
 .matchday-card {
     position: relative;
     display: grid;
@@ -1237,6 +1273,12 @@ tr.highlight td {
     display: grid;
     gap: 8px;
     min-width: 0;
+}
+
+.matchday-result-line {
+    color: var(--orange-dark);
+    font-size: 12px;
+    font-weight: 950;
 }
 
 .matchday-status {
@@ -1401,6 +1443,11 @@ tr.highlight td {
     color: var(--muted);
     font-size: 12px;
     font-weight: 900;
+}
+
+.matchday-stats .matchday-points-chip {
+    background: rgba(47, 127, 114, 0.14);
+    color: var(--green);
 }
 
 .matchday-detail-layout {

@@ -7264,16 +7264,14 @@ def build_matchday_summary(
         target_date = match_dates[-1]
 
     if target_date is None:
-        return {"available": False, "matches": []}
+        return {"available": False, "matches": [], "sessions": []}
 
-    ordered = sorted(matches_with_dates, key=lambda item: match_kickoff(item[1]))
-    target_matches = []
-    for match_date, match in ordered:
-        if match_date != target_date:
-            continue
-        if match.get("home_team_id") and match.get("away_team_id"):
-            target_matches.append(match)
-    target_ids = {match["id"] for match in target_matches}
+    ordered = [
+        (match_date, match)
+        for match_date, match in sorted(matches_with_dates, key=lambda item: match_kickoff(item[1]))
+        if match.get("home_team_id") and match.get("away_team_id")
+    ]
+    visible_match_ids = {match["id"] for _match_date, match in ordered}
 
     with get_db() as conn:
         predictions = execute(
@@ -7282,61 +7280,155 @@ def build_matchday_summary(
         ).fetchall()
         quiz_predictions = execute(
             conn,
-            "SELECT user_id, match_id FROM quiz_predictions WHERE COALESCE(answer, '') != ''",
+            """
+            SELECT user_id, match_id, answer, viewership_prediction
+            FROM quiz_predictions
+            WHERE COALESCE(answer, '') != ''
+            """,
         ).fetchall()
         leeuwtjes = execute(conn, "SELECT user_id, match_id FROM leeuwtje_predictions").fetchall()
         my_predictions = (
             execute(
                 conn,
-                "SELECT match_id FROM match_predictions WHERE user_id = ?",
+                "SELECT match_id, home_score, away_score FROM match_predictions WHERE user_id = ?",
                 (user_id,),
             ).fetchall()
             if user_id is not None
             else []
         )
+        my_quiz_predictions = (
+            execute(
+                conn,
+                """
+                SELECT match_id, answer, viewership_prediction
+                FROM quiz_predictions
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchall()
+            if user_id is not None
+            else []
+        )
+        my_leeuwtjes = (
+            execute(
+                conn, "SELECT match_id FROM leeuwtje_predictions WHERE user_id = ?", (user_id,)
+            ).fetchall()
+            if user_id is not None
+            else []
+        )
+        my_top_scorer_row = (
+            execute(
+                conn,
+                """
+                SELECT player_name, player_name_2, player_name_3,
+                       striker_name_1, striker_name_2, striker_name_3,
+                       striker_name_4, striker_name_5
+                FROM top_scorer_predictions
+                WHERE user_id = ?
+                """,
+                (user_id,),
+            ).fetchone()
+            if user_id is not None
+            else None
+        )
 
     predictions_by_match: dict[str, list[Any]] = {}
     for prediction in predictions:
-        if prediction["match_id"] in target_ids:
+        if prediction["match_id"] in visible_match_ids:
             predictions_by_match.setdefault(prediction["match_id"], []).append(prediction)
     quiz_counts = Counter(
-        row["match_id"] for row in quiz_predictions if row["match_id"] in target_ids
+        row["match_id"] for row in quiz_predictions if row["match_id"] in visible_match_ids
     )
-    leeuwtje_counts = Counter(row["match_id"] for row in leeuwtjes if row["match_id"] in target_ids)
-    my_prediction_ids = {row["match_id"] for row in my_predictions if row["match_id"] in target_ids}
+    leeuwtje_counts = Counter(
+        row["match_id"] for row in leeuwtjes if row["match_id"] in visible_match_ids
+    )
+    my_prediction_ids = {
+        row["match_id"] for row in my_predictions if row["match_id"] in visible_match_ids
+    }
+    my_match_points = user_match_points_by_match(
+        data,
+        {row["match_id"]: row for row in my_predictions},
+        {row["match_id"]: row for row in my_quiz_predictions},
+        [row["match_id"] for row in my_leeuwtjes],
+        striker_pick_names(my_top_scorer_row),
+    )
 
-    matches = []
-    for match in sorted(target_matches, key=match_kickoff):
-        match_predictions = predictions_by_match.get(match["id"], [])
-        outcomes = Counter(outcome_bucket(prediction) for prediction in match_predictions)
-        matches.append(
+    def session_matches(session_date: Any) -> list[dict[str, Any]]:
+        matches = []
+        for match_date, match in ordered:
+            if match_date != session_date:
+                continue
+            match_predictions = predictions_by_match.get(match["id"], [])
+            outcomes = Counter(outcome_bucket(prediction) for prediction in match_predictions)
+            points = my_match_points.get(match["id"])
+            matches.append(
+                {
+                    "match_id": match["id"],
+                    "id": match["id"],
+                    "date": match["date"],
+                    "time_utc": match["time_utc"],
+                    "home_team_id": match["home_team_id"],
+                    "away_team_id": match["away_team_id"],
+                    "home_score": match.get("home_score"),
+                    "away_score": match.get("away_score"),
+                    "round": match["round"],
+                    "group": match.get("group"),
+                    "venue_id": match.get("venue_id"),
+                    "quiz": match.get("quiz"),
+                    "locked": is_prediction_locked(match, current),
+                    "completed": match_result(match) is not None,
+                    "has_my_prediction": match["id"] in my_prediction_ids,
+                    "my_points": points,
+                    "prediction_count": len(match_predictions),
+                    "home_win_count": outcomes["home"],
+                    "draw_count": outcomes["draw"],
+                    "away_win_count": outcomes["away"],
+                    "quiz_answer_count": quiz_counts[match["id"]],
+                    "leeuwtjes_count": leeuwtje_counts[match["id"]],
+                }
+            )
+        return matches
+
+    sessions = []
+    for match_date in match_dates:
+        matches = session_matches(match_date)
+        if not matches:
+            continue
+        completed_count = sum(1 for match in matches if match["completed"])
+        sessions.append(
             {
-                "match_id": match["id"],
-                "id": match["id"],
-                "date": match["date"],
-                "time_utc": match["time_utc"],
-                "home_team_id": match["home_team_id"],
-                "away_team_id": match["away_team_id"],
-                "round": match["round"],
-                "group": match.get("group"),
-                "venue_id": match.get("venue_id"),
-                "quiz": match.get("quiz"),
-                "locked": is_prediction_locked(match, current),
-                "has_my_prediction": match["id"] in my_prediction_ids,
-                "prediction_count": len(match_predictions),
-                "home_win_count": outcomes["home"],
-                "draw_count": outcomes["draw"],
-                "away_win_count": outcomes["away"],
-                "quiz_answer_count": quiz_counts[match["id"]],
-                "leeuwtjes_count": leeuwtje_counts[match["id"]],
+                "date": match_date.isoformat(),
+                "is_today": match_date == current_session,
+                "is_historic": match_date < current_session,
+                "is_future": completed_count == 0 and match_date > current_session,
+                "completed_count": completed_count,
+                "matches": matches,
             }
         )
 
+    if not sessions:
+        return {"available": False, "matches": [], "sessions": []}
+
+    current_index = next(
+        (
+            index
+            for index, session in enumerate(sessions)
+            if session["date"] == target_date.isoformat()
+        ),
+        0,
+    )
+    selected_session = sessions[current_index]
+
     return {
         "available": True,
-        "date": target_date.isoformat(),
-        "is_today": target_date == current_session,
-        "matches": matches,
+        "date": selected_session["date"],
+        "is_today": selected_session["is_today"],
+        "is_historic": selected_session["is_historic"],
+        "is_future": selected_session["is_future"],
+        "completed_count": selected_session["completed_count"],
+        "current_session_index": current_index,
+        "sessions": sessions,
+        "matches": selected_session["matches"],
     }
 
 

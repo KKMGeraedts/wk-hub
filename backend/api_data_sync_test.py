@@ -1839,6 +1839,59 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(summary["date"], "2026-06-11")
         self.assertEqual([match["id"] for match in summary["matches"]], ["m001", "m002"])
 
+    def test_matchday_summary_exposes_sessions_and_completed_points(self) -> None:
+        completed_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
+        future_match = make_match("m002", datetime(2026, 6, 12, 19, 0, tzinfo=UTC))
+        completed_match["status"] = "completed"
+        completed_match["home_score"] = 2
+        completed_match["away_score"] = 1
+        future_match["status"] = "scheduled"
+        data = {
+            "matches": [completed_match, future_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Karel', 'karel@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES (1, 'm001', 2, 1)
+                """,
+            )
+            conn.commit()
+            return wk_app.build_matchday_summary(
+                data,
+                user_id=1,
+                now=datetime(2026, 6, 12, 12, 0, tzinfo=UTC),
+            )
+
+        summary = self.run_with_temp_db(scenario)
+
+        self.assertEqual(
+            [session["date"] for session in summary["sessions"]], ["2026-06-11", "2026-06-12"]
+        )
+        self.assertEqual(summary["date"], "2026-06-12")
+        historic_match = summary["sessions"][0]["matches"][0]
+        self.assertTrue(summary["sessions"][0]["is_historic"])
+        self.assertTrue(historic_match["completed"])
+        self.assertEqual(historic_match["home_score"], 2)
+        self.assertEqual(historic_match["away_score"], 1)
+        self.assertEqual(historic_match["my_points"]["total_points"], 12)
+
     def test_matchday_match_detail_requires_locked_predictions(self) -> None:
         match = make_match("m001", datetime(2026, 6, 11, 20, 0, tzinfo=UTC))
         match["status"] = "scheduled"

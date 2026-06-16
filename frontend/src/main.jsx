@@ -98,6 +98,18 @@ function formatDate(match, short = false) {
   }).format(escapeDate(match));
 }
 
+function formatSessionDate(date) {
+  const [year, month, day] = String(date ?? "")
+    .split("-")
+    .map((part) => Number(part));
+  if (!year || !month || !day) return "";
+  return new Intl.DateTimeFormat("nl-NL", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(new Date(Date.UTC(year, month - 1, day, 12)));
+}
+
 function formatTime(match) {
   return new Intl.DateTimeFormat("nl-NL", {
     timeZone: AMSTERDAM_TZ,
@@ -4674,25 +4686,60 @@ function MatchdayPredictionModal({
   );
 }
 
-function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
+function MatchdayPage({ pool, teams, venues, onMatch }) {
   const summary = pool.matchday;
-  const [activeMatch, setActiveMatch] = useState(null);
+  const sessions = summary?.sessions?.length
+    ? summary.sessions
+    : summary?.matches
+      ? [summary]
+      : [];
+  const defaultSessionIndex = Math.min(
+    Math.max(0, summary?.current_session_index ?? 0),
+    Math.max(0, sessions.length - 1),
+  );
+  const [selectedSessionIndex, setSelectedSessionIndex] =
+    useState(defaultSessionIndex);
+  const selectedSession =
+    sessions[Math.min(selectedSessionIndex, Math.max(0, sessions.length - 1))] ??
+    null;
+  const visibleMatches = selectedSession?.matches ?? [];
+  const sessionDateLabel = formatSessionDate(selectedSession?.date);
+  const canMovePrevious = selectedSessionIndex > 0;
+  const canMoveNext = selectedSessionIndex < sessions.length - 1;
+
+  useEffect(() => {
+    setSelectedSessionIndex((current) =>
+      Math.min(current, Math.max(0, sessions.length - 1)),
+    );
+  }, [sessions.length]);
+
+  function sessionTitle() {
+    if (selectedSession?.is_historic) return "Historische wedstrijddag";
+    if (selectedSession?.is_today) return "Wedstrijddag";
+    return "Volgende wedstrijddag";
+  }
 
   function statusMessage(match) {
     if (match.locked && match.has_my_prediction) {
-      return "Je voorspelling is gesloten. Klik om je voorspelling te bekijken.";
+      return "Je voorspelling is gesloten. Klik om de wedstrijdpagina te bekijken.";
     }
     if (match.locked) {
-      return "Deze wedstrijd is gesloten. Klik om je voorspelling te bekijken.";
+      return "Deze wedstrijd is gesloten. Klik om de wedstrijdpagina te bekijken.";
     }
     if (match.has_my_prediction) {
-      return "Je voorspelling is ingevuld. Klik om hem te wijzigen.";
+      return "Je voorspelling is ingevuld. Klik om de wedstrijdpagina te bekijken.";
     }
-    return "Je voorspelling mist nog. Klik op deze wedstrijd om hem in te vullen.";
+    return "Klik om de wedstrijdpagina te bekijken.";
   }
 
   function openMatch(match) {
-    setActiveMatch({ ...match, id: match.id ?? match.match_id });
+    onMatch?.(match.id ?? match.match_id);
+  }
+
+  function moveSession(direction) {
+    setSelectedSessionIndex((current) =>
+      Math.min(Math.max(0, current + direction), Math.max(0, sessions.length - 1)),
+    );
   }
 
   return (
@@ -4700,23 +4747,51 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
       <article className="panel">
         <div className="panel-header">
           <div>
-            <h3>
-              {summary?.is_today ? "Wedstrijddag" : "Volgende wedstrijddag"}
-            </h3>
+            <h3>{sessionTitle()}</h3>
             <p>
               Wedstrijden, voorspellingen, quizreacties en ingezette Leeuwtjes.
+              {sessionDateLabel && (
+                <>
+                  {" "}
+                  <span className="matchday-session-date">{sessionDateLabel}</span>
+                </>
+              )}
             </p>
           </div>
-          <span className="pill">{summary?.matches?.length ?? 0} matches</span>
+          <div className="matchday-session-controls">
+            <button
+              className="matchday-arrow"
+              type="button"
+              onClick={() => moveSession(-1)}
+              disabled={!canMovePrevious}
+              aria-label="Vorige wedstrijddag"
+            >
+              ‹
+            </button>
+            <span className="pill">
+              {sessions.length ? selectedSessionIndex + 1 : 0}/{sessions.length}
+            </span>
+            <button
+              className="matchday-arrow"
+              type="button"
+              onClick={() => moveSession(1)}
+              disabled={!canMoveNext}
+              aria-label="Volgende wedstrijddag"
+            >
+              ›
+            </button>
+            <span className="pill">{visibleMatches.length} matches</span>
+          </div>
         </div>
         <div className="panel-body matchday-body">
-          {!summary?.matches?.length && (
+          {!visibleMatches.length && (
             <div className="empty compact">Geen wedstrijden gevonden.</div>
           )}
-          {summary?.matches?.map((rawMatch) => {
+          {visibleMatches.map((rawMatch) => {
             const match = { ...rawMatch, id: rawMatch.id ?? rawMatch.match_id };
             const venue = venues.get(match.venue_id);
             const matchStatusMessage = statusMessage(match);
+            const totalPoints = match.my_points?.total_points ?? 0;
             return (
               <button
                 className={`matchday-card ${match.has_my_prediction ? "is-predicted" : "is-missing"} is-clickable`}
@@ -4747,10 +4822,20 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
                     {formatDate(match, true)} ·{" "}
                     {venue?.city ?? "Venue to confirm"}
                   </span>
+                  {match.completed && (
+                    <span className="matchday-result-line">
+                      Uitslag: {match.home_score ?? "-"} - {match.away_score ?? "-"}
+                    </span>
+                  )}
                 </span>
                 <span className="matchday-side">
                   <OutcomeBreakdown match={match} teams={teams} />
                   <span className="matchday-stats">
+                    {match.completed && (
+                      <span className="matchday-points-chip">
+                        Jij: {totalPoints} pts
+                      </span>
+                    )}
                     <span>{match.prediction_count} voorspellingen</span>
                     <span>{match.quiz_answer_count} quiz</span>
                     <span>{match.leeuwtjes_count} Leeuwtjes</span>
@@ -4761,14 +4846,6 @@ function MatchdayPage({ pool, teams, venues, onPoolUpdate }) {
           })}
         </div>
       </article>
-
-      <MatchdayPredictionModal
-        match={activeMatch}
-        teams={teams}
-        pool={pool}
-        onClose={() => setActiveMatch(null)}
-        onPoolUpdate={onPoolUpdate}
-      />
     </div>
   );
 }
@@ -7536,7 +7613,7 @@ function App() {
               pool={pool}
               teams={maps.teams}
               venues={maps.venues}
-              onPoolUpdate={updatePoolOnly}
+              onMatch={navigateToMatchdayMatch}
             />
           </section>
         )}
