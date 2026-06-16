@@ -596,6 +596,52 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         )
         recompute.assert_called_once()
 
+    def test_database_recompute_points_endpoint_uses_sync_token(self) -> None:
+        previous_token = wk_app.API_FOOTBALL_SYNC_TOKEN
+        wk_app.API_FOOTBALL_SYNC_TOKEN = "test-token"
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
+                """,
+            )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with (
+                patch.object(
+                    wk_app,
+                    "load_world_cup_data",
+                    return_value={"matches": [], "teams": [], "groups": [], "venues": []},
+                ) as load_data,
+                patch.object(
+                    wk_app,
+                    "recompute_all_computed_points",
+                    return_value={"invalid_goal_scorers": 0},
+                ) as recompute,
+            ):
+                forbidden = client.post("/api/admin/database/recompute-points")
+                response = client.post(
+                    "/api/admin/database/recompute-points",
+                    headers={"Authorization": "Bearer test-token"},
+                )
+            return forbidden, response, load_data, recompute
+
+        try:
+            forbidden, response, load_data, recompute = self.run_with_temp_db(scenario)
+        finally:
+            wk_app.API_FOOTBALL_SYNC_TOKEN = previous_token
+
+        payload = response.get_json()
+        self.assertEqual(forbidden.status_code, 403)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["computed_points_updated"])
+        self.assertEqual(payload["leaderboard_computed_point_rows"], 0)
+        load_data.assert_called_once()
+        recompute.assert_called_once_with({"matches": [], "teams": [], "groups": [], "venues": []})
+
     def test_players_only_squad_sync_populates_all_due_player_rows(self) -> None:
         data = {
             "teams": [
@@ -2275,6 +2321,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     scope_id="current",
                     category=category,
                     points=points,
+                    facts_revision_key=f"{wk_app.SCORING_REVISION}:test",
                 )
             conn.commit()
             with patch.object(wk_app, "load_world_cup_data", return_value=data):
@@ -2290,6 +2337,39 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(status_code, 200)
         self.assertEqual(leaderboard[0]["points"], 23)
         self.assertEqual(payload["leaderboard_entry"]["points"], 23)
+
+    def test_leaderboard_ignores_stale_stored_computed_points(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            for category, points in {
+                "match_score_points": 999,
+                "group_position_points": 0,
+                "quiz_points": 0,
+                "winner_points": 0,
+                "top_scorer_points": 0,
+                "striker_points": 0,
+                "leeuwtje_points": 0,
+            }.items():
+                wk_app.upsert_computed_point(
+                    conn,
+                    user_id=1,
+                    scope_type="leaderboard",
+                    scope_id="current",
+                    category=category,
+                    points=points,
+                    facts_revision_key="old-scoring-code:stale",
+                )
+            conn.commit()
+            live = wk_app.build_leaderboard(data, use_computed_points=False)[0]
+            stored = wk_app.build_leaderboard(data, use_computed_points=True)[0]
+            return live, stored
+
+        live, stored = self.run_with_temp_db(scenario)
+
+        self.assertEqual(stored["points"], live["points"])
+        self.assertNotEqual(stored["points"], 999)
 
     def test_missing_fixture_link_creates_admin_sync_notification(self) -> None:
         data = self.scoring_data(done=False)

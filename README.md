@@ -75,9 +75,21 @@ Use the protected database endpoints with the same `WK_HUB_SYNC_TOKEN` or `CRON_
 curl -H "Authorization: Bearer $WK_HUB_SYNC_TOKEN" http://localhost:8000/api/admin/database/status
 curl -H "Authorization: Bearer $WK_HUB_SYNC_TOKEN" \
   -o wk-hub-backup.json http://localhost:8000/api/admin/database/backup
+curl -X POST -H "Authorization: Bearer $WK_HUB_SYNC_TOKEN" \
+  http://localhost:8000/api/admin/database/recompute-points
 ```
 
 The backup response includes deterministic table dumps, row counts, the schema version, and SHA-256 hashes for the static World Cup and quiz data files so a run can be reproduced from the same database and fixture data.
+
+To inspect production data locally, export a production backup and import it into the local SQLite database:
+
+```bash
+curl -H "Authorization: Bearer $WK_HUB_SYNC_TOKEN" \
+  -o /tmp/wk-hub-prod-backup.json https://your-vercel-domain.vercel.app/api/admin/database/backup
+python3 scripts/import_database_backup.py /tmp/wk-hub-prod-backup.json
+```
+
+The import script replaces the local SQLite tables listed in the backup. It refuses to run when `DATABASE_URL` or `POSTGRES_URL` is set so a production Postgres database is not overwritten by accident.
 
 API-Football fixture and squad syncs also keep append-only raw snapshot history tables. The normalized result, event, player-stat, squad, and coach tables are current-state projections; the raw history tables preserve every provider payload received so a later parser change can be replayed without losing source data.
 

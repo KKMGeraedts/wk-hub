@@ -50,6 +50,7 @@ QUIZ_PATH = ROOT / "backend" / "quiz-2026.json"
 TEAM_PROFILES_PATH = ROOT / "backend" / "team-profiles-2026.json"
 DB_PATH = Path(os.environ.get("WK_HUB_SQLITE_PATH", ROOT / "backend" / "pool.db"))
 DB_SCHEMA_VERSION = 7
+SCORING_REVISION = "2026-06-16-leaderboard-recap"
 PROFILE_IMAGE_MAX_BYTES = 750 * 1024
 PROFILE_IMAGE_DATA_URL_PATTERN = re.compile(
     r"^data:image/(png|jpeg|jpg|webp|gif);base64,([A-Za-z0-9+/=\s]+)$"
@@ -2242,7 +2243,9 @@ def computed_leaderboard_points_by_user(conn: Any) -> dict[int, dict[str, int]]:
         SELECT user_id, category, points
         FROM computed_points
         WHERE scope_type = 'leaderboard' AND scope_id = 'current'
+          AND facts_revision_key LIKE ?
         """,
+        (f"{SCORING_REVISION}:%",),
     ).fetchall()
     by_user: dict[int, dict[str, int]] = {}
     for row in rows:
@@ -2298,7 +2301,7 @@ def recompute_all_computed_points(data: dict[str, Any]) -> dict[str, int]:
                     category=category,
                     points=points,
                     details={"source": "recompute_all_computed_points"},
-                    facts_revision_key=iso_utc(utc_now()),
+                    facts_revision_key=f"{SCORING_REVISION}:{iso_utc(utc_now())}",
                 )
     return player_verification
 
@@ -9636,6 +9639,36 @@ def database_admin_backup():
         f'attachment; filename="wk-hub-backup-{filename_time}.json"'
     )
     return response
+
+
+@app.post("/api/admin/database/recompute-points")
+def database_admin_recompute_points():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    try:
+        player_verification = recompute_all_computed_points(load_world_cup_data())
+        with get_db() as conn:
+            row = execute(
+                conn,
+                """
+                SELECT COUNT(*) AS count
+                FROM computed_points
+                WHERE scope_type = 'leaderboard'
+                  AND scope_id = 'current'
+                """,
+            ).fetchone()
+        return jsonify(
+            {
+                "ok": True,
+                "computed_points_updated": True,
+                "leaderboard_computed_point_rows": int(row["count"] if row else 0),
+                "player_database_verification": player_verification,
+            }
+        )
+    except Exception as error:
+        logger.exception("Database point recompute failed")
+        return jsonify({"ok": False, "error": str(error)}), 503
 
 
 @app.get("/api/cron/api-football-sync")
