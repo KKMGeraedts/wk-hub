@@ -24,6 +24,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from flask import Flask, abort, g, jsonify, request, send_from_directory, session
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from werkzeug.security import check_password_hash, generate_password_hash
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -368,6 +369,88 @@ def parse_text_list_json(value: Any) -> list[str]:
     return [item for item in (clean_text(value) for value in parsed) if item]
 
 
+class QuizGenAIInputModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1)
+    choices: list[str] = Field(min_length=1)
+    match_data: dict[str, Any]
+
+    @field_validator("question")
+    @classmethod
+    def quiz_question_must_have_text(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("question must not be blank")
+        return cleaned
+
+    @field_validator("choices")
+    @classmethod
+    def quiz_choices_must_have_text(cls, value: list[str]) -> list[str]:
+        choices = [str(choice).strip() for choice in value if str(choice).strip()]
+        if not choices:
+            raise ValueError("choices must contain at least one option")
+        return choices
+
+
+class QuizGenAIOutputModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    choice: str
+    confidence: float = Field(ge=0, le=1)
+    reason: str = ""
+
+    @field_validator("choice", "reason")
+    @classmethod
+    def text_fields_are_stripped(cls, value: str) -> str:
+        return value.strip()
+
+
+QUIZ_GENAI_CONFIDENCE_THRESHOLD = 0.7
+
+
+def quiz_genai_input_model_from_job_input(job_input: dict[str, Any]) -> QuizGenAIInputModel:
+    payload = {
+        "question": job_input.get("question"),
+        "choices": job_input.get("choices") or job_input.get("answer_options"),
+        "match_data": job_input.get("match_data") or job_input.get("facts") or {},
+    }
+    return QuizGenAIInputModel.model_validate(payload)
+
+
+def quiz_genai_prompt_messages(job_input: dict[str, Any]) -> list[dict[str, str]]:
+    quiz_input = quiz_genai_input_model_from_job_input(job_input)
+    payload = quiz_input.model_dump()
+    return [
+        {
+            "role": "system",
+            "content": (
+                "You answer football quiz questions using only the supplied JSON. "
+                "Return JSON only with exactly these keys: choice, confidence, reason. "
+                "choice must be one of choices, or an empty string when impossible. "
+                "confidence must be a number from 0 to 1. Use confidence 0 when the "
+                "facts do not contain enough information. Do not infer missing stats as no."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Examples:\n"
+                'Input question: "Zijn er meer dan 4 gele kaarten?", choices ["ja","nee"], '
+                "match_data has no yellow-card facts.\n"
+                'Output: {"choice":"","confidence":0,'
+                '"reason":"No yellow-card facts are supplied."}\n\n'
+                'Input question: "Scoort Lamine Yamal in deze wedstrijd?", choices ["ja","nee"], '
+                "match_data has completed player_stats for Lamine Yamal with goals 0.\n"
+                'Output: {"choice":"nee","confidence":0.9,'
+                '"reason":"The supplied player stats show 0 goals."}\n\n'
+                "Now answer this input:\n"
+                f"{json.dumps(payload, ensure_ascii=False, sort_keys=True)}"
+            ),
+        },
+    ]
+
+
 def quiz_answer_options(quiz: dict[str, Any]) -> list[str]:
     choices = quiz.get("choices")
     if isinstance(choices, list):
@@ -484,12 +567,23 @@ def build_quiz_genai_input(conn: Any, match: dict[str, Any]) -> dict[str, Any]:
     quiz = match.get("quiz") if isinstance(match, dict) else None
     if not isinstance(quiz, dict):
         quiz = {}
+    facts = quiz_genai_fact_payload(conn, clean_text(match.get("id")))
+    choices = quiz_answer_options(quiz)
+    validated_input = QuizGenAIInputModel.model_validate(
+        {
+            "question": clean_text(quiz.get("question")),
+            "choices": choices,
+            "match_data": facts,
+        }
+    )
     return {
         "job_type": GENAI_JOB_QUIZ_ANSWER,
         "match_id": match.get("id"),
-        "question": clean_text(quiz.get("question")),
-        "answer_options": quiz_answer_options(quiz),
-        "facts": quiz_genai_fact_payload(conn, clean_text(match.get("id"))),
+        "question": validated_input.question,
+        "choices": validated_input.choices,
+        "match_data": validated_input.match_data,
+        "answer_options": validated_input.choices,
+        "facts": validated_input.match_data,
     }
 
 
@@ -513,6 +607,18 @@ def quiz_genai_evidence_ids(job_input: dict[str, Any]) -> set[tuple[str, str]]:
     return allowed
 
 
+def quiz_genai_has_supplied_facts(job_input: dict[str, Any]) -> bool:
+    facts = job_input.get("match_data") or job_input.get("facts")
+    if not isinstance(facts, dict):
+        return False
+    return bool(
+        facts.get("result")
+        or facts.get("events")
+        or facts.get("clean_sheets")
+        or facts.get("player_stats")
+    )
+
+
 def validate_quiz_genai_output(output: Any, job_input: dict[str, Any]) -> dict[str, Any]:
     def rejected(code: str, message: str) -> dict[str, Any]:
         return {
@@ -525,6 +631,34 @@ def validate_quiz_genai_output(output: Any, job_input: dict[str, Any]) -> dict[s
 
     if not isinstance(output, dict):
         return rejected("invalid_output", "GenAI output must be a JSON object.")
+    if "choice" in output:
+        try:
+            parsed_input = quiz_genai_input_model_from_job_input(job_input)
+            parsed_output = QuizGenAIOutputModel.model_validate(output)
+        except ValidationError as error:
+            return rejected("invalid_output", str(error))
+        if parsed_output.confidence == 0:
+            return rejected("insufficient_evidence", "Quiz GenAI could not answer from facts.")
+        if not quiz_genai_has_supplied_facts(job_input):
+            return rejected("insufficient_evidence", "Quiz GenAI answered without supplied facts.")
+        if parsed_output.confidence < QUIZ_GENAI_CONFIDENCE_THRESHOLD:
+            return rejected("low_confidence", "Quiz GenAI confidence was too low.")
+        option_by_normalized = {
+            normalize_answer(option): option for option in parsed_input.choices if option
+        }
+        normalized_choice = normalize_answer(parsed_output.choice)
+        if normalized_choice not in option_by_normalized:
+            return rejected("answer_outside_options", "Quiz GenAI selected an unknown option.")
+        return {
+            "accepted": True,
+            "correct_answers": [option_by_normalized[normalized_choice]],
+            "evidence": [],
+            "failure_code": None,
+            "failure_message": None,
+            "confidence": parsed_output.confidence,
+            "reason": parsed_output.reason,
+        }
+
     status = clean_text(output.get("status")).casefold()
     if status != "answered":
         return rejected("unsupported_status", "Quiz GenAI did not answer the question.")
@@ -723,12 +857,13 @@ def publish_quiz_genai_label(
         match_id=match_id,
         job_result_id=result_id,
         correct_answers=validation["correct_answers"],
-        confidence="high",
+        confidence=str(validation.get("confidence") or "high"),
         evidence=validation["evidence"],
         facts_revision_key=genai_input_hash(job_input.get("facts")),
     )
     for failure_code in (
         "invalid_output",
+        "insufficient_evidence",
         "unsupported_status",
         "low_confidence",
         "answer_outside_options",
@@ -7857,6 +7992,18 @@ def build_daily_recap(
             "SELECT id, name, profile_image_url FROM users WHERE archived_at IS NULL",
         ).fetchall()
         leeuwtjes = execute(conn, "SELECT user_id, match_id FROM leeuwtje_predictions").fetchall()
+        top_scorers = {
+            row["user_id"]: row
+            for row in execute(
+                conn,
+                """
+                SELECT user_id, player_name, player_name_2, player_name_3,
+                       striker_name_1, striker_name_2, striker_name_3,
+                       striker_name_4, striker_name_5
+                FROM top_scorer_predictions
+                """,
+            ).fetchall()
+        }
 
     user_names = {user["id"]: user["name"] for user in users}
     user_pictures = {user["id"]: user_profile_picture(user) for user in users}
@@ -7870,30 +8017,23 @@ def build_daily_recap(
     for row in leeuwtjes:
         leeuwtjes_by_user.setdefault(row["user_id"], set()).add(row["match_id"])
 
-    daily_points: Counter[int] = Counter()
-    matches = {match["id"]: match for match in data["matches"]}
     viewership_winners = quiz_viewership_winners(data, list(quiz_predictions))
-    for prediction in predictions:
-        if prediction["match_id"] not in target_ids:
-            continue
-        match = matches.get(prediction["match_id"])
-        if not match:
-            continue
-        base_points, _ = match_prediction_points(prediction, match)
-        if prediction["match_id"] in leeuwtjes_by_user.get(prediction["user_id"], set()):
-            base_points *= 2
-        daily_points[prediction["user_id"]] += base_points
-
-    for quiz_prediction in quiz_predictions:
-        if quiz_prediction["match_id"] not in target_ids:
-            continue
-        match = matches.get(quiz_prediction["match_id"])
-        if not match:
-            continue
-        daily_points[quiz_prediction["user_id"]] += quiz_points_for_prediction(
-            match,
-            quiz_prediction,
-            viewership_winners,
+    daily_points: Counter[int] = Counter()
+    for user in users:
+        user_predictions = {
+            prediction["match_id"]: prediction for prediction in by_user.get(user["id"], [])
+        }
+        points_by_match = user_match_points_by_match(
+            data,
+            user_predictions,
+            quiz_by_user.get(user["id"], {}),
+            list(leeuwtjes_by_user.get(user["id"], set())),
+            striker_pick_names(top_scorers.get(user["id"])),
+        )
+        daily_points[user["id"]] = sum(
+            int(points.get("total_points") or 0)
+            for match_id, points in points_by_match.items()
+            if match_id in target_ids
         )
 
     top_user_id, top_points = (None, 0)

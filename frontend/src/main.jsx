@@ -5122,7 +5122,6 @@ function Leaderboard({
                 const missingPredictions = !row.all_predictions_complete;
                 const rowClass = [
                   "leaderboard-row",
-                  pool.me?.id === row.user_id ? "highlight" : "",
                   missingPredictions ? "has-missing-predictions" : "",
                 ]
                   .filter(Boolean)

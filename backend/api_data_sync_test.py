@@ -1789,6 +1789,140 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             ["m001", "m002"],
         )
 
+    def test_daily_recap_dagscore_shows_top_five_positive_scores(self) -> None:
+        target_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
+        target_match["status"] = "completed"
+        target_match["home_score"] = 1
+        target_match["away_score"] = 0
+        data = {
+            "matches": [target_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES
+                    (1, 'Anna', 'anna@example.com', 'x', 0),
+                    (2, 'Bram', 'bram@example.com', 'x', 0),
+                    (3, 'Chris', 'chris@example.com', 'x', 0),
+                    (4, 'Dina', 'dina@example.com', 'x', 0),
+                    (5, 'Evi', 'evi@example.com', 'x', 0),
+                    (6, 'Fien', 'fien@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES
+                    (1, 'm001', 1, 0),
+                    (2, 'm001', 1, 0),
+                    (3, 'm001', 1, 0),
+                    (4, 'm001', 1, 0),
+                    (5, 'm001', 1, 0),
+                    (6, 'm001', 1, 0)
+                """,
+            )
+            conn.commit()
+            return wk_app.build_daily_recap(
+                data,
+                now=datetime(2026, 6, 12, 4, 30, tzinfo=UTC),
+                leaderboard=[],
+            )
+
+        recap = self.run_with_temp_db(scenario)
+
+        self.assertEqual(
+            [row["name"] for row in recap["top_players"]],
+            ["Anna", "Bram", "Chris", "Dina", "Evi"],
+        )
+        self.assertTrue(all(row["points"] > 0 for row in recap["top_players"]))
+
+    def test_daily_recap_dagscore_includes_all_session_match_points(self) -> None:
+        target_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
+        target_match["status"] = "completed"
+        target_match["home_score"] = 1
+        target_match["away_score"] = 0
+        target_match["quiz"] = {
+            "question": "Scoort Nederland?",
+            "type": "yes_no",
+            "choices": ["ja", "nee"],
+            "correct_answers": ["ja"],
+        }
+        data = {
+            "matches": [target_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Anna', 'anna@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES (1, 'm001', 1, 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO quiz_predictions (user_id, match_id, answer)
+                VALUES (1, 'm001', 'ja')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                "INSERT INTO leeuwtje_predictions (user_id, match_id) VALUES (1, 'm001')",
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO top_scorer_predictions (
+                    user_id, player_name, striker_name_1
+                ) VALUES (1, 'Other Player', 'Cody Gakpo')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, player_name, event_type, raw_json
+                ) VALUES ('m001', 'goal-1', 'Cody Gakpo', 'Goal', '{}')
+                """,
+            )
+            conn.commit()
+            return wk_app.build_daily_recap(
+                data,
+                now=datetime(2026, 6, 12, 4, 30, tzinfo=UTC),
+                leaderboard=[],
+            )
+
+        recap = self.run_with_temp_db(scenario)
+
+        self.assertEqual(recap["top_players"][0]["name"], "Anna")
+        self.assertEqual(recap["top_players"][0]["points"], 33)
+
     def test_matchday_summary_uses_us_timezone_playing_window(self) -> None:
         evening_match = make_match("m001", datetime(2026, 6, 11, 16, 0, tzinfo=UTC))
         overnight_match = make_match("m002", datetime(2026, 6, 12, 1, 30, tzinfo=UTC))
@@ -2675,6 +2809,134 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertTrue(result["accepted"])
         self.assertEqual(result["correct_answers"], ["Netherlands"])
         self.assertEqual(result["evidence"], [{"type": "match_event", "id": "provider:event:1"}])
+
+    def test_quiz_genai_accepts_pydantic_choice_confidence_output(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            output = {
+                "choice": "Netherlands",
+                "confidence": 0.92,
+                "reason": "The supplied facts support this answer.",
+            }
+            return job_input, wk_app.validate_quiz_genai_output(output, job_input)
+
+        job_input, result = self.run_with_temp_db(scenario)
+
+        parsed_input = wk_app.QuizGenAIInputModel.model_validate(
+            {
+                "question": job_input["question"],
+                "choices": job_input["choices"],
+                "match_data": job_input["match_data"],
+            }
+        )
+        self.assertEqual(parsed_input.question, "Who wins?")
+        self.assertEqual(parsed_input.choices, ["Netherlands", "USA"])
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["correct_answers"], ["Netherlands"])
+        self.assertEqual(result["confidence"], 0.92)
+
+    def test_quiz_genai_choice_confidence_rejects_impossible_and_invalid_output(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            cases = [
+                {"choice": "", "confidence": 0, "reason": "No facts."},
+                {"choice": "Netherlands", "confidence": 0.4, "reason": "Unsure."},
+                {"choice": "Germany", "confidence": 0.95, "reason": "Bad option."},
+                {"choice": "Netherlands", "confidence": 1.5, "reason": "Bad confidence."},
+            ]
+            return [wk_app.validate_quiz_genai_output(case, job_input) for case in cases]
+
+        results = self.run_with_temp_db(scenario)
+
+        self.assertTrue(all(not result["accepted"] for result in results))
+        self.assertEqual(
+            [result["failure_code"] for result in results],
+            [
+                "insufficient_evidence",
+                "low_confidence",
+                "answer_outside_options",
+                "invalid_output",
+            ],
+        )
+
+    def test_quiz_genai_choice_confidence_rejects_answer_without_facts(self) -> None:
+        job_input = {
+            "question": "Scoort Haaland in deze wedstrijd?",
+            "choices": ["ja", "nee"],
+            "match_data": {
+                "result": None,
+                "events": [],
+                "clean_sheets": [],
+                "player_stats": [],
+            },
+        }
+
+        result = wk_app.validate_quiz_genai_output(
+            {"choice": "ja", "confidence": 0.95, "reason": "Hallucinated answer."},
+            job_input,
+        )
+
+        self.assertFalse(result["accepted"])
+        self.assertEqual(result["failure_code"], "insufficient_evidence")
+
+    def test_accepted_quiz_genai_label_resolves_prior_insufficient_evidence_issue(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            wk_app.publish_quiz_genai_label(
+                conn,
+                data,
+                data["matches"][0],
+                {"choice": "", "confidence": 0, "reason": "No facts."},
+                job_input,
+            )
+            first = wk_app.active_admin_sync_notifications(conn)
+            wk_app.publish_quiz_genai_label(
+                conn,
+                data,
+                data["matches"][0],
+                {
+                    "choice": "Netherlands",
+                    "confidence": 0.95,
+                    "reason": "Facts are available now.",
+                },
+                job_input,
+            )
+            second = wk_app.active_admin_sync_notifications(conn)
+            return first, second
+
+        first, second = self.run_with_temp_db(scenario)
+
+        self.assertTrue(
+            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in first)
+        )
+        self.assertFalse(
+            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
+        )
+
+    def test_quiz_genai_prompt_uses_choice_confidence_contract_examples(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            return wk_app.quiz_genai_prompt_messages(job_input)
+
+        messages = self.run_with_temp_db(scenario)
+        serialized = json.dumps(messages)
+
+        self.assertIn("choice", serialized)
+        self.assertIn("confidence", serialized)
+        self.assertIn("confidence 0", serialized)
+        self.assertIn("Do not infer missing stats as no", serialized)
 
     def test_quiz_genai_rejects_invalid_or_unsafe_output(self) -> None:
         data = self.scoring_data(done=True)
