@@ -574,18 +574,24 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                         "player_database_verification": {"invalid_goal_scorers": 0},
                     },
                 ) as squad_sync,
+                patch.object(
+                    wk_app,
+                    "run_genai_jobs_after_data_sync",
+                    return_value={"ok": True, "quiz_jobs": [], "player_jobs": []},
+                ) as genai_jobs,
                 patch.object(wk_app, "recompute_all_computed_points") as recompute,
             ):
                 response = client.post("/api/admin/api-football/data-sync", json={})
-            return response, result_sync, squad_sync, recompute
+            return response, result_sync, squad_sync, genai_jobs, recompute
 
-        response, result_sync, squad_sync, recompute = self.run_with_temp_db(scenario)
+        response, result_sync, squad_sync, genai_jobs, recompute = self.run_with_temp_db(scenario)
         payload = response.get_json()
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["synced"], [{"match_id": "m001"}])
         self.assertEqual(payload["squad_synced"], [{"team_id": "esp", "players": 26}])
+        self.assertEqual(payload["genai_jobs"], {"ok": True, "quiz_jobs": [], "player_jobs": []})
         result_sync.assert_called_once_with({"matches": [], "teams": []}, dry_run=False)
         squad_sync.assert_called_once_with(
             {"matches": [], "teams": []},
@@ -594,7 +600,74 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             limit=48,
             include_coaches=False,
         )
+        genai_jobs.assert_called_once_with(
+            {"matches": [], "teams": []},
+            result_sync={
+                "ok": True,
+                "dry_run": False,
+                "match_ids": ["m001"],
+                "results": [],
+                "synced": [{"match_id": "m001"}],
+                "attempts": [{"match_id": "m001"}],
+                "skipped": [],
+            },
+        )
         recompute.assert_called_once()
+
+    def test_admin_data_sync_dry_run_does_not_run_genai_jobs(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
+                """,
+            )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(
+                    wk_app, "load_world_cup_data", return_value={"matches": [], "teams": []}
+                ),
+                patch.object(
+                    wk_app,
+                    "run_missing_result_sync_batch",
+                    return_value={
+                        "ok": True,
+                        "dry_run": True,
+                        "match_ids": ["m001"],
+                        "results": [],
+                        "synced": [{"match_id": "m001"}],
+                        "attempts": [],
+                        "skipped": [],
+                    },
+                ),
+                patch.object(
+                    wk_app,
+                    "run_api_football_squad_sync",
+                    return_value={
+                        "ok": True,
+                        "dry_run": True,
+                        "synced": [],
+                        "skipped": [],
+                    },
+                ),
+                patch.object(wk_app, "run_genai_jobs_after_data_sync") as genai_jobs,
+                patch.object(wk_app, "recompute_all_computed_points") as recompute,
+            ):
+                response = client.post("/api/admin/api-football/data-sync", json={"dry_run": True})
+            return response, genai_jobs, recompute
+
+        response, genai_jobs, recompute = self.run_with_temp_db(scenario)
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["ok"])
+        self.assertIsNone(payload["genai_jobs"])
+        genai_jobs.assert_not_called()
+        recompute.assert_not_called()
 
     def test_database_recompute_points_endpoint_uses_sync_token(self) -> None:
         previous_token = wk_app.API_FOOTBALL_SYNC_TOKEN
@@ -2695,6 +2768,23 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertFalse(config["enabled"])
         self.assertEqual(config["disabled_reason"], "missing_mistral_api_key")
 
+    def test_genai_config_disables_jobs_when_parser_dependency_is_missing(self) -> None:
+        with (
+            patch.object(wk_app, "PYDANTIC_IMPORT_ERROR", "No module named pydantic"),
+            patch.dict(
+                wk_app.os.environ,
+                {
+                    "GENAI_PROVIDER": "mistral",
+                    "MISTRAL_API_KEY": "test-key",
+                },
+                clear=False,
+            ),
+        ):
+            config = wk_app.genai_config()
+
+        self.assertFalse(config["enabled"])
+        self.assertEqual(config["disabled_reason"], "missing_pydantic")
+
     def test_genai_config_enables_mistral_when_key_is_present(self) -> None:
         with patch.dict(
             wk_app.os.environ,
@@ -3591,6 +3681,67 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(verification["invalid_goal_scorers"], 0)
         self.assertEqual(event_name, "Gakppo")
         self.assertEqual(pick_name, "Gakppo")
+
+    def test_accepted_player_genai_link_counts_for_striker_scoring(self) -> None:
+        data = {
+            "matches": [
+                make_match(
+                    "m001",
+                    datetime(2026, 6, 11, 18, 0, tzinfo=UTC),
+                    home_team_id="ned",
+                    away_team_id="usa",
+                )
+            ]
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, event_type, player_name, raw_json
+                )
+                VALUES ('m001', 'event-1', 'Goal', 'Gakppo', '{}')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO team_squad_players (
+                    local_team_id, provider_player_key, api_player_id, player_name, raw_json
+                )
+                VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
+                """,
+            )
+            job_input = wk_app.build_player_genai_input(
+                conn,
+                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_id="m001:gakppo",
+                raw_player_name="Gakppo",
+                match_id="m001",
+                local_team_id="ned",
+            )
+            before = wk_app.striker_prediction_points(["Cody Gakpo"])
+            wk_app.publish_player_genai_link(
+                conn,
+                job_input,
+                {
+                    "status": "matched",
+                    "matched_candidate_id": "ned:1",
+                    "confidence": "high",
+                    "evidence": [{"type": "candidate", "id": "ned:1"}],
+                },
+            )
+            conn.commit()
+            after = wk_app.striker_prediction_points(["Cody Gakpo"])
+            by_match = wk_app.striker_points_by_match_for_picks(data, ["Cody Gakpo"])
+            return before, after, by_match
+
+        before, after, by_match = self.run_with_temp_db(scenario)
+
+        self.assertEqual(before, 0)
+        self.assertEqual(after, wk_app.STRIKER_GOAL_POINTS)
+        self.assertEqual(by_match["m001"]["scorers"][0]["name"], "Cody Gakpo")
 
     def test_rejected_player_genai_notifies_once_and_acceptance_resolves(self) -> None:
         def scenario(conn):
