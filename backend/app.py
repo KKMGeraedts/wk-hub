@@ -132,6 +132,7 @@ DB_BACKUP_TABLES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("admin_sync_notifications", ("created_at", "id")),
     ("genai_job_results", ("created_at", "id")),
     ("quiz_auto_labels", ("match_id",)),
+    ("quiz_genai_reviews", ("job_result_id",)),
     ("player_candidate_links", ("target_type", "target_id")),
     ("newsletter_articles", ("published_at", "url")),
 )
@@ -227,6 +228,8 @@ GENAI_STATUS_REJECTED = "rejected"
 GENAI_STATUS_FAILED = "failed"
 GENAI_STATUS_SKIPPED_MANUAL_OVERRIDE = "skipped_manual_override"
 GENAI_STATUS_DISABLED = "disabled"
+GENAI_REVIEW_APPROVED = "approved"
+GENAI_REVIEW_DISAPPROVED = "disapproved"
 RESULT_SYNC_EARLY_AFTER = timedelta(minutes=5)
 RESULT_SYNC_FIRST_AFTER = timedelta(minutes=15)
 RESULT_SYNC_SECOND_AFTER = timedelta(hours=2)
@@ -831,6 +834,40 @@ def quiz_genai_payload_from_row(row: Any | None) -> dict[str, Any] | None:
         "evidence": json_list_or_empty(row["evidence_json"]),
         "resolved_at": row["resolved_at"],
         "job_result_id": row["job_result_id"],
+    }
+
+
+def quiz_genai_review_payload(
+    conn: Any,
+    *,
+    match: dict[str, Any],
+    job_result_id: int,
+) -> dict[str, Any]:
+    quiz = match.get("quiz") or {}
+    auto_label = execute(
+        conn,
+        "SELECT * FROM quiz_auto_labels WHERE match_id = ? AND job_result_id = ?",
+        (clean_text(match.get("id")), job_result_id),
+    ).fetchone()
+    review = execute(
+        conn,
+        "SELECT * FROM quiz_genai_reviews WHERE job_result_id = ?",
+        (job_result_id,),
+    ).fetchone()
+    return {
+        "job_result_id": job_result_id,
+        "match_id": clean_text(match.get("id")),
+        "question": clean_text(quiz.get("question")),
+        "choices": [clean_text(choice) for choice in quiz.get("choices") or []],
+        "genai_answers": parse_correct_answers_json(
+            auto_label["correct_answers_json"] if auto_label is not None else None
+        ),
+        "confidence": auto_label["confidence"] if auto_label is not None else None,
+        "review_status": review["decision"] if review is not None else "pending",
+        "reviewed_answers": parse_correct_answers_json(
+            review["selected_answers_json"] if review is not None else None
+        ),
+        "reviewed_at": review["reviewed_at"] if review is not None else None,
     }
 
 
@@ -2483,12 +2520,19 @@ def run_quiz_genai_job_for_match(
                 "job_result_id": result_id,
             }
         validation = publish_quiz_genai_label(conn, data, match, output, job_input)
-    return {
+    result = {
         "job_type": GENAI_JOB_QUIZ_ANSWER,
         "target_type": GENAI_TARGET_MATCH_QUIZ,
         "target_id": match_id,
         **json_ready(validation),
     }
+    if validation.get("accepted") and validation.get("job_result_id"):
+        result["review"] = quiz_genai_review_payload(
+            conn,
+            match=match,
+            job_result_id=int(validation["job_result_id"]),
+        )
+    return result
 
 
 def unmatched_player_genai_inputs(conn: Any) -> list[dict[str, Any]]:
@@ -3415,6 +3459,18 @@ def init_db() -> None:
         )
         """,
         """
+        CREATE TABLE IF NOT EXISTS quiz_genai_reviews (
+            job_result_id INTEGER PRIMARY KEY,
+            match_id TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            selected_answers_json TEXT NOT NULL,
+            reviewed_by_user_id INTEGER NOT NULL,
+            reviewed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (job_result_id) REFERENCES genai_job_results(id),
+            FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id)
+        )
+        """,
+        """
         CREATE TABLE IF NOT EXISTS player_candidate_links (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             target_type TEXT NOT NULL,
@@ -3827,6 +3883,18 @@ def init_db() -> None:
             resolved_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (job_result_id) REFERENCES genai_job_results(id)
+        )
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS quiz_genai_reviews (
+            job_result_id INTEGER PRIMARY KEY,
+            match_id TEXT NOT NULL,
+            decision TEXT NOT NULL,
+            selected_answers_json TEXT NOT NULL,
+            reviewed_by_user_id INTEGER NOT NULL,
+            reviewed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (job_result_id) REFERENCES genai_job_results(id),
+            FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id)
         )
         """,
         """
@@ -5547,7 +5615,9 @@ def store_api_football_fixture_snapshot(
                 api_player_id = int_or_none(player.get("id"))
                 player_name = player.get("name") or "Unknown"
                 provider_player_key = (
-                    str(api_player_id) if api_player_id is not None else compact_name(player_name)
+                    str(api_player_id)
+                    if api_player_id is not None and api_player_id > 0
+                    else compact_name(player_name)
                 )
                 minutes = int_or_none(games.get("minutes")) or 0
                 execute(
@@ -6158,7 +6228,9 @@ def store_api_football_team_profile_snapshot(
             api_player_id = int_or_none(player.get("id"))
             player_name = clean_text(player.get("name")) or "Unknown"
             provider_player_key = (
-                str(api_player_id) if api_player_id is not None else compact_name(player_name)
+                str(api_player_id)
+                if api_player_id is not None and api_player_id > 0
+                else compact_name(player_name)
             )
             execute(
                 conn,
@@ -6191,7 +6263,9 @@ def store_api_football_team_profile_snapshot(
             api_coach_id = int_or_none(coach.get("id"))
             name = coach_name(coach) or "Unknown"
             provider_coach_key = (
-                str(api_coach_id) if api_coach_id is not None else compact_name(name)
+                str(api_coach_id)
+                if api_coach_id is not None and api_coach_id > 0
+                else compact_name(name)
             )
             execute(
                 conn,
@@ -9733,6 +9807,127 @@ def admin_update_quiz_label(match_id: str):
     updated_data = load_world_cup_data()
     recompute_all_computed_points(updated_data)
     return jsonify(admin_labels_payload(updated_data))
+
+
+@app.post("/api/admin/genai/quiz-reviews/<int:job_result_id>")
+def admin_review_genai_quiz_answer(job_result_id: int):
+    admin, error_response = require_admin_user()
+    if error_response:
+        return error_response
+    assert admin is not None
+    payload = request.get_json(silent=True) or {}
+    decision = clean_text(payload.get("decision")).lower()
+    if decision not in {GENAI_REVIEW_APPROVED, GENAI_REVIEW_DISAPPROVED}:
+        return jsonify({"error": "decision must be approved or disapproved."}), 400
+
+    data = load_world_cup_data()
+    with get_db() as conn:
+        auto_label = execute(
+            conn,
+            """
+            SELECT qal.*, gjr.status AS job_status
+            FROM quiz_auto_labels qal
+            JOIN genai_job_results gjr ON gjr.id = qal.job_result_id
+            WHERE qal.job_result_id = ?
+              AND gjr.job_type = ?
+              AND gjr.status = ?
+            """,
+            (job_result_id, GENAI_JOB_QUIZ_ANSWER, GENAI_STATUS_ACCEPTED),
+        ).fetchone()
+        if auto_label is None:
+            return jsonify({"error": "This GenAI quiz answer is no longer active."}), 404
+        match_id = clean_text(auto_label["match_id"])
+        match = match_by_id(data, match_id)
+        if match is None or not isinstance(match.get("quiz"), dict):
+            return jsonify({"error": "Quiz match not found."}), 404
+        quiz = match["quiz"]
+        choices = [clean_text(choice) for choice in quiz.get("choices") or []]
+        genai_answers = parse_correct_answers_json(auto_label["correct_answers_json"])
+        selected_answers = genai_answers
+
+        before_override = execute(
+            conn,
+            "SELECT * FROM quiz_label_overrides WHERE match_id = ?",
+            (match_id,),
+        ).fetchone()
+        if decision == GENAI_REVIEW_DISAPPROVED:
+            requested_answer = clean_text(payload.get("correct_answer"))
+            selected_answer = next(
+                (
+                    choice
+                    for choice in choices
+                    if normalize_answer(choice) == normalize_answer(requested_answer)
+                ),
+                None,
+            )
+            if selected_answer is None:
+                return jsonify({"error": "Select one of the available quiz answers."}), 400
+            selected_answers = [selected_answer]
+            execute(
+                conn,
+                """
+                INSERT INTO quiz_label_overrides (
+                    match_id, question, choices_json, correct_answers_json,
+                    viewership_answer, source, updated_by_user_id, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, 'manual', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(match_id) DO UPDATE SET
+                    question = excluded.question,
+                    choices_json = excluded.choices_json,
+                    correct_answers_json = excluded.correct_answers_json,
+                    viewership_answer = excluded.viewership_answer,
+                    source = 'manual',
+                    updated_by_user_id = excluded.updated_by_user_id,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (
+                    match_id,
+                    clean_text(quiz.get("question")),
+                    json.dumps(choices),
+                    json.dumps(selected_answers),
+                    quiz.get("viewership_answer"),
+                    admin["id"],
+                ),
+            )
+
+        execute(
+            conn,
+            """
+            INSERT INTO quiz_genai_reviews (
+                job_result_id, match_id, decision, selected_answers_json,
+                reviewed_by_user_id, reviewed_at
+            )
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(job_result_id) DO UPDATE SET
+                decision = excluded.decision,
+                selected_answers_json = excluded.selected_answers_json,
+                reviewed_by_user_id = excluded.reviewed_by_user_id,
+                reviewed_at = CURRENT_TIMESTAMP
+            """,
+            (job_result_id, match_id, decision, json.dumps(selected_answers), admin["id"]),
+        )
+        after_override = execute(
+            conn,
+            "SELECT * FROM quiz_label_overrides WHERE match_id = ?",
+            (match_id,),
+        ).fetchone()
+        label_audit(
+            conn,
+            admin["id"],
+            "quiz_genai_review",
+            match_id,
+            before_override,
+            after_override,
+            source=f"genai_review:{decision}",
+        )
+        review = quiz_genai_review_payload(
+            conn,
+            match=match,
+            job_result_id=job_result_id,
+        )
+
+    recompute_all_computed_points(load_world_cup_data())
+    return jsonify({"ok": True, "review": review})
 
 
 @app.put("/api/admin/labels/<match_id>/events")

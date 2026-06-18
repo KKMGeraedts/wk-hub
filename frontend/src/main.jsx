@@ -3882,6 +3882,9 @@ function AdminDataSyncPage({ onSyncComplete }) {
   const [error, setError] = useState("");
   const [syncStartedAt, setSyncStartedAt] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [reviewingJobId, setReviewingJobId] = useState(null);
+  const [reviewChoices, setReviewChoices] = useState({});
+  const [savingReviewId, setSavingReviewId] = useState(null);
 
   const syncSteps = [
     "Checking missing match results",
@@ -3940,6 +3943,46 @@ function AdminDataSyncPage({ onSyncComplete }) {
     } finally {
       setBusy(false);
       setSyncStartedAt(null);
+    }
+  }
+
+  const quizReviews = (result?.genai_jobs?.quiz_jobs ?? [])
+    .map((job) => job.review)
+    .filter(Boolean);
+
+  async function submitQuizReview(review, decision) {
+    const correctAnswer = reviewChoices[review.job_result_id] ?? "";
+    if (decision === "disapproved" && !correctAnswer) {
+      setError("Select the correct answer before saving.");
+      return;
+    }
+    setSavingReviewId(review.job_result_id);
+    setError("");
+    try {
+      const response = await apiJson(
+        `/api/admin/genai/quiz-reviews/${review.job_result_id}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ decision, correct_answer: correctAnswer }),
+        },
+      );
+      setResult((current) => ({
+        ...current,
+        genai_jobs: {
+          ...current.genai_jobs,
+          quiz_jobs: current.genai_jobs.quiz_jobs.map((job) =>
+            job.review?.job_result_id === review.job_result_id
+              ? { ...job, review: response.review }
+              : job,
+          ),
+        },
+      }));
+      setReviewingJobId(null);
+      if (typeof onSyncComplete === "function") await onSyncComplete();
+    } catch (reviewError) {
+      setError(reviewError.message);
+    } finally {
+      setSavingReviewId(null);
     }
   }
 
@@ -4030,6 +4073,90 @@ function AdminDataSyncPage({ onSyncComplete }) {
                   </div>
                 ))}
               </div>
+            )}
+            {quizReviews.length > 0 && (
+              <section className="admin-genai-review-list" aria-label="GenAI quiz reviews">
+                <div className="admin-genai-review-heading">
+                  <strong>Check GenAI quiz answers</strong>
+                  <span>{quizReviews.length} answered</span>
+                </div>
+                {quizReviews.map((review) => {
+                  const pending = review.review_status === "pending";
+                  const choosing = reviewingJobId === review.job_result_id;
+                  return (
+                    <div className="admin-genai-review" key={review.job_result_id}>
+                      <div>
+                        <strong>{review.question}</strong>
+                        <span>
+                          GenAI answer: {review.genai_answers.join(", ") || "Missing"}
+                          {review.confidence ? ` · ${review.confidence} confidence` : ""}
+                        </span>
+                      </div>
+                      {!pending ? (
+                        <span className="pill">
+                          {review.review_status === "approved"
+                            ? "Approved"
+                            : `Corrected to ${review.reviewed_answers.join(", ")}`}
+                        </span>
+                      ) : (
+                        <div className="admin-genai-review-actions">
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={savingReviewId === review.job_result_id}
+                            onClick={() => submitQuizReview(review, "approved")}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className="text-button"
+                            type="button"
+                            disabled={savingReviewId === review.job_result_id}
+                            onClick={() => setReviewingJobId(choosing ? null : review.job_result_id)}
+                          >
+                            Disapprove
+                          </button>
+                        </div>
+                      )}
+                      {pending && choosing && (
+                        <div className="admin-genai-correction">
+                          <strong>Select the correct answer</strong>
+                          <div className="admin-genai-correction-options">
+                            {review.choices.map((choice) => (
+                              <label key={choice}>
+                                <input
+                                  type="radio"
+                                  name={`genai-correction-${review.job_result_id}`}
+                                  value={choice}
+                                  checked={reviewChoices[review.job_result_id] === choice}
+                                  onChange={() =>
+                                    setReviewChoices((current) => ({
+                                      ...current,
+                                      [review.job_result_id]: choice,
+                                    }))
+                                  }
+                                />
+                                <span>{choice}</span>
+                              </label>
+                            ))}
+                          </div>
+                          <button
+                            className="primary-button"
+                            type="button"
+                            disabled={
+                              savingReviewId === review.job_result_id ||
+                              !reviewChoices[review.job_result_id]
+                            }
+                            onClick={() => submitQuizReview(review, "disapproved")}
+                          >
+                            Save correct answer
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </section>
             )}
           </div>
         )}

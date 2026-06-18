@@ -2821,6 +2821,89 @@ tr.highlight td {
     width: fit-content;
 }
 
+.admin-genai-review-list {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    margin-top: 8px;
+}
+
+.admin-genai-review-heading,
+.admin-genai-review {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.admin-genai-review-heading strong,
+.admin-genai-review > div > strong {
+    width: auto;
+}
+
+.admin-genai-review {
+    padding: 12px;
+    border: 1px solid #dfe5ed;
+    border-radius: 8px;
+    background: #fff;
+}
+
+.admin-genai-review > div:first-child {
+    display: grid;
+    flex: 1 1 320px;
+    gap: 4px;
+    min-width: 0;
+}
+
+.admin-genai-review > div:first-child span {
+    width: fit-content;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+}
+
+.admin-genai-review-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.admin-genai-correction {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    padding-top: 10px;
+    border-top: 1px solid #dfe5ed;
+}
+
+.admin-genai-correction-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+}
+
+.admin-genai-correction-options label {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    padding: 9px 10px;
+    border: 1px solid #dfe5ed;
+    border-radius: 8px;
+    color: var(--ink);
+    background: #f8fafc;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.admin-genai-correction-options label span {
+    overflow-wrap: anywhere;
+}
+
+.admin-genai-correction > .primary-button {
+    width: fit-content;
+}
+
 .admin-broadcast-list {
     display: grid;
     gap: 10px;

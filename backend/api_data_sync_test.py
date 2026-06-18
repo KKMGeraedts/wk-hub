@@ -1353,6 +1353,65 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(row["home_score"], 2)
         self.assertEqual(row["away_score"], 1)
 
+    def test_fixture_snapshot_uses_player_name_when_provider_player_id_is_zero(self) -> None:
+        kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
+        match = make_match("m20", kickoff)
+        data = {
+            "matches": [match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+        }
+
+        def player_block(name):
+            return {
+                "player": {"id": 0, "name": name},
+                "statistics": [
+                    {
+                        "games": {"minutes": 90, "position": "M"},
+                        "goals": {"total": 0, "assists": 0},
+                        "cards": {"yellow": 0, "red": 0},
+                    }
+                ],
+            }
+
+        fixture = {
+            "fixture": {"id": 456, "status": {"long": "Match Finished", "short": "FT"}},
+            "teams": {
+                "home": {"id": 1, "name": "Netherlands"},
+                "away": {"id": 2, "name": "United States"},
+            },
+            "goals": {"home": 1, "away": 0},
+            "events": [],
+            "players": [
+                {
+                    "team": {"id": 1, "name": "Netherlands"},
+                    "players": [player_block("Player One"), player_block("Player Two")],
+                }
+            ],
+        }
+
+        def scenario(conn):
+            wk_app.store_api_football_fixture_snapshot(conn, match, fixture, data)
+            return wk_app.execute(
+                conn,
+                """
+                SELECT provider_player_key, player_name
+                FROM player_match_stats
+                WHERE match_id = ?
+                ORDER BY player_name
+                """,
+                ("m20",),
+            ).fetchall()
+
+        rows = self.run_with_temp_db(scenario)
+
+        self.assertEqual(
+            [(row["provider_player_key"], row["player_name"]) for row in rows],
+            [("player one", "Player One"), ("player two", "Player Two")],
+        )
+
     def test_fixture_snapshot_history_is_permanent_and_provider_facts_update(self) -> None:
         kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
         match = make_match("m001", kickoff)
@@ -3858,6 +3917,90 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertFalse(
             any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in notifications)
         )
+
+    def test_admin_can_approve_genai_quiz_answer(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            wk_app.execute(conn, "UPDATE users SET is_admin = 1 WHERE id = 1")
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            published = wk_app.publish_quiz_genai_label(
+                conn,
+                data,
+                data["matches"][0],
+                {"choice": "Netherlands", "confidence": 0.95},
+                job_input,
+            )
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(wk_app, "recompute_all_computed_points"),
+            ):
+                response = client.post(
+                    f"/api/admin/genai/quiz-reviews/{published['job_result_id']}",
+                    json={"decision": "approved"},
+                )
+            review = wk_app.execute(
+                conn,
+                "SELECT * FROM quiz_genai_reviews WHERE job_result_id = ?",
+                (published["job_result_id"],),
+            ).fetchone()
+            return response, review
+
+        response, review = self.run_with_temp_db(scenario)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["review"]["review_status"], "approved")
+        self.assertEqual(review["decision"], "approved")
+        self.assertEqual(json.loads(review["selected_answers_json"]), ["Netherlands"])
+
+    def test_disapproving_genai_quiz_answer_requires_and_saves_available_choice(self) -> None:
+        data = self.scoring_data(done=True)
+
+        def scenario(conn):
+            self.seed_scoring_user(conn)
+            wk_app.execute(conn, "UPDATE users SET is_admin = 1 WHERE id = 1")
+            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            published = wk_app.publish_quiz_genai_label(
+                conn,
+                data,
+                data["matches"][0],
+                {"choice": "Netherlands", "confidence": 0.95},
+                job_input,
+            )
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            endpoint = f"/api/admin/genai/quiz-reviews/{published['job_result_id']}"
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(wk_app, "recompute_all_computed_points") as recompute,
+            ):
+                invalid = client.post(
+                    endpoint,
+                    json={"decision": "disapproved", "correct_answer": "Belgium"},
+                )
+                corrected = client.post(
+                    endpoint,
+                    json={"decision": "disapproved", "correct_answer": "USA"},
+                )
+            override = wk_app.execute(
+                conn,
+                "SELECT * FROM quiz_label_overrides WHERE match_id = 'm001'",
+            ).fetchone()
+            return invalid, corrected, override, recompute
+
+        invalid, corrected, override, recompute = self.run_with_temp_db(scenario)
+
+        self.assertEqual(invalid.status_code, 400)
+        self.assertEqual(corrected.status_code, 200)
+        self.assertEqual(corrected.get_json()["review"]["review_status"], "disapproved")
+        self.assertEqual(json.loads(override["correct_answers_json"]), ["USA"])
+        self.assertEqual(override["source"], "manual")
+        recompute.assert_called_once()
 
     def test_genai_provider_failures_create_admin_only_notifications(self) -> None:
         data = self.scoring_data(done=True)
