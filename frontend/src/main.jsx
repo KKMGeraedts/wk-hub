@@ -436,7 +436,7 @@ async function resizeProfileImage(file) {
   const scale = Math.min(
     1,
     PROFILE_IMAGE_MAX_DIMENSION /
-      Math.max(image.naturalWidth, image.naturalHeight),
+    Math.max(image.naturalWidth, image.naturalHeight),
   );
   const width = Math.max(1, Math.round(image.naturalWidth * scale));
   const height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -572,9 +572,9 @@ function teamStaff(team) {
   const profile = teamProfile(team);
   return normalizePeople(
     profile.staff ??
-      profile.coaching_staff ??
-      team?.staff ??
-      team?.coaching_staff,
+    profile.coaching_staff ??
+    team?.staff ??
+    team?.coaching_staff,
   );
 }
 
@@ -582,11 +582,11 @@ function teamPlayers(team) {
   const profile = teamProfile(team);
   return normalizePeople(
     profile.players ??
-      profile.squad ??
-      profile.roster ??
-      team?.players ??
-      team?.squad ??
-      team?.roster,
+    profile.squad ??
+    profile.roster ??
+    team?.players ??
+    team?.squad ??
+    team?.roster,
   );
 }
 
@@ -814,10 +814,10 @@ function PlayerSearchSelect({
     const needle = query.trim().toLocaleLowerCase();
     const matches = needle
       ? options.filter(
-          (option) =>
-            option.name.toLocaleLowerCase().includes(needle) ||
-            (option.teamName ?? "").toLocaleLowerCase().includes(needle),
-        )
+        (option) =>
+          option.name.toLocaleLowerCase().includes(needle) ||
+          (option.teamName ?? "").toLocaleLowerCase().includes(needle),
+      )
       : options;
     return matches.slice(0, 40);
   }, [options, query]);
@@ -1585,9 +1585,8 @@ function MatchCard({
             type="button"
             disabled={locked}
             onClick={onPrediction}
-            aria-label={`Open prediction for ${
-              teams.get(match.home_team_id)?.name ?? "home"
-            } versus ${teams.get(match.away_team_id)?.name ?? "away"}`}
+            aria-label={`Open prediction for ${teams.get(match.home_team_id)?.name ?? "home"
+              } versus ${teams.get(match.away_team_id)?.name ?? "away"}`}
           >
             {predictionScoreLabel(prediction)}
           </button>
@@ -1605,9 +1604,8 @@ function MatchCard({
             </span>
             {points && (
               <PointsPopoverAnchor
-                label={`Your points: ${points.total_points ?? 0}${
-                  points.leeuwtje_points ? " incl. Leeuwtje" : ""
-                }`}
+                label={`Your points: ${points.total_points ?? 0}${points.leeuwtje_points ? " incl. Leeuwtje" : ""
+                  }`}
                 points={points}
                 open={pointsOpen}
                 onToggle={onTogglePoints}
@@ -1761,9 +1759,9 @@ function patchPoolAfterMatchPrediction(pool, matchId, result) {
     },
     quiz_predictions: result.quiz_prediction
       ? {
-          ...(pool.quiz_predictions ?? {}),
-          [matchId]: result.quiz_prediction,
-        }
+        ...(pool.quiz_predictions ?? {}),
+        [matchId]: result.quiz_prediction,
+      }
       : pool.quiz_predictions,
     leeuwtjes_match_ids: result.leeuwtjes_match_ids ?? pool.leeuwtjes_match_ids,
     notifications: nextNotifications,
@@ -1773,13 +1771,13 @@ function patchPoolAfterMatchPrediction(pool, matchId, result) {
     },
     matchday: pool.matchday
       ? {
-          ...pool.matchday,
-          matches: (pool.matchday.matches ?? []).map((match) =>
-            (match.id ?? match.match_id) === matchId
-              ? { ...match, has_my_prediction: true }
-              : match,
-          ),
-        }
+        ...pool.matchday,
+        matches: (pool.matchday.matches ?? []).map((match) =>
+          (match.id ?? match.match_id) === matchId
+            ? { ...match, has_my_prediction: true }
+            : match,
+        ),
+      }
       : pool.matchday,
   };
 }
@@ -2788,119 +2786,119 @@ function AdminUsersPage({ currentUser }) {
           onClose={() => setResetResult(null)}
         />
       )}
-    <article className="panel admin-users-panel">
-      <div className="panel-header">
-        <div>
-          <h3>Admin users</h3>
-          <p>Archive accounts, restore accounts, manage admin access, and track the prize pot.</p>
+      <article className="panel admin-users-panel">
+        <div className="panel-header">
+          <div>
+            <h3>Admin users</h3>
+            <p>Archive accounts, restore accounts, manage admin access, and track the prize pot.</p>
+          </div>
+          <span className="pill orange">{users.length} accounts</span>
         </div>
-        <span className="pill orange">{users.length} accounts</span>
-      </div>
-      <div className="panel-body">
-        {error && <div className="form-error">{error}</div>}
-        {loading ? (
-          <div className="empty">Loading accounts...</div>
-        ) : (
-          <>
-            <section className="admin-prize-pot-summary" aria-label="Prize pot participation">
-              <div>
-                <span>Prize pot</span>
-                <strong>{prizePotCounts.joined} joining</strong>
-              </div>
-              <div>
-                <span>Not joining</span>
-                <strong>{prizePotCounts.declined}</strong>
-              </div>
-              <div>
-                <span>Not answered</span>
-                <strong>{prizePotCounts.undecided}</strong>
-              </div>
-              <p>
-                {joinedPrizePotUsers.length
-                  ? joinedPrizePotUsers.map((user) => user.name).join(", ")
-                  : "Nobody has joined the prize pot yet."}
-              </p>
-            </section>
-            <div className="admin-user-list">
-              {users.map((user) => {
-                const archived = Boolean(user.archived_at);
-                const isSelf = user.id === currentUser?.id;
-                const busy = busyUserId === user.id;
-                const prizePotStatus = user.prize_pot_status ?? "undecided";
-                return (
-                  <div
-                    className={archived ? "admin-user-row is-archived" : "admin-user-row"}
-                    key={user.id}
-                  >
-                    <div>
-                      <strong>{user.name}</strong>
-                      <span>{user.email}</span>
-                      <div className="admin-user-meta">
-                        <em>
-                          {archived
-                            ? `Archived ${user.archived_at}`
-                            : user.is_admin
-                              ? "Admin"
-                              : "Participant"}
-                        </em>
-                        <b className={`admin-prize-pot-status ${prizePotStatus}`}>
-                          {prizePotAdminLabel(prizePotStatus)}
-                        </b>
+        <div className="panel-body">
+          {error && <div className="form-error">{error}</div>}
+          {loading ? (
+            <div className="empty">Loading accounts...</div>
+          ) : (
+            <>
+              <section className="admin-prize-pot-summary" aria-label="Prize pot participation">
+                <div>
+                  <span>Prize pot</span>
+                  <strong>{prizePotCounts.joined} joining</strong>
+                </div>
+                <div>
+                  <span>Not joining</span>
+                  <strong>{prizePotCounts.declined}</strong>
+                </div>
+                <div>
+                  <span>Not answered</span>
+                  <strong>{prizePotCounts.undecided}</strong>
+                </div>
+                <p>
+                  {joinedPrizePotUsers.length
+                    ? joinedPrizePotUsers.map((user) => user.name).join(", ")
+                    : "Nobody has joined the prize pot yet."}
+                </p>
+              </section>
+              <div className="admin-user-list">
+                {users.map((user) => {
+                  const archived = Boolean(user.archived_at);
+                  const isSelf = user.id === currentUser?.id;
+                  const busy = busyUserId === user.id;
+                  const prizePotStatus = user.prize_pot_status ?? "undecided";
+                  return (
+                    <div
+                      className={archived ? "admin-user-row is-archived" : "admin-user-row"}
+                      key={user.id}
+                    >
+                      <div>
+                        <strong>{user.name}</strong>
+                        <span>{user.email}</span>
+                        <div className="admin-user-meta">
+                          <em>
+                            {archived
+                              ? `Archived ${user.archived_at}`
+                              : user.is_admin
+                                ? "Admin"
+                                : "Participant"}
+                          </em>
+                          <b className={`admin-prize-pot-status ${prizePotStatus}`}>
+                            {prizePotAdminLabel(prizePotStatus)}
+                          </b>
+                        </div>
+                      </div>
+                      <div className="admin-user-actions">
+                        {!archived && (
+                          <button
+                            className="text-button"
+                            type="button"
+                            disabled={busy || (isSelf && user.is_admin)}
+                            onClick={() =>
+                              updateUser(user.id, "admin", {
+                                is_admin: !user.is_admin,
+                              })
+                            }
+                          >
+                            {user.is_admin ? "Remove admin" : "Make admin"}
+                          </button>
+                        )}
+                        {!archived && (
+                          <button
+                            className="text-button"
+                            type="button"
+                            disabled={busy}
+                            onClick={() => resetPassword(user)}
+                          >
+                            Reset password
+                          </button>
+                        )}
+                        {archived ? (
+                          <button
+                            className="text-button"
+                            type="button"
+                            disabled={busy}
+                            onClick={() => updateUser(user.id, "restore")}
+                          >
+                            Restore
+                          </button>
+                        ) : (
+                          <button
+                            className="text-button"
+                            type="button"
+                            disabled={busy || isSelf}
+                            onClick={() => updateUser(user.id, "archive")}
+                          >
+                            Archive
+                          </button>
+                        )}
                       </div>
                     </div>
-                    <div className="admin-user-actions">
-                      {!archived && (
-                        <button
-                          className="text-button"
-                          type="button"
-                          disabled={busy || (isSelf && user.is_admin)}
-                          onClick={() =>
-                            updateUser(user.id, "admin", {
-                              is_admin: !user.is_admin,
-                            })
-                          }
-                        >
-                          {user.is_admin ? "Remove admin" : "Make admin"}
-                        </button>
-                      )}
-                      {!archived && (
-                        <button
-                          className="text-button"
-                          type="button"
-                          disabled={busy}
-                          onClick={() => resetPassword(user)}
-                        >
-                          Reset password
-                        </button>
-                      )}
-                      {archived ? (
-                        <button
-                          className="text-button"
-                          type="button"
-                          disabled={busy}
-                          onClick={() => updateUser(user.id, "restore")}
-                        >
-                          Restore
-                        </button>
-                      ) : (
-                        <button
-                          className="text-button"
-                          type="button"
-                          disabled={busy || isSelf}
-                          onClick={() => updateUser(user.id, "archive")}
-                        >
-                          Archive
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
-      </div>
-    </article>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+      </article>
     </>
   );
 }
@@ -3179,11 +3177,11 @@ function AdminLabelsPage({ teams }) {
           clear
             ? { clear_override: true }
             : {
-                question: draft.question,
-                choices,
-                correct_answers: answers,
-                viewership_answer: draft.viewership_answer,
-              },
+              question: draft.question,
+              choices,
+              correct_answers: answers,
+              viewership_answer: draft.viewership_answer,
+            },
         ),
       });
       setLabels(result);
@@ -3269,9 +3267,9 @@ function AdminLabelsPage({ teams }) {
                 );
                 const goalSummary = goalEvents.length
                   ? goalEvents
-                      .map((event) => event.player_name)
-                      .filter(Boolean)
-                      .join(", ")
+                    .map((event) => event.player_name)
+                    .filter(Boolean)
+                    .join(", ")
                   : "No goal labels";
                 const statSummary = labelMatch.player_stats?.length
                   ? `${labelMatch.player_stats.length} player stat labels`
@@ -3417,9 +3415,8 @@ function AdminLabelsPage({ teams }) {
                         >
                           <strong>Player GenAI</strong>
                           {playerGenaiLinks.length
-                            ? `${playerGenaiLinks.length} accepted link${
-                                playerGenaiLinks.length === 1 ? "" : "s"
-                              }`
+                            ? `${playerGenaiLinks.length} accepted link${playerGenaiLinks.length === 1 ? "" : "s"
+                            }`
                             : "No player links"}
                         </span>
                       </div>
@@ -3986,10 +3983,10 @@ function AdminDataSyncPage({ onSyncComplete }) {
 
   const syncLog = result
     ? [
-        `${result.match_ids?.length ?? 0} missing matches checked`,
-        `${result.synced?.length ?? 0} matches synced`,
-        result.computed_points_updated ? "Points recomputed" : null,
-      ].filter(Boolean)
+      `${result.match_ids?.length ?? 0} missing matches checked`,
+      `${result.synced?.length ?? 0} matches synced`,
+      result.computed_points_updated ? "Points recomputed" : null,
+    ].filter(Boolean)
     : [];
 
   return (
@@ -4270,7 +4267,7 @@ function FaqPage({ rules }) {
     },
     {
       q: "Wat doen de Leeuwtjes?",
-      a: `Een Leeuwtje verdubbelt de wedstrijdpunten van die ene voorspelling. Je hebt er ${leeuwtjes} voor het hele toernooi. Zet er een in bij een wedstrijd vóórdat die op slot gaat (1 uur voor de aftrap). Tot dat moment kun je het Leeuwtje ook weer weghalen en op een andere wedstrijd zetten. Tip: bewaar ze voor duels waar je zeker van bent of voor knock-outwedstrijden, waar de punten hoger liggen.`,
+      a: `Een Leeuwtje verdubbelt de wedstrijdpunten van die ene voorspelling. Je hebt er ${leeuwtjes} voor de groep fase van het toernooi. Zet er een in bij een wedstrijd vóórdat die op slot gaat (1 uur voor de aftrap). Tot dat moment kun je het Leeuwtje ook weer weghalen en op een andere wedstrijd zetten. Tip: bewaar ze voor duels waar je zeker van bent!`,
     },
     {
       q: "Hoe werken de spitsen?",
@@ -5196,7 +5193,7 @@ function TopScorerPickLabel({ picks }) {
 
 function Leaderboard({
   pool,
-  onProfile = () => {},
+  onProfile = () => { },
   profileLinksEnabled = true,
 }) {
   return (
@@ -5310,7 +5307,7 @@ function Leaderboard({
   );
 }
 
-function WallOfShame({ rows = [], onProfile = () => {} }) {
+function WallOfShame({ rows = [], onProfile = () => { } }) {
   return (
     <article className="panel wall-of-shame-panel">
       <div className="panel-header">
@@ -5690,8 +5687,8 @@ function PlayerProfile({
             <span>
               {canViewTournamentPicks
                 ? pointsLabel(
-                    (player.winner_points ?? 0) + (player.scorer_points ?? 0),
-                  )
+                  (player.winner_points ?? 0) + (player.scorer_points ?? 0),
+                )
                 : "Geheim"}
             </span>
           </div>
@@ -6429,15 +6426,15 @@ function PredictionPanel({
               </h4>
               <p>
                 {requiredPredictionsComplete &&
-                winner &&
-                topScorer &&
-                strikers.filter(Boolean).length >= 5 &&
-                allPredictionsComplete
+                  winner &&
+                  topScorer &&
+                  strikers.filter(Boolean).length >= 5 &&
+                  allPredictionsComplete
                   ? "Full card, champion, top scorer and strikers set. Time to check the leaderboard."
                   : requiredPredictionsComplete &&
-                      winner &&
-                      topScorer &&
-                      strikers.filter(Boolean).length >= 5
+                    winner &&
+                    topScorer &&
+                    strikers.filter(Boolean).length >= 5
                     ? "Your prediction card still has some empty spots. No prediction, no points — the scoreboard is strict like that."
                     : requiredPredictionsComplete
                       ? "You can pick your champion, top scorer and strikers above now or continue to the leaderboard."
@@ -7226,13 +7223,13 @@ function App() {
     setPool((current) =>
       current
         ? {
-            ...current,
-            notifications: (current.notifications ?? []).filter(
-              (item) =>
-                item.type !== "badge_unlocked" ||
-                badgeNotificationKey(item) !== notificationKey,
-            ),
-          }
+          ...current,
+          notifications: (current.notifications ?? []).filter(
+            (item) =>
+              item.type !== "badge_unlocked" ||
+              badgeNotificationKey(item) !== notificationKey,
+          ),
+        }
         : current,
     );
     window.clearTimeout(celebrationTimerRef.current);
@@ -7481,10 +7478,10 @@ function App() {
           leaderboard: (current.leaderboard ?? []).map((row) =>
             row.user_id === optimisticUser.id
               ? {
-                  ...row,
-                  prize_pot_status: status,
-                  prize_pot: optimisticPrizePot,
-                }
+                ...row,
+                prize_pot_status: status,
+                prize_pot: optimisticPrizePot,
+              }
               : row,
           ),
         };
@@ -7506,10 +7503,10 @@ function App() {
         leaderboard: (current?.leaderboard ?? []).map((row) =>
           row.user_id === updated.user.id
             ? {
-                ...row,
-                prize_pot_status: updated.user.prize_pot_status,
-                prize_pot: updated.user.prize_pot,
-              }
+              ...row,
+              prize_pot_status: updated.user.prize_pot_status,
+              prize_pot: updated.user.prize_pot,
+            }
             : row,
         ),
       }));
@@ -7554,8 +7551,8 @@ function App() {
     (String(pool.me?.id) === selectedProfileId ? fallbackProfile(pool) : null);
   const selectedProfileRank = selectedProfile
     ? pool.leaderboard.findIndex(
-        (row) => row.user_id === selectedProfile.user_id,
-      ) + 1
+      (row) => row.user_id === selectedProfile.user_id,
+    ) + 1
     : 0;
   const selectedTeam = maps.teams.get(selectedTeamId) ?? null;
   const venueRows = data.venues;
