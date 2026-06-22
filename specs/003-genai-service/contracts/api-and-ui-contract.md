@@ -1,5 +1,25 @@
 # API and UI Contract: GenAI Service
 
+## Deep Module Interface Contract
+
+`backend.genai_service` is the sole module callers use for GenAI behavior. Its public interface is limited to workflow-level operations and read projections:
+
+- run eligible GenAI Jobs after a completed data-sync workflow;
+- apply accepted automatic Quiz Labels while preserving manual precedence;
+- expose accepted player links to scoring;
+- build GenAI status for admin label projections;
+- process an admin Quiz Answer review.
+
+Callers provide an open DB-API connection and app-owned match data. Production provider configuration is read inside the module. Tests may inject a structured-completion callable. The module returns plain dictionaries and change metadata; it does not return Flask responses or import Flask route code.
+
+Rules:
+
+- `backend.genai_service` must not import `backend.app`.
+- Flask routes and sync workflows must not call prompt, validator, provider, or GenAI persistence helpers directly.
+- Internal helper names are not compatibility contracts.
+- Existing HTTP paths, status codes, request bodies, and response payloads below remain unchanged.
+- Provider calls occur only from explicit execution operations, never from projection helpers.
+
 ## GenAI Execution Contract
 
 GenAI execution is internal to sync, admin, and scoring-publication workflows. It must not run from participant-facing reads.

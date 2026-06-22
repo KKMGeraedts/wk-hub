@@ -1,5 +1,26 @@
 # Data Model: GenAI Service
 
+## Refactor Scope
+
+This plan changes module ownership, not persisted shape. Existing tables, status values, foreign keys, and precedence rules remain unchanged. `backend/genai_service.py` becomes the single implementation responsible for validating and mutating GenAI-owned entities. Database schema creation remains in `backend.app` because initialization spans the whole application and both supported database engines.
+
+## Ownership and Relationships
+
+- A **GenAI Job Result** records one attempted **Quiz Answer Job** or **Player Matching Job**.
+- An accepted Quiz Answer Job may publish one **GenAI Automatic Quiz Label**.
+- A **Manual Quiz Override** always shadows a GenAI Automatic Quiz Label when deriving the effective Quiz Label.
+- An accepted Player Matching Job may publish one **Player Candidate Link** while preserving the original source name.
+- A rejected, failed, disabled, or unresolved GenAI Job creates or refreshes one deduplicated **Admin Sync Issue**; acceptance or manual resolution closes the issue.
+- The deep module owns these transitions atomically on the caller-supplied database connection.
+
+## Transaction Invariants
+
+- Result recording precedes publication of an automatic label or player link.
+- Publication cannot occur unless deterministic validation returns accepted.
+- Failure status and its Admin Sync Issue are committed together by the surrounding workflow transaction.
+- Existing manual Quiz Label state is checked before changing effective scoring state.
+- Source names and compact evidence remain immutable audit inputs; publication creates links or labels rather than rewriting source facts.
+
 ## Existing Entities To Preserve
 
 ### Normalized Match Fact

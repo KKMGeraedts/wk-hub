@@ -1,5 +1,23 @@
 # Quickstart: GenAI Service
 
+## Architecture Validation
+
+After extraction, verify the deep module directly:
+
+```bash
+.venv/bin/python -m unittest backend.genai_service_test
+.venv/bin/python -m unittest backend.api_data_sync_test
+```
+
+Confirm dependency direction and removal of duplicate implementation:
+
+```bash
+rg "from backend import app|import backend.app" backend/genai_service.py
+rg "def (quiz_genai_prompt_messages|validate_quiz_genai_output|run_genai_jobs_after_data_sync|run_player_genai_job)" backend/app.py
+```
+
+Both searches should return no matches. The first proves the module does not import the Flask monolith; the second proves moved policy was deleted rather than retained behind shallow forwarding functions.
+
 ## Prerequisites
 
 1. Install the existing app dependencies:

@@ -3888,8 +3888,7 @@ function AdminDataSyncPage({ onSyncComplete }) {
 
   const syncSteps = [
     "Checking missing match results",
-    "Refreshing squad players",
-    "Verifying scorers",
+    "Running scoring jobs",
     "Recomputing points",
   ];
 
@@ -3909,11 +3908,6 @@ function AdminDataSyncPage({ onSyncComplete }) {
         : item.match_id;
     return `Match ${match.match_number || item.match_id}: ${teams}`;
   }
-
-  const syncedSquadPlayers = (result?.squad_synced ?? []).reduce(
-    (total, item) => total + (Number(item.players) || 0),
-    0,
-  );
 
   function requestCountLabel() {
     if (!result) return "";
@@ -3994,11 +3988,6 @@ function AdminDataSyncPage({ onSyncComplete }) {
     ? [
         `${result.match_ids?.length ?? 0} missing matches checked`,
         `${result.synced?.length ?? 0} matches synced`,
-        `${result.squad_synced?.length ?? 0} squads refreshed`,
-        `${syncedSquadPlayers} squad players synced`,
-        result.player_database_verification
-          ? `${result.player_database_verification.invalid_goal_scorers ?? 0} unmatched goal scorers`
-          : null,
         result.computed_points_updated ? "Points recomputed" : null,
       ].filter(Boolean)
     : [];
@@ -4008,7 +3997,7 @@ function AdminDataSyncPage({ onSyncComplete }) {
       <div className="panel-header">
         <div>
           <h3>Data sync</h3>
-          <p>Fetch missing match results and refresh the synced squad player database.</p>
+          <p>Fetch match results that are still missing and update scoring.</p>
         </div>
       </div>
       <div className="panel-body admin-sync-panel">
@@ -4018,7 +4007,7 @@ function AdminDataSyncPage({ onSyncComplete }) {
           disabled={busy}
           onClick={syncAllData}
         >
-          {busy ? "Syncing API-Football..." : "Sync match and squad data"}
+          {busy ? "Syncing API-Football..." : "Sync missing match results"}
         </button>
         {(busy || result) && (
           <div className="admin-sync-progress">
@@ -4060,8 +4049,6 @@ function AdminDataSyncPage({ onSyncComplete }) {
             <span>{result.synced?.length ?? 0} matches synced</span>
             <span>{result.attempts?.length ?? 0} provider attempts</span>
             <span>{result.skipped?.length ?? 0} skipped</span>
-            <span>{result.squad_synced?.length ?? 0} squads synced</span>
-            <span>{syncedSquadPlayers} squad players synced</span>
             <span>{requestCountLabel()}</span>
             {result.computed_points_updated && <span>Points recomputed</span>}
             {result.skipped?.length > 0 && (

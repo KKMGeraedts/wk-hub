@@ -1,5 +1,42 @@
 # Research: GenAI Service
 
+## Decision: Concentrate GenAI policy in one deep physical module
+
+**Rationale**: The implemented GenAI behavior is currently spread through roughly 2,000 lines of `backend/app.py`, including models, prompts, validation, SQL, publication, notifications, sync orchestration, and admin review. One `backend/genai_service.py` module gives callers a small interface while concentrating policy, failure modes, and tests in one place. The deletion test supports the extraction: deleting the current helpers would make their complexity reappear across sync, scoring, and admin callers.
+
+**Alternatives considered**:
+
+- Keep internal helper sections in `backend/app.py`: rejected because locality remains poor and tests must continue importing the whole Flask monolith.
+- Create a package with separate job, repository, validator, provider, and notification modules: rejected because most would be shallow modules with one implementation and pass-through interfaces.
+- Extract the entire backend by technical layer: rejected because it expands scope beyond the selected GenAI Service architecture candidate.
+
+## Decision: Keep dependency direction one-way from Flask app to GenAI Service
+
+**Rationale**: `backend.genai_service` must be independently importable and testable without importing Flask routes or triggering app initialization. It receives a DB-API connection and app-owned data explicitly. Scoring remains app-owned and is triggered from explicit result metadata or a narrow callback at the caller seam.
+
+**Alternatives considered**:
+
+- Import database and scoring helpers from `backend.app`: rejected because it creates a circular import and preserves hidden global coupling.
+- Move all database and scoring behavior into the GenAI module: rejected because those implementations are shared by non-GenAI workflows and do not belong to the GenAI Service.
+
+## Decision: Use one production provider adapter and injectable completion in tests
+
+**Rationale**: Mistral-specific HTTP, headers, model configuration, timeout, and response parsing stay private to the deep module. The module accepts an optional structured-completion callable for tests, producing a second concrete adapter without exposing provider details to workflow callers. A broad multi-provider framework is unnecessary.
+
+**Alternatives considered**:
+
+- Add an abstract provider class hierarchy: rejected because one production adapter does not justify a broad public seam.
+- Patch global Mistral functions in every test: rejected because it makes implementation details the test surface.
+
+## Decision: Extract by characterization, move, then delete
+
+**Rationale**: The feature already exists, so the refactor must preserve behavior rather than redesign it. Characterization tests lock the external seam first; implementation then moves into the new module; callers switch; duplicate helpers are deleted. This keeps each implementation step reviewable and catches accidental changes to persistence or payloads.
+
+**Alternatives considered**:
+
+- Rewrite the GenAI implementation against a new design in one step: rejected because it combines behavior changes with structural movement.
+- Leave forwarding aliases in `backend.app`: rejected after migration because they would be shallow modules and prevent the deletion test from proving consolidation.
+
 ## Decision: Use a provider-agnostic GenAI Service with Mistral as the first provider
 
 **Rationale**: The feature explicitly selects Mistral but also requires provider agnosticism. A small internal client boundary lets workflow code call `run_genai_job(...)` without knowing provider endpoint details, request headers, or model names. This also centralizes timeout, disabled-state, and error handling.

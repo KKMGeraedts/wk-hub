@@ -6,7 +6,7 @@ import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from backend import app as wk_app
 
@@ -533,7 +533,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         self.assertEqual(limit, 48)
 
-    def test_admin_data_sync_button_endpoint_runs_results_and_squads(self) -> None:
+    def test_admin_data_sync_button_endpoint_runs_missing_results_without_squads(self) -> None:
         def scenario(conn):
             wk_app.execute(
                 conn,
@@ -563,17 +563,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                         "skipped": [],
                     },
                 ) as result_sync,
-                patch.object(
-                    wk_app,
-                    "run_api_football_squad_sync",
-                    return_value={
-                        "ok": True,
-                        "dry_run": False,
-                        "synced": [{"team_id": "esp", "players": 26}],
-                        "skipped": [],
-                        "player_database_verification": {"invalid_goal_scorers": 0},
-                    },
-                ) as squad_sync,
+                patch.object(wk_app, "run_api_football_squad_sync") as squad_sync,
                 patch.object(
                     wk_app,
                     "run_genai_jobs_after_data_sync",
@@ -590,16 +580,9 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["synced"], [{"match_id": "m001"}])
-        self.assertEqual(payload["squad_synced"], [{"team_id": "esp", "players": 26}])
         self.assertEqual(payload["genai_jobs"], {"ok": True, "quiz_jobs": [], "player_jobs": []})
         result_sync.assert_called_once_with({"matches": [], "teams": []}, dry_run=False)
-        squad_sync.assert_called_once_with(
-            {"matches": [], "teams": []},
-            force=True,
-            dry_run=False,
-            limit=48,
-            include_coaches=False,
-        )
+        squad_sync.assert_not_called()
         genai_jobs.assert_called_once_with(
             {"matches": [], "teams": []},
             result_sync={
@@ -613,6 +596,45 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             },
         )
         recompute.assert_called_once()
+
+    def test_missing_result_batch_recomputes_no_points_per_match(self) -> None:
+        data: dict[str, Any] = {"matches": [], "teams": []}
+        with (
+            patch.object(wk_app, "missing_result_match_ids", return_value=["m001", "m002"]),
+            patch.object(
+                wk_app,
+                "run_api_football_completed_sync",
+                side_effect=[
+                    {"ok": True, "synced": [{"match_id": "m001"}]},
+                    {"ok": True, "synced": [{"match_id": "m002"}]},
+                ],
+            ) as sync,
+        ):
+            result = wk_app.run_missing_result_sync_batch(data)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["match_ids"], ["m001", "m002"])
+        self.assertEqual(
+            sync.call_args_list,
+            [
+                call(
+                    data,
+                    force=True,
+                    dry_run=False,
+                    limit=1,
+                    match_id="m001",
+                    recompute_points=False,
+                ),
+                call(
+                    data,
+                    force=True,
+                    dry_run=False,
+                    limit=1,
+                    match_id="m002",
+                    recompute_points=False,
+                ),
+            ],
+        )
 
     def test_admin_data_sync_dry_run_does_not_run_genai_jobs(self) -> None:
         def scenario(conn):
@@ -644,28 +666,20 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                         "skipped": [],
                     },
                 ),
-                patch.object(
-                    wk_app,
-                    "run_api_football_squad_sync",
-                    return_value={
-                        "ok": True,
-                        "dry_run": True,
-                        "synced": [],
-                        "skipped": [],
-                    },
-                ),
+                patch.object(wk_app, "run_api_football_squad_sync") as squad_sync,
                 patch.object(wk_app, "run_genai_jobs_after_data_sync") as genai_jobs,
                 patch.object(wk_app, "recompute_all_computed_points") as recompute,
             ):
                 response = client.post("/api/admin/api-football/data-sync", json={"dry_run": True})
-            return response, genai_jobs, recompute
+            return response, squad_sync, genai_jobs, recompute
 
-        response, genai_jobs, recompute = self.run_with_temp_db(scenario)
+        response, squad_sync, genai_jobs, recompute = self.run_with_temp_db(scenario)
         payload = response.get_json()
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(payload["ok"])
         self.assertIsNone(payload["genai_jobs"])
+        squad_sync.assert_not_called()
         genai_jobs.assert_not_called()
         recompute.assert_not_called()
 

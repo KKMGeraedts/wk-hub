@@ -2845,31 +2845,57 @@ def apply_stored_leaderboard_points(
 
 def recompute_all_computed_points(data: dict[str, Any]) -> dict[str, int]:
     rows = build_leaderboard(data, use_computed_points=False)
+    revision_key = f"{SCORING_REVISION}:{iso_utc(utc_now())}"
+    point_rows: list[tuple[Any, ...]] = []
+    for row in rows:
+        user_id = int(row["user_id"])
+        category_points = {
+            "match_score_points": int(row.get("match_score_points") or 0),
+            "group_position_points": int(row.get("group_position_points") or 0),
+            "quiz_points": int(row.get("quiz_points") or 0),
+            "winner_points": int(row.get("winner_points") or 0),
+            "top_scorer_points": int(row.get("top_scorer_points") or 0),
+            "striker_points": int(row.get("striker_points") or 0),
+            "leeuwtje_points": int(row.get("leeuwtje_points") or 0),
+        }
+        point_rows.extend(
+            (
+                user_id,
+                "leaderboard",
+                "current",
+                category,
+                points,
+                json.dumps({"source": "recompute_all_computed_points"}, sort_keys=True),
+                revision_key,
+            )
+            for category, points in category_points.items()
+        )
+
     with get_db() as conn:
         player_verification = verify_player_database_matches(conn)
         delete_computed_points(conn, scope_type="leaderboard", scope_id="current")
-        for row in rows:
-            user_id = int(row["user_id"])
-            category_points = {
-                "match_score_points": int(row.get("match_score_points") or 0),
-                "group_position_points": int(row.get("group_position_points") or 0),
-                "quiz_points": int(row.get("quiz_points") or 0),
-                "winner_points": int(row.get("winner_points") or 0),
-                "top_scorer_points": int(row.get("top_scorer_points") or 0),
-                "striker_points": int(row.get("striker_points") or 0),
-                "leeuwtje_points": int(row.get("leeuwtje_points") or 0),
-            }
-            for category, points in category_points.items():
-                upsert_computed_point(
-                    conn,
-                    user_id=user_id,
-                    scope_type="leaderboard",
-                    scope_id="current",
-                    category=category,
-                    points=points,
-                    details={"source": "recompute_all_computed_points"},
-                    facts_revision_key=f"{SCORING_REVISION}:{iso_utc(utc_now())}",
+        if point_rows:
+            cursor = conn.cursor()
+            try:
+                cursor.executemany(
+                    bind(
+                        """
+                        INSERT INTO computed_points (
+                            user_id, scope_type, scope_id, category, points, details_json,
+                            facts_revision_key, computed_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT(user_id, scope_type, scope_id, category)
+                        DO UPDATE SET points = excluded.points,
+                                      details_json = excluded.details_json,
+                                      facts_revision_key = excluded.facts_revision_key,
+                                      computed_at = CURRENT_TIMESTAMP
+                        """
+                    ),
+                    point_rows,
                 )
+            finally:
+                cursor.close()
     return player_verification
 
 
@@ -5752,6 +5778,7 @@ def run_api_football_completed_sync(
     daily_sweep: bool = False,
     limit: int = API_FOOTBALL_MAX_BATCH_SIZE,
     match_id: str | None = None,
+    recompute_points: bool = True,
 ) -> dict[str, Any]:
     limit = max(1, min(API_FOOTBALL_MAX_BATCH_SIZE, int(limit)))
     candidates = due_api_football_match_attempts(
@@ -6064,7 +6091,7 @@ def run_api_football_completed_sync(
             )
 
     player_verification = None
-    if synced:
+    if synced and recompute_points:
         player_verification = recompute_all_computed_points(data)
 
     return {
@@ -10360,6 +10387,7 @@ def run_missing_result_sync_batch(data: dict[str, Any], dry_run: bool = False) -
             dry_run=dry_run,
             limit=1,
             match_id=match_id,
+            recompute_points=False,
         )
         for match_id in match_ids
     ]
@@ -10418,31 +10446,20 @@ def api_football_admin_data_sync():
     data = load_world_cup_data()
     try:
         result_sync = run_missing_result_sync_batch(data, dry_run=dry_run)
-        squad_sync = run_api_football_squad_sync(
-            data,
-            force=True,
-            dry_run=dry_run,
-            limit=48,
-            include_coaches=False,
-        )
         genai_jobs = None
         if not dry_run:
             updated_data = load_world_cup_data()
             genai_jobs = run_genai_jobs_after_data_sync(updated_data, result_sync=result_sync)
             recompute_all_computed_points(load_world_cup_data())
         result = {
-            "ok": bool(result_sync.get("ok")) and bool(squad_sync.get("ok")),
+            "ok": bool(result_sync.get("ok")),
             "dry_run": dry_run,
             "result_sync": result_sync,
-            "squad_sync": squad_sync,
             "genai_jobs": genai_jobs,
             "match_ids": result_sync.get("match_ids", []),
             "synced": result_sync.get("synced", []),
             "attempts": result_sync.get("attempts", []),
             "skipped": result_sync.get("skipped", []),
-            "squad_synced": squad_sync.get("synced", []),
-            "squad_skipped": squad_sync.get("skipped", []),
-            "player_database_verification": squad_sync.get("player_database_verification"),
             "computed_points_updated": not dry_run,
             "requests_today": api_football_request_count_today(),
             "daily_limit": API_FOOTBALL_DAILY_LIMIT,
