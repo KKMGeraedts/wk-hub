@@ -36,6 +36,10 @@ _Avoid_: Calendar day, fixture date
 The elimination part of the tournament after the group stage, from the Round of 32 through the Final.
 _Avoid_: Knockout phase, bracket phase
 
+**Missing Action**:
+A prediction or quiz answer that a participant can still complete before its lock time. Urgent missing actions are limited to matches on the current or next matchday, while Knockout Stage planning may show all known open missing actions.
+_Avoid_: Incomplete data, notification
+
 **Day Score**:
 The points earned by each active participant from scoring facts on a single matchday. A day score list includes every active participant, including participants who earned zero points.
 _Avoid_: Top players, daily leaderboard
