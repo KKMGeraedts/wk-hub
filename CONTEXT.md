@@ -12,6 +12,14 @@ _Avoid_: Raw provider data, LLM answer
 The accepted answer for a match quiz question used during scoring. A quiz label can come from static quiz data, a deterministic resolver, a GenAI Job, or a manual admin override.
 _Avoid_: Quiz prediction, participant answer
 
+**Quiz Question**:
+A match-specific question that participants answer before a match locks. Knockout Stage matches each have one quiz question; published quiz questions should stay stable, with corrections reserved for mistakes.
+_Avoid_: Prompt
+
+**Quiz Correction**:
+A change to a published quiz question or answer options that fixes a mistake. Existing participant answers remain valid when they still match the corrected options; otherwise the quiz becomes a missing action again until the normal lock time.
+_Avoid_: Quiz rewrite, republish
+
 **Manual Override**:
 An admin-authored scoring fact that takes precedence over provider-backed or automatically derived facts.
 _Avoid_: Manual prediction, admin correction
