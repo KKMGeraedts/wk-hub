@@ -2043,6 +2043,8 @@ def manual_quiz_fill_requests(
             {
                 "match_id": match_id,
                 "match_number": match.get("match_number"),
+                "home_team_id": match.get("home_team_id"),
+                "away_team_id": match.get("away_team_id"),
                 "home_team_name": match.get("home_team"),
                 "away_team_name": match.get("away_team"),
                 "question": clean_text(quiz.get("question")),
