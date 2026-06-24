@@ -14,4 +14,9 @@ build/
 frontend/dist/
 node_modules/
 *.log
+*.egg-info/
+*.tmp
+*.swp
+.vscode/
+.idea/
 backend/pool.db

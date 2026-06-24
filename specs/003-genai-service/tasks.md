@@ -18,8 +18,8 @@
 
 **Purpose**: Establish the physical module and focused test location without changing runtime behavior.
 
-- [ ] T001 Create the importable GenAI Service module scaffold and explicit public export list in `backend/genai_service.py`
-- [ ] T002 [P] Create the focused unittest harness with temporary SQLite setup and deterministic structured-completion fake in `backend/genai_service_test.py`
+- [X] T001 Create the importable GenAI Service module scaffold and explicit public export list in `backend/genai_service.py`
+- [X] T002 [P] Create the focused unittest harness with temporary SQLite setup and deterministic structured-completion fake in `backend/genai_service_test.py`
 
 ---
 
@@ -29,11 +29,11 @@
 
 **⚠️ CRITICAL**: No user story migration begins until this phase passes focused tests.
 
-- [ ] T003 Add characterization tests for disabled configuration, Mistral request shaping, timeout/error conversion, compact result retention, and absence of raw prompt/response persistence in `backend/genai_service_test.py`
-- [ ] T004 Move GenAI constants, configuration parsing, canonical input hashing, structured response parsing, provider errors, and the private Mistral adapter from `backend/app.py` into `backend/genai_service.py`
-- [ ] T005 Move compact GenAI Job Result persistence and GenAI-specific Admin Sync Issue create/deduplicate/resolve behavior from `backend/app.py` into `backend/genai_service.py`
-- [ ] T006 Replace shared GenAI configuration and provider call sites with the module interface while preserving Flask initialization and generic notification behavior in `backend/app.py`
-- [ ] T007 Run the focused foundational tests and fix only module-seam regressions in `backend/genai_service_test.py` and `backend/genai_service.py`
+- [X] T003 Add characterization tests for disabled configuration, Mistral request shaping, timeout/error conversion, compact result retention, and absence of raw prompt/response persistence in `backend/genai_service_test.py`
+- [X] T004 Move GenAI constants, configuration parsing, canonical input hashing, structured response parsing, provider errors, and the private Mistral adapter from `backend/app.py` into `backend/genai_service.py`
+- [X] T005 Move compact GenAI Job Result persistence and GenAI-specific Admin Sync Issue create/deduplicate/resolve behavior from `backend/app.py` into `backend/genai_service.py`
+- [X] T006 Replace shared GenAI configuration and provider call sites with the module interface while preserving Flask initialization and generic notification behavior in `backend/app.py`
+- [X] T007 Run the focused foundational tests and fix only module-seam regressions in `backend/genai_service_test.py` and `backend/genai_service.py`
 
 **Checkpoint**: Provider behavior and shared GenAI persistence execute through `backend.genai_service`; quiz and player workflows may now migrate independently.
 
@@ -47,17 +47,17 @@
 
 ### Tests for User Story 1
 
-- [ ] T008 [P] [US1] Add module-level tests for minimal normalized quiz inputs, accepted-option validation, evidence validation, low-confidence rejection, and unsupported evidence in `backend/genai_service_test.py`
-- [ ] T009 [P] [US1] Add Flask integration characterization tests for sync-triggered quiz execution, manual Quiz Label precedence, admin review, scoring recalculation, and unchanged participant predictions in `backend/api_data_sync_test.py`
+- [X] T008 [P] [US1] Add module-level tests for minimal normalized quiz inputs, accepted-option validation, evidence validation, low-confidence rejection, and unsupported evidence in `backend/genai_service_test.py`
+- [X] T009 [P] [US1] Add Flask integration characterization tests for sync-triggered quiz execution, manual Quiz Label precedence, admin review, scoring recalculation, and unchanged participant predictions in `backend/api_data_sync_test.py`
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Move Quiz Answer Job models, prompt construction, normalized fact input construction, and deterministic output validation from `backend/app.py` into `backend/genai_service.py`
-- [ ] T011 [US1] Move GenAI Automatic Quiz Label persistence, effective-label application, review persistence, and unresolved-quiz Admin Sync Issue lifecycle from `backend/app.py` into `backend/genai_service.py`
-- [ ] T012 [US1] Expose workflow-level quiz execution, automatic-label projection, and admin-review operations from `backend/genai_service.py` without exposing prompt, validator, or SQL helpers
-- [ ] T013 [US1] Rewire data-sync orchestration, effective Quiz Label application, admin label projection, and `POST /api/admin/genai/quiz-reviews/<job_result_id>` to the deep module in `backend/app.py`
-- [ ] T014 [US1] Remove migrated quiz GenAI definitions and update affected test imports from `backend.app` to `backend.genai_service` in `backend/app.py` and `backend/api_data_sync_test.py`
-- [ ] T015 [US1] Run the US1 module and Flask integration scenarios and resolve parity failures in `backend/genai_service_test.py`, `backend/api_data_sync_test.py`, `backend/genai_service.py`, and `backend/app.py`
+- [X] T010 [US1] Move Quiz Answer Job models, prompt construction, normalized fact input construction, and deterministic output validation from `backend/app.py` into `backend/genai_service.py`
+- [X] T011 [US1] Move GenAI Automatic Quiz Label persistence, effective-label application, review persistence, and unresolved-quiz Admin Sync Issue lifecycle from `backend/app.py` into `backend/genai_service.py`
+- [X] T012 [US1] Expose workflow-level quiz execution, automatic-label projection, and admin-review operations from `backend/genai_service.py` without exposing prompt, validator, or SQL helpers
+- [X] T013 [US1] Rewire manual sync, missing-result sync, admin data-sync, effective Quiz Label application, admin label projection, and `POST /api/admin/genai/quiz-reviews/<job_result_id>` to the deep module in `backend/app.py`
+- [X] T014 [US1] Remove migrated quiz GenAI definitions and update affected test imports from `backend.app` to `backend.genai_service` in `backend/app.py` and `backend/api_data_sync_test.py`
+- [X] T015 [US1] Run the US1 module and Flask integration scenarios and resolve parity failures in `backend/genai_service_test.py`, `backend/api_data_sync_test.py`, `backend/genai_service.py`, and `backend/app.py`
 
 **Checkpoint**: User Story 1 works end-to-end through the deep module and is independently testable with the player workflow still unchanged.
 
@@ -71,16 +71,16 @@
 
 ### Tests for User Story 2
 
-- [ ] T016 [P] [US2] Add module-level tests for candidate shortlist construction, deterministic-failure eligibility, accepted candidate validation, ambiguity, outside-candidate rejection, and preserved raw names in `backend/genai_service_test.py`
-- [ ] T017 [P] [US2] Add Flask integration characterization tests for scorer/striker job triggering, accepted-link scoring, and unresolved-player notification resolution in `backend/api_data_sync_test.py`
+- [X] T016 [P] [US2] Add module-level tests for candidate shortlist construction, deterministic-failure eligibility, accepted candidate validation, ambiguity, outside-candidate rejection, and preserved raw names in `backend/genai_service_test.py`
+- [X] T017 [P] [US2] Add Flask integration characterization tests for scorer/striker job triggering, accepted-link scoring, and unresolved-player notification resolution in `backend/api_data_sync_test.py`
 
 ### Implementation for User Story 2
 
-- [ ] T018 [US2] Move player-name normalization, deterministic match checks, candidate shortlist construction, Player Matching Job prompt construction, and output validation from `backend/app.py` into `backend/genai_service.py`
-- [ ] T019 [US2] Move Player Candidate Link persistence, accepted-link projection, unresolved target discovery, player-job execution, and player-related Admin Sync Issue lifecycle from `backend/app.py` into `backend/genai_service.py`
-- [ ] T020 [US2] Rewire post-sync player-job orchestration, player database verification, accepted scorer-link lookup, and scorer/striker scoring reads to the deep module in `backend/app.py`
-- [ ] T021 [US2] Remove migrated player GenAI definitions and update affected test imports from `backend.app` to `backend.genai_service` in `backend/app.py` and `backend/api_data_sync_test.py`
-- [ ] T022 [US2] Run the US2 module and Flask integration scenarios and resolve parity failures in `backend/genai_service_test.py`, `backend/api_data_sync_test.py`, `backend/genai_service.py`, and `backend/app.py`
+- [X] T018 [US2] Move player-name normalization, deterministic match checks, candidate shortlist construction, Player Matching Job prompt construction, and output validation from `backend/app.py` into `backend/genai_service.py`
+- [X] T019 [US2] Move Player Candidate Link persistence, accepted-link projection, unresolved target discovery, player-job execution, and player-related Admin Sync Issue lifecycle from `backend/app.py` into `backend/genai_service.py`
+- [X] T020 [US2] Rewire post-sync player-job orchestration, player database verification, accepted scorer-link lookup, and scorer/striker scoring reads to the deep module in `backend/app.py`
+- [X] T021 [US2] Remove migrated player GenAI definitions and update affected test imports from `backend.app` to `backend.genai_service` in `backend/app.py` and `backend/api_data_sync_test.py`
+- [X] T022 [US2] Run the US2 module and Flask integration scenarios and resolve parity failures in `backend/genai_service_test.py`, `backend/api_data_sync_test.py`, `backend/genai_service.py`, and `backend/app.py`
 
 **Checkpoint**: User Stories 1 and 2 execute independently through the deep module and retain their original persisted state and scoring effects.
 
@@ -94,15 +94,15 @@
 
 ### Tests for User Story 3
 
-- [ ] T023 [P] [US3] Add module-level tests for compact status projections, provider detail handling, failure deduplication, successful issue resolution, and projection helpers that perform no provider calls in `backend/genai_service_test.py`
-- [ ] T024 [P] [US3] Add Flask integration tests proving `/api/world-cup`, `/api/pool`, and profile reads perform zero provider calls and GenAI writes while admin label and notification payloads remain compatible in `backend/api_data_sync_test.py`
+- [X] T023 [P] [US3] Add module-level tests for compact status projections, provider detail handling, failure deduplication, successful issue resolution, and projection helpers that perform no provider calls in `backend/genai_service_test.py`
+- [X] T024 [P] [US3] Add Flask integration tests proving `/api/world-cup`, `/api/pool`, and profile reads perform zero provider calls and GenAI writes while admin label and notification payloads remain compatible in `backend/api_data_sync_test.py`
 
 ### Implementation for User Story 3
 
-- [ ] T025 [US3] Move compact GenAI status summaries, Quiz Answer review payloads, player-link payloads, and admin projection helpers from `backend/app.py` into `backend/genai_service.py`
-- [ ] T026 [US3] Rewire admin label and Admin Sync Issue payload construction to read through side-effect-free module projections while keeping authorization and Flask responses in `backend/app.py`
-- [ ] T027 [US3] Remove remaining GenAI implementation details from `backend/app.py` so routes, sync, and scoring callers use only workflow-level operations exported by `backend/genai_service.py`
-- [ ] T028 [US3] Run the US3 safety and compatibility scenarios and resolve parity failures in `backend/genai_service_test.py`, `backend/api_data_sync_test.py`, `backend/genai_service.py`, and `backend/app.py`
+- [X] T025 [US3] Move compact GenAI status summaries, Quiz Answer review payloads, player-link payloads, and admin projection helpers from `backend/app.py` into `backend/genai_service.py`
+- [X] T026 [US3] Rewire admin label and Admin Sync Issue payload construction to read through side-effect-free module projections while keeping authorization and Flask responses in `backend/app.py`
+- [X] T027 [US3] Remove remaining GenAI implementation details from `backend/app.py` so routes, sync, and scoring callers use only workflow-level operations exported by `backend/genai_service.py`
+- [X] T028 [US3] Run the US3 safety and compatibility scenarios and resolve parity failures in `backend/genai_service_test.py`, `backend/api_data_sync_test.py`, `backend/genai_service.py`, and `backend/app.py`
 
 **Checkpoint**: All three user stories retain behavior while GenAI policy, provider handling, persistence, and projections have locality in one deep module.
 
@@ -112,12 +112,12 @@
 
 **Purpose**: Prove the extraction is complete, preserve quality gates, and synchronize documentation with the resulting interface.
 
-- [ ] T029 [P] Update the implemented module ownership, public operations, and validation commands after extraction in `specs/003-genai-service/quickstart.md` and `specs/003-genai-service/contracts/api-and-ui-contract.md`
-- [ ] T030 Apply the deletion test by removing forwarding aliases and confirming prompt, validator, provider, persistence, and job-orchestration definitions no longer exist in `backend/app.py`
-- [ ] T031 Verify `backend/genai_service.py` does not import `backend.app`, exposes only workflow-level operations, and keeps Mistral details private in `backend/genai_service.py`
-- [ ] T032 Run Black, Ruff, and mypy and fix findings in `backend/genai_service.py`, `backend/genai_service_test.py`, `backend/app.py`, and `backend/api_data_sync_test.py`
-- [ ] T033 Run the full backend unittest suite and resolve regressions in `backend/genai_service_test.py`, `backend/api_data_sync_test.py`, `backend/genai_service.py`, and `backend/app.py`
-- [ ] T034 Run the frontend production build and full repository check, confirming no HTTP/UI contract regressions in `frontend/src/main.jsx` and `specs/003-genai-service/contracts/api-and-ui-contract.md`
+- [X] T029 [P] Update the implemented module ownership, public operations, and validation commands after extraction in `specs/003-genai-service/quickstart.md` and `specs/003-genai-service/contracts/api-and-ui-contract.md`
+- [X] T030 Apply the deletion test by removing forwarding aliases and confirming prompt, validator, provider, persistence, and job-orchestration definitions no longer exist in `backend/app.py`
+- [X] T031 Verify `backend/genai_service.py` does not import `backend.app`, exposes only workflow-level operations, and keeps Mistral details private in `backend/genai_service.py`
+- [X] T032 Run Black, Ruff, and mypy and fix findings in `backend/genai_service.py`, `backend/genai_service_test.py`, `backend/app.py`, and `backend/api_data_sync_test.py`
+- [X] T033 Stabilize time-dependent fixtures, run the full backend unittest suite, and resolve regressions in `backend/genai_service_test.py`, `backend/api_data_sync_test.py`, `backend/genai_service.py`, and `backend/app.py`
+- [X] T034 Run the frontend production build and full repository check, confirming no HTTP/UI contract regressions in `frontend/src/main.jsx` and `specs/003-genai-service/contracts/api-and-ui-contract.md`
 
 ---
 

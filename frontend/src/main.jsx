@@ -3885,6 +3885,8 @@ function AdminDataSyncPage({ onSyncComplete }) {
   const [reviewingJobId, setReviewingJobId] = useState(null);
   const [reviewChoices, setReviewChoices] = useState({});
   const [savingReviewId, setSavingReviewId] = useState(null);
+  const [manualFillDrafts, setManualFillDrafts] = useState({});
+  const [savingManualFillId, setSavingManualFillId] = useState("");
 
   const syncSteps = [
     "Checking missing match results",
@@ -3929,6 +3931,14 @@ function AdminDataSyncPage({ onSyncComplete }) {
         body: "{}",
       });
       setResult(response);
+      const fillDrafts = {};
+      for (const fill of response.genai_jobs?.manual_quiz_fills ?? []) {
+        fillDrafts[fill.match_id] = {
+          correct_answer: "",
+          viewership_answer: "",
+        };
+      }
+      setManualFillDrafts(fillDrafts);
       if (response.ok && typeof onSyncComplete === "function") {
         await onSyncComplete();
       }
@@ -3943,6 +3953,53 @@ function AdminDataSyncPage({ onSyncComplete }) {
   const quizReviews = (result?.genai_jobs?.quiz_jobs ?? [])
     .map((job) => job.review)
     .filter(Boolean);
+  const manualQuizFills = result?.genai_jobs?.manual_quiz_fills ?? [];
+
+  function updateManualFillDraft(matchId, key, value) {
+    setManualFillDrafts((current) => ({
+      ...current,
+      [matchId]: {
+        ...(current[matchId] ?? {}),
+        [key]: value,
+      },
+    }));
+  }
+
+  async function saveManualQuizFill(fill) {
+    const draft = manualFillDrafts[fill.match_id] ?? {};
+    const answer = String(draft.correct_answer ?? "").trim();
+    if (!answer) {
+      setError("Fill in the correct quiz answer before saving.");
+      return;
+    }
+    setSavingManualFillId(fill.match_id);
+    setError("");
+    try {
+      await apiJson(`/api/admin/labels/${fill.match_id}/quiz`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          question: fill.question,
+          choices: fill.choices ?? [],
+          correct_answers: [answer],
+          viewership_answer: draft.viewership_answer,
+        }),
+      });
+      setResult((current) => ({
+        ...current,
+        genai_jobs: {
+          ...current.genai_jobs,
+          manual_quiz_fills: (current.genai_jobs?.manual_quiz_fills ?? []).filter(
+            (item) => item.match_id !== fill.match_id,
+          ),
+        },
+      }));
+      if (typeof onSyncComplete === "function") await onSyncComplete();
+    } catch (fillError) {
+      setError(fillError.message);
+    } finally {
+      setSavingManualFillId("");
+    }
+  }
 
   async function submitQuizReview(review, decision) {
     const correctAnswer = reviewChoices[review.job_result_id] ?? "";
@@ -4140,6 +4197,96 @@ function AdminDataSyncPage({ onSyncComplete }) {
                           </button>
                         </div>
                       )}
+                    </div>
+                  );
+                })}
+              </section>
+            )}
+            {manualQuizFills.length > 0 && (
+              <section className="admin-genai-review-list" aria-label="Manual quiz labels">
+                <div className="admin-genai-review-heading">
+                  <strong>Fill missing quiz labels</strong>
+                  <span>{manualQuizFills.length} manual</span>
+                </div>
+                {manualQuizFills.map((fill) => {
+                  const draft = manualFillDrafts[fill.match_id] ?? {};
+                  const hasChoices = (fill.choices ?? []).length > 0;
+                  const matchTitle =
+                    fill.home_team_name && fill.away_team_name
+                      ? `${fill.home_team_name} vs ${fill.away_team_name}`
+                      : fill.match_id;
+                  return (
+                    <div className="admin-genai-review" key={fill.match_id}>
+                      <div>
+                        <strong>{fill.question}</strong>
+                        <span>{matchTitle}</span>
+                      </div>
+                      <div className="admin-genai-correction">
+                        <strong>Manual answer</strong>
+                        {hasChoices ? (
+                          <div className="admin-genai-correction-options">
+                            {fill.choices.map((choice) => (
+                              <label key={choice}>
+                                <input
+                                  type="radio"
+                                  name={`manual-quiz-fill-${fill.match_id}`}
+                                  value={choice}
+                                  checked={draft.correct_answer === choice}
+                                  onChange={() =>
+                                    updateManualFillDraft(
+                                      fill.match_id,
+                                      "correct_answer",
+                                      choice,
+                                    )
+                                  }
+                                />
+                                <span>{choice}</span>
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <input
+                            value={draft.correct_answer ?? ""}
+                            onChange={(event) =>
+                              updateManualFillDraft(
+                                fill.match_id,
+                                "correct_answer",
+                                event.target.value,
+                              )
+                            }
+                            placeholder="Correct answer"
+                          />
+                        )}
+                        {fill.viewership_required && (
+                          <label>
+                            Viewership answer
+                            <input
+                              type="number"
+                              value={draft.viewership_answer ?? ""}
+                              onChange={(event) =>
+                                updateManualFillDraft(
+                                  fill.match_id,
+                                  "viewership_answer",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </label>
+                        )}
+                        <button
+                          className="primary-button"
+                          type="button"
+                          disabled={
+                            savingManualFillId === fill.match_id ||
+                            !String(draft.correct_answer ?? "").trim()
+                          }
+                          onClick={() => saveManualQuizFill(fill)}
+                        >
+                          {savingManualFillId === fill.match_id
+                            ? "Saving..."
+                            : "Save manual quiz label"}
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -6918,6 +7065,7 @@ function NotificationBell({
   onPredictions,
   onNotificationAction,
   onCelebrateBadge,
+  onDismissNotification,
 }) {
   const count = notifications.reduce(
     (total, notification) => total + notification.count,
@@ -6969,6 +7117,17 @@ function NotificationBell({
                   .filter(Boolean)
                   .join(" ")}
               >
+                {notification.type === "sync_issue" && (
+                  <button
+                    className="notification-dismiss"
+                    type="button"
+                    onClick={() => onDismissNotification?.(notification)}
+                    aria-label="Dismiss notification"
+                    title="Dismiss notification"
+                  >
+                    x
+                  </button>
+                )}
                 <strong>{notification.title}</strong>
                 <p>{notification.body}</p>
                 {notification.type === "badge_unlocked" ? (
@@ -7207,6 +7366,30 @@ function App() {
       return;
     }
     navigateToPredictionTarget(item);
+  }
+
+  async function dismissNotification(notification) {
+    if (notification?.type !== "sync_issue" || !notification.id) return;
+    setPool((current) =>
+      current
+        ? {
+            ...current,
+            notifications: (current.notifications ?? []).filter(
+              (item) =>
+                item.type !== "sync_issue" || item.id !== notification.id,
+            ),
+          }
+        : current,
+    );
+    try {
+      await apiJson(`/api/admin/notifications/sync-issues/${notification.id}/dismiss`, {
+        method: "POST",
+        body: "{}",
+      });
+    } catch (err) {
+      setLoadError(err.message);
+      loadPool();
+    }
   }
 
   function celebrateBadge(notification) {
@@ -7595,6 +7778,7 @@ function App() {
             onPredictions={() => navigateToView("adjust")}
             onNotificationAction={handleNotificationAction}
             onCelebrateBadge={celebrateBadge}
+            onDismissNotification={dismissNotification}
           />
           <button
             className="faq-button"

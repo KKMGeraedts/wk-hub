@@ -320,6 +320,7 @@ textarea {
 }
 
 .notification-item.is-sync-issue {
+    padding-right: 42px;
     border-color: rgba(217, 119, 6, 0.35);
     background: #fffbeb;
 }
@@ -339,6 +340,29 @@ textarea {
     margin-top: 4px;
     color: var(--muted);
     font-size: 13px;
+}
+
+.notification-dismiss {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: grid;
+    width: 24px;
+    height: 24px;
+    place-items: center;
+    border: 1px solid rgba(100, 116, 139, 0.28);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.82);
+    color: var(--muted);
+    font-size: 14px;
+    font-weight: 950;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.notification-dismiss:hover {
+    border-color: rgba(174, 28, 40, 0.32);
+    color: var(--red);
 }
 
 .notification-actions {
@@ -2874,6 +2898,11 @@ tr.highlight td {
     width: 100%;
     padding-top: 10px;
     border-top: 1px solid #dfe5ed;
+}
+
+.admin-genai-correction > input,
+.admin-genai-correction label > input {
+    width: min(100%, 360px);
 }
 
 .admin-genai-correction-options {

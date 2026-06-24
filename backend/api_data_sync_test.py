@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import call, patch
 
 from backend import app as wk_app
+from backend import genai_service
 
 
 def make_match(
@@ -313,7 +314,14 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             client = wk_app.app.test_client()
             with client.session_transaction() as session:
                 session["user_id"] = 1
-            with patch.object(wk_app, "load_world_cup_data", return_value=data):
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(
+                    wk_app,
+                    "utc_now",
+                    return_value=datetime(2026, 6, 20, 12, 0, tzinfo=UTC),
+                ),
+            ):
                 response = client.post(
                     "/api/predictions/m001",
                     json={
@@ -565,7 +573,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 ) as result_sync,
                 patch.object(wk_app, "run_api_football_squad_sync") as squad_sync,
                 patch.object(
-                    wk_app,
+                    genai_service,
                     "run_genai_jobs_after_data_sync",
                     return_value={"ok": True, "quiz_jobs": [], "player_jobs": []},
                 ) as genai_jobs,
@@ -595,6 +603,68 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 "skipped": [],
             },
         )
+        recompute.assert_called_once()
+
+    def test_admin_data_sync_returns_manual_quiz_fill_when_open_quiz_has_no_label(self) -> None:
+        data = {
+            "matches": [
+                {
+                    "id": "m001",
+                    "match_number": 33,
+                    "home_team": "Netherlands",
+                    "away_team": "Sweden",
+                    "quiz": {
+                        "question": "Welke speler wordt volgens de FIFA man van de wedstrijd?",
+                        "type": "open",
+                        "viewership": True,
+                    },
+                }
+            ],
+            "teams": [],
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
+                """,
+            )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(
+                    wk_app,
+                    "run_missing_result_sync_batch",
+                    return_value={
+                        "ok": True,
+                        "dry_run": False,
+                        "match_ids": ["m001"],
+                        "results": [],
+                        "synced": [{"match_id": "m001"}],
+                        "attempts": [{"match_id": "m001"}],
+                        "skipped": [],
+                    },
+                ),
+                patch.object(wk_app, "recompute_all_computed_points") as recompute,
+            ):
+                response = client.post("/api/admin/api-football/data-sync", json={})
+            return response, recompute
+
+        response, recompute = self.run_with_temp_db(scenario)
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        fills = payload["genai_jobs"]["manual_quiz_fills"]
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(fills[0]["match_id"], "m001")
+        self.assertEqual(fills[0]["home_team_name"], "Netherlands")
+        self.assertTrue(fills[0]["viewership_required"])
+        self.assertEqual(fills[0]["choices"], [])
         recompute.assert_called_once()
 
     def test_missing_result_batch_recomputes_no_points_per_match(self) -> None:
@@ -667,7 +737,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     },
                 ),
                 patch.object(wk_app, "run_api_football_squad_sync") as squad_sync,
-                patch.object(wk_app, "run_genai_jobs_after_data_sync") as genai_jobs,
+                patch.object(genai_service, "run_genai_jobs_after_data_sync") as genai_jobs,
                 patch.object(wk_app, "recompute_all_computed_points") as recompute,
             ):
                 response = client.post("/api/admin/api-football/data-sync", json={"dry_run": True})
@@ -2774,6 +2844,40 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             notifications,
         )
 
+    def test_admin_can_dismiss_sync_issue_notification(self) -> None:
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
+                """,
+            )
+            wk_app.create_admin_sync_notification(
+                conn,
+                notification_type="provider_request_failed",
+                target_type=wk_app.SYNC_TARGET_MATCH_RESULT,
+                target_id="m001",
+                title="Provider failed",
+                body="Retry later",
+            )
+            conn.commit()
+            notification = wk_app.active_admin_sync_notifications(conn)[0]
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            response = client.post(
+                f"/api/admin/notifications/sync-issues/{notification['id']}/dismiss",
+                json={},
+            )
+            remaining = wk_app.active_admin_sync_notifications(conn)
+            return response, remaining
+
+        response, remaining = self.run_with_temp_db(scenario)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(remaining, [])
+
     def test_sync_issue_notifications_are_admin_only_in_pool_state(self) -> None:
         data = self.scoring_data(done=False)
 
@@ -2833,7 +2937,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             clear=False,
         ):
             wk_app.os.environ.pop("MISTRAL_API_KEY", None)
-            config = wk_app.genai_config()
+            config = genai_service.genai_config()
 
         self.assertEqual(config["provider_key"], "mistral")
         self.assertEqual(config["model"], "test-model")
@@ -2843,7 +2947,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
     def test_genai_config_disables_jobs_when_parser_dependency_is_missing(self) -> None:
         with (
-            patch.object(wk_app, "PYDANTIC_IMPORT_ERROR", "No module named pydantic"),
+            patch.object(genai_service, "PYDANTIC_IMPORT_ERROR", "No module named pydantic"),
             patch.dict(
                 wk_app.os.environ,
                 {
@@ -2853,7 +2957,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 clear=False,
             ),
         ):
-            config = wk_app.genai_config()
+            config = genai_service.genai_config()
 
         self.assertFalse(config["enabled"])
         self.assertEqual(config["disabled_reason"], "missing_pydantic")
@@ -2869,20 +2973,20 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             },
             clear=False,
         ):
-            config = wk_app.genai_config()
+            config = genai_service.genai_config()
 
         self.assertTrue(config["enabled"])
         self.assertEqual(config["api_key"], "test-key")
-        self.assertEqual(config["timeout_seconds"], wk_app.GENAI_DEFAULT_TIMEOUT_SECONDS)
+        self.assertEqual(config["timeout_seconds"], genai_service.GENAI_DEFAULT_TIMEOUT_SECONDS)
 
     def test_genai_job_result_storage_is_compact(self) -> None:
         def scenario(conn):
-            result_id = wk_app.record_genai_job_result(
+            result_id = genai_service.record_genai_job_result(
                 conn,
-                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
-                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                job_type=genai_service.GENAI_JOB_QUIZ_ANSWER,
+                target_type=genai_service.GENAI_TARGET_MATCH_QUIZ,
                 target_id="m001",
-                status=wk_app.GENAI_STATUS_REJECTED,
+                status=genai_service.GENAI_STATUS_REJECTED,
                 provider_key="mistral",
                 model="test-model",
                 input_payload={
@@ -2894,15 +2998,15 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 failure_code="low_confidence",
                 failure_message="Model was unsure",
             )
-            row = wk_app.genai_job_result_by_id(conn, result_id)
+            row = genai_service.genai_job_result_by_id(conn, result_id)
             table_rows = wk_app.execute(conn, "SELECT * FROM genai_job_results").fetchall()
             return row, table_rows
 
         row, table_rows = self.run_with_temp_db(scenario)
 
         self.assertEqual(len(table_rows), 1)
-        self.assertEqual(row["job_type"], wk_app.GENAI_JOB_QUIZ_ANSWER)
-        self.assertEqual(row["status"], wk_app.GENAI_STATUS_REJECTED)
+        self.assertEqual(row["job_type"], genai_service.GENAI_JOB_QUIZ_ANSWER)
+        self.assertEqual(row["status"], genai_service.GENAI_STATUS_REJECTED)
         self.assertEqual(row["failure_code"], "low_confidence")
         self.assertIsNotNone(row["input_hash"])
         serialized = json.dumps(dict(row), default=str)
@@ -2912,29 +3016,29 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
     def test_genai_failure_notifications_are_deduplicated_and_resolvable(self) -> None:
         def scenario(conn):
-            wk_app.create_genai_failure_notification(
+            genai_service.create_genai_failure_notification(
                 conn,
-                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
-                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                job_type=genai_service.GENAI_JOB_QUIZ_ANSWER,
+                target_type=genai_service.GENAI_TARGET_MATCH_QUIZ,
                 target_id="m001",
                 failure_code="invalid_output",
                 title="Quiz GenAI needs review",
                 body="The GenAI quiz answer could not be used.",
             )
-            wk_app.create_genai_failure_notification(
+            genai_service.create_genai_failure_notification(
                 conn,
-                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
-                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                job_type=genai_service.GENAI_JOB_QUIZ_ANSWER,
+                target_type=genai_service.GENAI_TARGET_MATCH_QUIZ,
                 target_id="m001",
                 failure_code="invalid_output",
                 title="Quiz GenAI still needs review",
                 body="The GenAI quiz answer still could not be used.",
             )
             first = wk_app.active_admin_sync_notifications(conn)
-            wk_app.resolve_genai_failure_notification(
+            genai_service.resolve_genai_failure_notification(
                 conn,
-                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
-                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                job_type=genai_service.GENAI_JOB_QUIZ_ANSWER,
+                target_type=genai_service.GENAI_TARGET_MATCH_QUIZ,
                 target_id="m001",
                 failure_code="invalid_output",
             )
@@ -2944,12 +3048,14 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         first, second = self.run_with_temp_db(scenario)
 
         genai_first = [
-            item for item in first if item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED
+            item
+            for item in first
+            if item["type"] == genai_service.SYNC_NOTIFICATION_GENAI_JOB_FAILED
         ]
         self.assertEqual(len(genai_first), 1)
         self.assertEqual(genai_first[0]["title"], "Quiz GenAI still needs review")
         self.assertFalse(
-            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
+            any(item["type"] == genai_service.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
         )
 
     def test_quiz_genai_accepts_high_confidence_supplied_evidence(self) -> None:
@@ -2957,7 +3063,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         def scenario(conn):
             self.seed_scoring_user(conn)
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
             output = {
                 "status": "answered",
                 "selected_answers": ["Netherlands"],
@@ -2965,7 +3071,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 "reason": "The stored match result has Netherlands winning 2-1.",
                 "evidence": [{"type": "match_event", "id": "provider:event:1"}],
             }
-            return wk_app.validate_quiz_genai_output(output, job_input)
+            return genai_service.validate_quiz_genai_output(output, job_input)
 
         result = self.run_with_temp_db(scenario)
 
@@ -2978,17 +3084,17 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         def scenario(conn):
             self.seed_scoring_user(conn)
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
             output = {
                 "choice": "Netherlands",
                 "confidence": 0.92,
                 "reason": "The supplied facts support this answer.",
             }
-            return job_input, wk_app.validate_quiz_genai_output(output, job_input)
+            return job_input, genai_service.validate_quiz_genai_output(output, job_input)
 
         job_input, result = self.run_with_temp_db(scenario)
 
-        parsed_input = wk_app.QuizGenAIInputModel.model_validate(
+        parsed_input = genai_service.QuizGenAIInputModel.model_validate(
             {
                 "question": job_input["question"],
                 "choices": job_input["choices"],
@@ -3006,14 +3112,14 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         def scenario(conn):
             self.seed_scoring_user(conn)
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
             cases = [
                 {"choice": "", "confidence": 0, "reason": "No facts."},
                 {"choice": "Netherlands", "confidence": 0.4, "reason": "Unsure."},
                 {"choice": "Germany", "confidence": 0.95, "reason": "Bad option."},
                 {"choice": "Netherlands", "confidence": 1.5, "reason": "Bad confidence."},
             ]
-            return [wk_app.validate_quiz_genai_output(case, job_input) for case in cases]
+            return [genai_service.validate_quiz_genai_output(case, job_input) for case in cases]
 
         results = self.run_with_temp_db(scenario)
 
@@ -3040,7 +3146,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             },
         }
 
-        result = wk_app.validate_quiz_genai_output(
+        result = genai_service.validate_quiz_genai_output(
             {"choice": "ja", "confidence": 0.95, "reason": "Hallucinated answer."},
             job_input,
         )
@@ -3053,8 +3159,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         def scenario(conn):
             self.seed_scoring_user(conn)
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
-            wk_app.publish_quiz_genai_label(
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
+            genai_service.publish_quiz_genai_label(
                 conn,
                 data,
                 data["matches"][0],
@@ -3062,7 +3168,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 job_input,
             )
             first = wk_app.active_admin_sync_notifications(conn)
-            wk_app.publish_quiz_genai_label(
+            genai_service.publish_quiz_genai_label(
                 conn,
                 data,
                 data["matches"][0],
@@ -3079,10 +3185,10 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         first, second = self.run_with_temp_db(scenario)
 
         self.assertTrue(
-            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in first)
+            any(item["type"] == genai_service.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in first)
         )
         self.assertFalse(
-            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
+            any(item["type"] == genai_service.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
         )
 
     def test_quiz_genai_prompt_uses_choice_confidence_contract_examples(self) -> None:
@@ -3090,8 +3196,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         def scenario(conn):
             self.seed_scoring_user(conn)
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
-            return wk_app.quiz_genai_prompt_messages(job_input)
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
+            return genai_service.quiz_genai_prompt_messages(job_input)
 
         messages = self.run_with_temp_db(scenario)
         serialized = json.dumps(messages)
@@ -3106,7 +3212,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         def scenario(conn):
             self.seed_scoring_user(conn)
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
             cases = [
                 None,
                 {"status": "answered", "selected_answers": ["Germany"], "confidence": "high"},
@@ -3129,7 +3235,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     "evidence": [],
                 },
             ]
-            return [wk_app.validate_quiz_genai_output(case, job_input) for case in cases]
+            return [genai_service.validate_quiz_genai_output(case, job_input) for case in cases]
 
         results = self.run_with_temp_db(scenario)
 
@@ -3152,15 +3258,19 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         def scenario(conn):
             self.seed_scoring_user(conn)
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
             output = {
                 "status": "answered",
                 "selected_answers": ["Germany"],
                 "confidence": "high",
                 "evidence": [{"type": "match_event", "id": "provider:event:1"}],
             }
-            wk_app.publish_quiz_genai_label(conn, data, data["matches"][0], output, job_input)
-            wk_app.publish_quiz_genai_label(conn, data, data["matches"][0], output, job_input)
+            genai_service.publish_quiz_genai_label(
+                conn, data, data["matches"][0], output, job_input
+            )
+            genai_service.publish_quiz_genai_label(
+                conn, data, data["matches"][0], output, job_input
+            )
             notifications = wk_app.active_admin_sync_notifications(conn)
             leaderboard = wk_app.build_leaderboard(data, use_computed_points=False)
             return notifications, leaderboard[0]
@@ -3169,7 +3279,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         genai_notifications = [
             item
             for item in notifications
-            if item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED
+            if item["type"] == genai_service.SYNC_NOTIFICATION_GENAI_JOB_FAILED
         ]
 
         self.assertEqual(len(genai_notifications), 1)
@@ -3189,8 +3299,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('m001', 'Who wins?', '["Netherlands", "USA"]', '["USA"]', 'manual')
                 """,
             )
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
-            wk_app.publish_quiz_genai_label(
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
+            genai_service.publish_quiz_genai_label(
                 conn,
                 data,
                 data["matches"][0],
@@ -3227,8 +3337,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             before = wk_app.computed_point_rows(
                 conn, user_id=1, scope_type="leaderboard", scope_id="current"
             )
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
-            result = wk_app.publish_quiz_genai_label(
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
+            result = genai_service.publish_quiz_genai_label(
                 conn,
                 data,
                 data["matches"][0],
@@ -3280,7 +3390,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
                 """,
             )
-            first = wk_app.verify_player_database_matches(conn)
+            first = genai_service.verify_player_database_matches(conn)
             first_notifications = wk_app.active_admin_sync_notifications(conn)
             wk_app.execute(
                 conn,
@@ -3291,7 +3401,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('usa', '2', 2, 'Typo Scorer', '{}')
                 """,
             )
-            second = wk_app.verify_player_database_matches(conn)
+            second = genai_service.verify_player_database_matches(conn)
             second_notifications = wk_app.active_admin_sync_notifications(conn)
             return first, first_notifications, second, second_notifications
 
@@ -3300,7 +3410,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(first["invalid_striker_picks"], 1)
         self.assertTrue(
             any(
-                item["type"] == wk_app.SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD
+                item["type"] == genai_service.SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD
                 for item in first_notifications
             ),
             first_notifications,
@@ -3308,7 +3418,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(second["invalid_striker_picks"], 0)
         self.assertFalse(
             any(
-                item["type"] == wk_app.SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD
+                item["type"] == genai_service.SYNC_NOTIFICATION_STRIKER_PICK_NOT_IN_SQUAD
                 for item in second_notifications
             ),
             second_notifications,
@@ -3334,7 +3444,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('m001', 'provider:event:1', 'Goal', 'Unknown Hero', '{}')
                 """,
             )
-            first = wk_app.verify_player_database_matches(conn)
+            first = genai_service.verify_player_database_matches(conn)
             first_notifications = wk_app.active_admin_sync_notifications(conn)
             wk_app.execute(
                 conn,
@@ -3345,7 +3455,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('usa', '2', 2, 'Unknown Hero', '{}')
                 """,
             )
-            second = wk_app.verify_player_database_matches(conn)
+            second = genai_service.verify_player_database_matches(conn)
             second_notifications = wk_app.active_admin_sync_notifications(conn)
             return first, first_notifications, second, second_notifications
 
@@ -3354,7 +3464,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(first["invalid_goal_scorers"], 1)
         self.assertTrue(
             any(
-                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                item["type"] == genai_service.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
                 for item in first_notifications
             ),
             first_notifications,
@@ -3362,7 +3472,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(second["invalid_goal_scorers"], 0)
         self.assertFalse(
             any(
-                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                item["type"] == genai_service.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
                 for item in second_notifications
             ),
             second_notifications,
@@ -3397,8 +3507,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     VALUES ('m001', 'provider:event:1', 'Goal', 'E. Makgopa', '{}')
                     """,
                 )
-                with patch.object(wk_app, "TEAM_PROFILES_PATH", profiles_path):
-                    result = wk_app.verify_player_database_matches(conn)
+                with patch.object(genai_service, "TEAM_PROFILES_PATH", profiles_path):
+                    result = genai_service.verify_player_database_matches(conn)
                     notifications = wk_app.active_admin_sync_notifications(conn)
                 return result, notifications
 
@@ -3407,7 +3517,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(result["invalid_goal_scorers"], 0)
         self.assertFalse(
             any(
-                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                item["type"] == genai_service.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
                 for item in notifications
             ),
             notifications,
@@ -3443,7 +3553,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     """,
                 )
                 with patch.object(wk_app, "TEAM_PROFILES_PATH", profiles_path):
-                    return wk_app.verify_player_database_matches(conn)
+                    return genai_service.verify_player_database_matches(conn)
 
             result = self.run_with_temp_db(scenario)
 
@@ -3481,7 +3591,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     """,
                 )
                 with patch.object(wk_app, "TEAM_PROFILES_PATH", profiles_path):
-                    return wk_app.verify_player_database_matches(conn)
+                    return genai_service.verify_player_database_matches(conn)
 
             result = self.run_with_temp_db(scenario)
 
@@ -3498,7 +3608,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('m001', 'provider:event:1', 'Goal', 'Own Goal', 'Unknown Defender', '{}')
                 """,
             )
-            result = wk_app.verify_player_database_matches(conn)
+            result = genai_service.verify_player_database_matches(conn)
             notifications = wk_app.active_admin_sync_notifications(conn)
             return result, notifications
 
@@ -3507,7 +3617,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(result["invalid_goal_scorers"], 0)
         self.assertFalse(
             any(
-                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                item["type"] == genai_service.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
                 for item in notifications
             ),
             notifications,
@@ -3524,15 +3634,15 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
                 """,
             )
-            squad = wk_app.squad_player_database(conn)
-            matched = wk_app.player_genai_should_run(
+            squad = genai_service.squad_player_database(conn)
+            matched = genai_service.player_genai_should_run(
                 api_player_id=None,
                 player_name="C. Gakpo",
                 squad_api_ids=squad[0],
                 squad_names=squad[1],
                 squad_initial_surname_keys=squad[2],
             )
-            unmatched = wk_app.player_genai_should_run(
+            unmatched = genai_service.player_genai_should_run(
                 api_player_id=None,
                 player_name="Gakppo",
                 squad_api_ids=squad[0],
@@ -3557,15 +3667,15 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
                 """,
             )
-            job_input = wk_app.build_player_genai_input(
+            job_input = genai_service.build_player_genai_input(
                 conn,
-                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_type=genai_service.GENAI_TARGET_MATCH_SCORER,
                 target_id="m001:gakppo",
                 raw_player_name="Gakppo",
                 match_id="m001",
                 local_team_id="ned",
             )
-            accepted = wk_app.validate_player_genai_output(
+            accepted = genai_service.validate_player_genai_output(
                 {
                     "status": "matched",
                     "matched_candidate_id": "ned:1",
@@ -3574,7 +3684,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 },
                 job_input,
             )
-            rejected = wk_app.validate_player_genai_output(
+            rejected = genai_service.validate_player_genai_output(
                 {
                     "status": "matched",
                     "matched_candidate_id": "ned:999",
@@ -3621,10 +3731,10 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     VALUES ('rsa', '202', 202, 'Ronwen Williams', '{}')
                     """,
                 )
-                with patch.object(wk_app, "TEAM_PROFILES_PATH", profiles_path):
-                    return wk_app.build_player_genai_input(
+                with patch.object(genai_service, "TEAM_PROFILES_PATH", profiles_path):
+                    return genai_service.build_player_genai_input(
                         conn,
-                        target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                        target_type=genai_service.GENAI_TARGET_MATCH_SCORER,
                         target_id="m001:e-makgopa",
                         raw_player_name="E. Makgopa",
                         match_id="m001",
@@ -3648,9 +3758,9 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
                 """,
             )
-            job_input = wk_app.build_player_genai_input(
+            job_input = genai_service.build_player_genai_input(
                 conn,
-                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_type=genai_service.GENAI_TARGET_MATCH_SCORER,
                 target_id="m001:gakppo",
                 raw_player_name="Gakppo",
                 match_id="m001",
@@ -3677,7 +3787,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     "evidence": [{"type": "candidate", "id": "ned:1"}],
                 },
             ]
-            return [wk_app.validate_player_genai_output(case, job_input) for case in cases]
+            return [genai_service.validate_player_genai_output(case, job_input) for case in cases]
 
         results = self.run_with_temp_db(scenario)
 
@@ -3723,15 +3833,15 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
                 """,
             )
-            job_input = wk_app.build_player_genai_input(
+            job_input = genai_service.build_player_genai_input(
                 conn,
-                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_type=genai_service.GENAI_TARGET_MATCH_SCORER,
                 target_id="m001:gakppo",
                 raw_player_name="Gakppo",
                 match_id="m001",
                 local_team_id="ned",
             )
-            result = wk_app.publish_player_genai_link(
+            result = genai_service.publish_player_genai_link(
                 conn,
                 job_input,
                 {
@@ -3741,7 +3851,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     "evidence": [{"type": "candidate", "id": "ned:1"}],
                 },
             )
-            verification = wk_app.verify_player_database_matches(conn)
+            verification = genai_service.verify_player_database_matches(conn)
             event = wk_app.execute(conn, "SELECT player_name FROM match_events").fetchone()
             pick = wk_app.execute(
                 conn, "SELECT striker_name_1 FROM top_scorer_predictions"
@@ -3786,16 +3896,16 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
                 """,
             )
-            job_input = wk_app.build_player_genai_input(
+            job_input = genai_service.build_player_genai_input(
                 conn,
-                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_type=genai_service.GENAI_TARGET_MATCH_SCORER,
                 target_id="m001:gakppo",
                 raw_player_name="Gakppo",
                 match_id="m001",
                 local_team_id="ned",
             )
             before = wk_app.striker_prediction_points(["Cody Gakpo"])
-            wk_app.publish_player_genai_link(
+            genai_service.publish_player_genai_link(
                 conn,
                 job_input,
                 {
@@ -3827,9 +3937,9 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('ned', '1', 1, 'Cody Gakpo', '{}')
                 """,
             )
-            job_input = wk_app.build_player_genai_input(
+            job_input = genai_service.build_player_genai_input(
                 conn,
-                target_type=wk_app.GENAI_TARGET_MATCH_SCORER,
+                target_type=genai_service.GENAI_TARGET_MATCH_SCORER,
                 target_id="m001:gakppo",
                 raw_player_name="Gakppo",
                 match_id="m001",
@@ -3841,10 +3951,10 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 "confidence": "low",
                 "evidence": [{"type": "candidate", "id": "ned:1"}],
             }
-            wk_app.publish_player_genai_link(conn, job_input, low_confidence)
-            wk_app.publish_player_genai_link(conn, job_input, low_confidence)
+            genai_service.publish_player_genai_link(conn, job_input, low_confidence)
+            genai_service.publish_player_genai_link(conn, job_input, low_confidence)
             first = wk_app.active_admin_sync_notifications(conn)
-            wk_app.publish_player_genai_link(
+            genai_service.publish_player_genai_link(
                 conn,
                 job_input,
                 {
@@ -3864,13 +3974,13 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 [
                     item
                     for item in first
-                    if item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED
+                    if item["type"] == genai_service.SYNC_NOTIFICATION_GENAI_JOB_FAILED
                 ]
             ),
             1,
         )
         self.assertFalse(
-            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
+            any(item["type"] == genai_service.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in second)
         )
 
     def test_participant_reads_do_not_call_genai_or_write_results(self) -> None:
@@ -3884,7 +3994,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             with (
                 patch.object(wk_app, "load_world_cup_data", return_value=data),
                 patch.object(
-                    wk_app,
+                    genai_service,
                     "run_genai_structured_completion",
                     side_effect=AssertionError("participant read called GenAI"),
                 ),
@@ -3907,8 +4017,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         def scenario(conn):
             self.seed_scoring_user(conn)
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
-            wk_app.publish_quiz_genai_label(
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
+            genai_service.publish_quiz_genai_label(
                 conn,
                 data,
                 data["matches"][0],
@@ -3926,10 +4036,13 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         quiz, notifications = self.run_with_temp_db(scenario)
 
-        self.assertEqual(quiz["genai"]["status"], wk_app.GENAI_STATUS_ACCEPTED)
+        self.assertEqual(quiz["genai"]["status"], genai_service.GENAI_STATUS_ACCEPTED)
         self.assertEqual(quiz["source"], "genai:mistral")
         self.assertFalse(
-            any(item["type"] == wk_app.SYNC_NOTIFICATION_GENAI_JOB_FAILED for item in notifications)
+            any(
+                item["type"] == genai_service.SYNC_NOTIFICATION_GENAI_JOB_FAILED
+                for item in notifications
+            )
         )
 
     def test_admin_can_approve_genai_quiz_answer(self) -> None:
@@ -3938,8 +4051,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         def scenario(conn):
             self.seed_scoring_user(conn)
             wk_app.execute(conn, "UPDATE users SET is_admin = 1 WHERE id = 1")
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
-            published = wk_app.publish_quiz_genai_label(
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
+            published = genai_service.publish_quiz_genai_label(
                 conn,
                 data,
                 data["matches"][0],
@@ -3977,8 +4090,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         def scenario(conn):
             self.seed_scoring_user(conn)
             wk_app.execute(conn, "UPDATE users SET is_admin = 1 WHERE id = 1")
-            job_input = wk_app.build_quiz_genai_input(conn, data["matches"][0])
-            published = wk_app.publish_quiz_genai_label(
+            job_input = genai_service.build_quiz_genai_input(conn, data["matches"][0])
+            published = genai_service.publish_quiz_genai_label(
                 conn,
                 data,
                 data["matches"][0],
@@ -4028,10 +4141,10 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                        (2, 'Player', 'player@example.com', 'x', 0)
                 """,
             )
-            wk_app.record_genai_provider_failure(
+            genai_service.record_genai_provider_failure(
                 conn,
-                job_type=wk_app.GENAI_JOB_QUIZ_ANSWER,
-                target_type=wk_app.GENAI_TARGET_MATCH_QUIZ,
+                job_type=genai_service.GENAI_JOB_QUIZ_ANSWER,
+                target_type=genai_service.GENAI_TARGET_MATCH_QUIZ,
                 target_id="m001",
                 failure_code="provider_timeout",
                 failure_message="GenAI provider timed out.",
@@ -4053,7 +4166,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         admin_state, player_state, rows = self.run_with_temp_db(scenario)
 
-        self.assertEqual(rows[0]["status"], wk_app.GENAI_STATUS_FAILED)
+        self.assertEqual(rows[0]["status"], genai_service.GENAI_STATUS_FAILED)
         self.assertEqual(rows[0]["failure_code"], "provider_timeout")
         self.assertTrue(any(item["type"] == "sync_issue" for item in admin_state["notifications"]))
         self.assertFalse(
@@ -4081,7 +4194,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('m001', 'provider:event:1', 'Goal', 'Unknown Hero', '{}')
                 """,
             )
-            wk_app.verify_player_database_matches(conn)
+            genai_service.verify_player_database_matches(conn)
             conn.commit()
             admin_with_issue = wk_app.user_pool_state(
                 {"id": 1, "name": "Admin", "email": "admin@example.com", "is_admin": True},
@@ -4100,7 +4213,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('ned', '1', 1, 'Unknown Hero', '{}')
                 """,
             )
-            wk_app.verify_player_database_matches(conn)
+            genai_service.verify_player_database_matches(conn)
             conn.commit()
             admin_after_match = wk_app.user_pool_state(
                 {"id": 1, "name": "Admin", "email": "admin@example.com", "is_admin": True},
@@ -4161,7 +4274,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                     ('m012', 'provider:event:5', 'Goal', 'Yasin Ayari', '{}')
                 """,
             )
-            result = wk_app.verify_player_database_matches(conn)
+            result = genai_service.verify_player_database_matches(conn)
             notifications = wk_app.active_admin_sync_notifications(conn)
             return result, notifications
 
@@ -4170,7 +4283,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(result["invalid_goal_scorers"], 0)
         self.assertFalse(
             any(
-                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                item["type"] == genai_service.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
                 for item in notifications
             ),
             notifications,
@@ -4198,7 +4311,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES ('m001', 'provider:event:1', 'Goal', 'Alex Smith', '{}')
                 """,
             )
-            result = wk_app.verify_player_database_matches(conn)
+            result = genai_service.verify_player_database_matches(conn)
             notifications = wk_app.active_admin_sync_notifications(conn)
             return result, notifications
 
@@ -4207,7 +4320,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(result["invalid_goal_scorers"], 1)
         self.assertTrue(
             any(
-                item["type"] == wk_app.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
+                item["type"] == genai_service.SYNC_NOTIFICATION_SCORER_PLAYER_NOT_IN_SQUAD
                 for item in notifications
             ),
             notifications,

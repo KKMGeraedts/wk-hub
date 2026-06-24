@@ -18,6 +18,8 @@ rg "def (quiz_genai_prompt_messages|validate_quiz_genai_output|run_genai_jobs_af
 
 Both searches should return no matches. The first proves the module does not import the Flask monolith; the second proves moved policy was deleted rather than retained behind shallow forwarding functions.
 
+The implemented module is `backend/genai_service.py`. Flask owns routes, authentication, schema initialization, normalized provider-data ingestion, and scoring algorithms. The GenAI module owns provider calls, job validation, compact persistence, automatic Quiz Label and player-link publication, GenAI-related Admin Sync Issue lifecycle, and admin review mutation. Dependency injection is limited to database access, scoring recomputation, and shared label auditing.
+
 ## Prerequisites
 
 1. Install the existing app dependencies:

@@ -27,3 +27,7 @@ _Avoid_: Agent task, workflow
 **Admin Sync Issue**:
 An admin-only notification that a scoring fact or supporting sync step could not be resolved automatically.
 _Avoid_: User notification, provider error
+
+**Matchday**:
+A tournament session shown from the Dutch viewer perspective, where early-morning kickoffs can belong to the previous football day rather than the Amsterdam calendar date.
+_Avoid_: Calendar day, fixture date

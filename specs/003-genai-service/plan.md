@@ -6,7 +6,7 @@
 
 ## Summary
 
-Preserve the implemented GenAI feature behavior while moving its policy out of the 11,246-line Flask monolith into one deep backend module. `backend/genai_service.py` will own GenAI Job input construction, provider invocation, deterministic validation, compact persistence, automatic Quiz Label and player-link publication, and Admin Sync Issue lifecycle. `backend/app.py` will retain Flask routes, database initialization, scoring, and provider-data sync, and will call the module only at explicit sync, admin-review, scoring-publication, and read-projection seams.
+Preserve the implemented GenAI feature behavior while moving its policy out of the Flask monolith into one deep backend module. `backend/genai_service.py` will own GenAI Job input construction, provider invocation, deterministic validation, compact persistence, automatic Quiz Label and player-link publication, and Admin Sync Issue lifecycle. `backend/app.py` will retain Flask routes, database initialization, scoring, and provider-data sync, and will call the module only at explicit sync, admin-review, scoring-publication, and read-projection seams.
 
 ## Technical Context
 

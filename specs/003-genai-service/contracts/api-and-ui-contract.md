@@ -10,6 +10,13 @@
 - build GenAI status for admin label projections;
 - process an admin Quiz Answer review.
 
+Implemented operations:
+
+- `configure(...)` binds the app-owned database connection factory, scoring recomputation callback, and shared label-audit callback;
+- `run_genai_jobs_after_data_sync(...)` owns both GenAI Job workflows;
+- `review_quiz_answer(...)` owns review validation, persistence, manual override publication, and audit dispatch;
+- projection helpers expose automatic Quiz Labels, accepted player links, player verification, and compact admin status without provider calls.
+
 Callers provide an open DB-API connection and app-owned match data. Production provider configuration is read inside the module. Tests may inject a structured-completion callable. The module returns plain dictionaries and change metadata; it does not return Flask responses or import Flask route code.
 
 Rules:
