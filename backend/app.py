@@ -5883,42 +5883,62 @@ def build_leaderboard(
         )
 
     ranked = sorted(leaderboard, key=lambda row: (-row["points"], row["name"].lower()))
+    current_session = current_tournament_session_date(current)
     completed_dates = sorted(
         {
             tournament_session_date(match)
             for match in data["matches"]
             if match_result(match) is not None
+            and match_kickoff(match) <= current
+            and tournament_session_date(match) <= current_session
         }
     )
-    previous_rank_by_user: dict[int, int] = {}
-    if len(completed_dates) >= 2:
-        previous_date = completed_dates[-2]
-        eligible_user_ids = {row["user_id"] for row in ranked}
-        previous_scores = {
-            user["id"]: score_through_date(
+    rank_movement_by_user: dict[int, int] = {}
+    if completed_dates:
+        target_date = completed_dates[-1]
+        previous_dates = [date for date in completed_dates if date < target_date]
+        previous_date = previous_dates[-1] if previous_dates else None
+        match_dates = {match["id"]: tournament_session_date(match) for match in data["matches"]}
+        previous_scores: dict[int, int] = {}
+        current_scores: dict[int, int] = {}
+        for user in users:
+            user_id = user["id"]
+            points_by_match = user_match_points_by_match(
                 data,
-                by_user.get(user["id"], []),
-                quiz_by_user.get(user["id"], {}),
-                leeuwtjes_by_user.get(user["id"], set()),
-                viewership_winners,
-                previous_date,
+                {prediction["match_id"]: prediction for prediction in by_user.get(user_id, [])},
+                quiz_by_user.get(user_id, {}),
+                list(leeuwtjes_by_user.get(user_id, set())),
+                striker_pick_names(top_scorers.get(user_id)),
             )
-            for user in users
-            if user["id"] in eligible_user_ids
-        }
-        previous_order = sorted(
-            ranked,
-            key=lambda row: (-previous_scores.get(row["user_id"], 0), row["name"].lower()),
-        )
-        previous_rank_by_user = {
-            row["user_id"]: index + 1 for index, row in enumerate(previous_order)
+            previous_scores[user_id] = (
+                sum(
+                    int(points.get("total_points") or 0)
+                    for match_id, points in points_by_match.items()
+                    if previous_date is not None and match_dates.get(match_id) <= previous_date
+                )
+                if previous_date is not None
+                else 0
+            )
+            current_scores[user_id] = sum(
+                int(points.get("total_points") or 0)
+                for match_id, points in points_by_match.items()
+                if match_dates.get(match_id) <= target_date
+            )
+        rank_movement_by_user = {
+            row["user_id"]: int(row.get("rank_movement") or 0)
+            for row in rank_changes_between_scores(
+                list(users),
+                previous_scores,
+                current_scores,
+            )
         }
 
     for index, row in enumerate(ranked, start=1):
-        previous_rank = previous_rank_by_user.get(row["user_id"], index)
+        movement = rank_movement_by_user.get(row["user_id"], 0)
+        previous_rank = index + movement
         row["rank"] = index
         row["rank_previous"] = previous_rank
-        row["rank_movement"] = previous_rank - index
+        row["rank_movement"] = movement
 
     return ranked
 

@@ -20,6 +20,10 @@ _Avoid_: Prompt
 A change to a published quiz question or answer options that fixes a mistake. Existing participant answers remain valid when they still match the corrected options; otherwise the quiz becomes a missing action again until the normal lock time.
 _Avoid_: Quiz rewrite, republish
 
+**Quiz Setup**:
+The admin-owned preparation of quiz questions before they are available to participants. Knockout Stage quiz setup covers one quiz question for each Knockout Stage match; an unset quiz question does not block score predictions for that match.
+_Avoid_: Code update, deployment
+
 **Manual Override**:
 An admin-authored scoring fact that takes precedence over provider-backed or automatically derived facts.
 _Avoid_: Manual prediction, admin correction
@@ -47,6 +51,14 @@ _Avoid_: Knockout phase, bracket phase
 **Bracket Slot**:
 A placeholder for a Knockout Stage team that is not known yet, such as a group position or prior match winner.
 _Avoid_: Unknown team, TBD team
+
+**Knockout Match Tile**:
+A selectable visual representation of one Knockout Stage match in the bracket. A tile can represent either known teams or Bracket Slots and opens match details when selected.
+_Avoid_: Fixture card, game box
+
+**Knockout Page**:
+The top-level page for viewing and completing Knockout Stage predictions. It becomes prominent navigation when Knockout Stage planning is relevant.
+_Avoid_: Matchday page, schedule page
 
 **Missing Action**:
 A prediction or quiz answer that a participant can still complete before its lock time. Urgent missing actions are limited to matches on the current or next matchday, while Knockout Stage planning may show all known open missing actions.

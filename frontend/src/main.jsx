@@ -5258,12 +5258,14 @@ function MatchdayPage({ pool, teams, venues, onMatch }) {
                     {formatDate(match, true)} ·{" "}
                     {venue?.city ?? "Venue to confirm"}
                   </span>
-                  {match.completed && (
+                  {(match.completed || hasMyPrediction) && (
                     <span className="matchday-score-summary">
-                      <span>
-                        <strong>Uitslag</strong>
-                        {match.home_score ?? "-"} - {match.away_score ?? "-"}
-                      </span>
+                      {match.completed && (
+                        <span>
+                          <strong>Uitslag</strong>
+                          {match.home_score ?? "-"} - {match.away_score ?? "-"}
+                        </span>
+                      )}
                       <span>
                         <strong>Mijn voorspelling</strong>
                         {hasMyPrediction

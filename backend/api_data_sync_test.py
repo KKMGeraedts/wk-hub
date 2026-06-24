@@ -2599,6 +2599,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             "venues": [],
             "meta": {},
         }
+        now = datetime(2026, 6, 12, 4, 30, tzinfo=UTC)
 
         def scenario(conn):
             wk_app.execute(
@@ -2628,13 +2629,19 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 "INSERT INTO leeuwtje_predictions (user_id, match_id) VALUES (3, 'm001')",
             )
             conn.commit()
-            return wk_app.build_daily_recap(
+            recap = wk_app.build_daily_recap(
                 data,
-                now=datetime(2026, 6, 12, 4, 30, tzinfo=UTC),
+                now=now,
                 leaderboard=[],
             )
+            leaderboard = wk_app.build_leaderboard(
+                data,
+                now=now,
+                use_computed_points=False,
+            )
+            return recap, leaderboard
 
-        recap = self.run_with_temp_db(scenario)
+        recap, leaderboard = self.run_with_temp_db(scenario)
 
         movers = {row["name"]: row["rank_movement"] for row in recap["top_movers"]}
         self.assertEqual(movers["Chris"], 2)
@@ -2642,6 +2649,10 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(movers["Bram"], -1)
         self.assertEqual([row["name"] for row in recap["top_winners"]], ["Chris"])
         self.assertEqual([row["name"] for row in recap["top_losers"]], ["Anna", "Bram"])
+        leaderboard_movers = {row["name"]: row["rank_movement"] for row in leaderboard}
+        self.assertEqual(leaderboard_movers["Chris"], 2)
+        self.assertEqual(leaderboard_movers["Anna"], -1)
+        self.assertEqual(leaderboard_movers["Bram"], -1)
 
     def test_daily_recap_ignores_supplied_leaderboard_movements(self) -> None:
         target_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
