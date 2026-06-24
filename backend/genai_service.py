@@ -2034,6 +2034,9 @@ def manual_quiz_fill_requests(
         quiz = match.get("quiz") if isinstance(match, dict) else None
         if not isinstance(match, dict) or not isinstance(quiz, dict):
             continue
+        facts = quiz_genai_fact_payload(conn, match_id)
+        if not quiz_genai_has_supplied_facts({"facts": facts}):
+            continue
         if quiz_has_static_or_persisted_label(conn, match):
             continue
         requests.append(
@@ -2281,6 +2284,7 @@ def run_genai_jobs_after_data_sync(
     player_results: list[dict[str, Any]] = []
     synced_match_ids = synced_match_ids_from_result_sync(result_sync or {})
     matches_by_id = {clean_text(match.get("id")): match for match in data.get("matches", [])}
+    manual_fill_match_ids = [clean_text(match.get("id")) for match in data.get("matches", [])]
     with get_db() as conn:
         for match_id in synced_match_ids:
             match = matches_by_id.get(match_id)
@@ -2289,7 +2293,7 @@ def run_genai_jobs_after_data_sync(
             quiz_results.append(run_quiz_genai_job_for_match(conn, data, match))
         for job_input in unmatched_player_genai_inputs(conn):
             player_results.append(run_player_genai_job(conn, job_input))
-        manual_fills = manual_quiz_fill_requests(conn, data, synced_match_ids)
+        manual_fills = manual_quiz_fill_requests(conn, data, manual_fill_match_ids)
         conn.commit()
     return {
         "ok": True,

@@ -3044,6 +3044,13 @@ function adminQuizFromDraft(match, draft) {
   };
 }
 
+function adminQuizDraftChoices(draft) {
+  return String(draft.choices ?? "")
+    .split("\n")
+    .map((choice) => choice.trim())
+    .filter(Boolean);
+}
+
 function adminQuizChoiceOptions(match, teams, draft) {
   const quiz = adminQuizFromDraft(match, draft);
   if (!quiz) return [];
@@ -3168,9 +3175,7 @@ function AdminLabelsPage({ teams }) {
     setSuccess("");
     try {
       const answers = quizAnswerValues(draft.correct_answers);
-      const choices = adminQuizChoiceOptions(match, teams, draft).map(
-        (choice) => choice.value,
-      );
+      const choices = adminQuizDraftChoices(draft);
       const result = await apiJson(`/api/admin/labels/${selectedMatchId}/quiz`, {
         method: "PATCH",
         body: JSON.stringify(

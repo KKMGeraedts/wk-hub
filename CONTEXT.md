@@ -31,3 +31,11 @@ _Avoid_: User notification, provider error
 **Matchday**:
 A tournament session shown from the Dutch viewer perspective, where early-morning kickoffs can belong to the previous football day rather than the Amsterdam calendar date.
 _Avoid_: Calendar day, fixture date
+
+**Day Score**:
+The points earned by each active participant from scoring facts on a single matchday. A day score list includes every active participant, including participants who earned zero points.
+_Avoid_: Top players, daily leaderboard
+
+**Rank Movement**:
+The change in a participant's standing caused by one matchday, comparing their rank before that matchday with their rank after that matchday.
+_Avoid_: Current leaderboard delta, overall movement

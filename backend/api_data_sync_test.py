@@ -550,6 +550,15 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
                 """,
             )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_results (
+                    match_id, source, status_long, status_short, elapsed, home_score, away_score
+                )
+                VALUES ('m001', 'api-football', 'Match Finished', 'FT', 90, 2, 1)
+                """,
+            )
             conn.commit()
             client = wk_app.app.test_client()
             with client.session_transaction() as session:
@@ -631,6 +640,15 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
                 """,
             )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_results (
+                    match_id, source, status_long, status_short, elapsed, home_score, away_score
+                )
+                VALUES ('m001', 'api-football', 'Match Finished', 'FT', 90, 2, 1)
+                """,
+            )
             conn.commit()
             client = wk_app.app.test_client()
             with client.session_transaction() as session:
@@ -666,6 +684,127 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertTrue(fills[0]["viewership_required"])
         self.assertEqual(fills[0]["choices"], [])
         recompute.assert_called_once()
+
+    def test_admin_data_sync_returns_manual_quiz_fill_for_existing_result_facts(self) -> None:
+        data = {
+            "matches": [
+                {
+                    "id": "m33",
+                    "match_number": 33,
+                    "home_team": "Netherlands",
+                    "away_team": "Sweden",
+                    "quiz": {
+                        "question": "Welke speler wordt volgens de FIFA man van de wedstrijd?",
+                        "type": "open",
+                        "viewership": True,
+                    },
+                }
+            ],
+            "teams": [],
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_results (
+                    match_id, source, status_long, status_short, elapsed, home_score, away_score
+                )
+                VALUES ('m33', 'api-football', 'Match Finished', 'FT', 90, 5, 1)
+                """,
+            )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(
+                    wk_app,
+                    "run_missing_result_sync_batch",
+                    return_value={
+                        "ok": True,
+                        "dry_run": False,
+                        "match_ids": [],
+                        "results": [],
+                        "synced": [],
+                        "attempts": [],
+                        "skipped": [],
+                    },
+                ),
+                patch.object(wk_app, "recompute_all_computed_points"),
+            ):
+                response = client.post("/api/admin/api-football/data-sync", json={})
+            return response
+
+        response = self.run_with_temp_db(scenario)
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["genai_jobs"]["manual_quiz_fills"][0]["match_id"], "m33")
+
+    def test_admin_can_save_open_quiz_label_without_predefined_choices(self) -> None:
+        question = "Welke speler wordt volgens de FIFA man van de wedstrijd?"
+        data = {
+            "matches": [
+                {
+                    "id": "m33",
+                    "quiz": {
+                        "question": question,
+                        "type": "open",
+                        "viewership": True,
+                    },
+                }
+            ],
+            "teams": [],
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES (1, 'Admin', 'admin.user@talpanetwork.com', 'x', 1)
+                """,
+            )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(wk_app, "recompute_all_computed_points"),
+            ):
+                response = client.patch(
+                    "/api/admin/labels/m33/quiz",
+                    json={
+                        "question": question,
+                        "choices": [],
+                        "correct_answers": ["Brian Brobbey"],
+                        "viewership_answer": 1234567,
+                    },
+                )
+            override = wk_app.execute(
+                conn,
+                "SELECT * FROM quiz_label_overrides WHERE match_id = 'm33'",
+            ).fetchone()
+            return response, override
+
+        response, override = self.run_with_temp_db(scenario)
+        payload = response.get_json()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(json.loads(override["correct_answers_json"]), ["Brian Brobbey"])
+        match = next(item for item in payload["matches"] if item["match_id"] == "m33")
+        self.assertEqual(match["quiz"]["correct_answers"], ["Brian Brobbey"])
+        self.assertEqual(match["quiz"]["viewership_answer"], 1234567)
 
     def test_missing_result_batch_recomputes_no_points_per_match(self) -> None:
         data: dict[str, Any] = {"matches": [], "teams": []}
