@@ -20,3 +20,5 @@ node_modules/
 .vscode/
 .idea/
 backend/pool.db
+backend/pool.db-shm
+backend/pool.db-wal

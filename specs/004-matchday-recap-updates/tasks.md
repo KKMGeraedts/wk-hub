@@ -30,9 +30,9 @@
 
 **⚠️ CRITICAL**: Complete this phase before frontend story work, because UI changes depend on backend payloads.
 
-- [ ] T004 Add a single-match point breakdown helper that avoids full tournament recomputation in `backend/app.py`
-- [ ] T005 Add viewer personal prediction and personal points payloads to matchday summary/detail data in `backend/app.py`
-- [ ] T006 Add backend regression tests for matchday personal prediction and detail personal summary payloads in `backend/api_data_sync_test.py`
+- [X] T004 Add a single-match point breakdown helper that avoids full tournament recomputation in `backend/app.py`
+- [X] T005 Add viewer personal prediction and personal points payloads to matchday summary/detail data in `backend/app.py`
+- [X] T006 Add backend regression tests for matchday personal prediction and detail personal summary payloads in `backend/api_data_sync_test.py`
 
 **Checkpoint**: Matchday APIs expose enough data for the UI and can compute selected-match points without per-user full-tournament loops.
 
@@ -46,8 +46,8 @@
 
 ### Implementation for User Story 1
 
-- [ ] T007 [US1] Reorder schedule groups by app matchday key in `frontend/src/main.jsx`
-- [ ] T008 [US1] Ensure schedule headings preserve readable date labels for current, historic, and future groups in `frontend/src/main.jsx`
+- [X] T007 [US1] Reorder schedule groups by app matchday key in `frontend/src/main.jsx`
+- [X] T008 [US1] Ensure schedule headings preserve readable date labels for current, historic, and future groups in `frontend/src/main.jsx`
 
 **Checkpoint**: User Story 1 is independently testable from the schedule page.
 
@@ -61,10 +61,10 @@
 
 ### Implementation for User Story 3
 
-- [ ] T009 [US3] Render result, viewer prediction, and clickable personal points on completed matchday overview cards in `frontend/src/main.jsx`
-- [ ] T010 [US3] Render viewer result, prediction, and clickable personal points near the locked match detail header in `frontend/src/main.jsx`
-- [ ] T011 [US3] Add responsive styles for matchday personal scoring summaries in `frontend/src/styles.css`
-- [ ] T012 [US3] Update post-save matchday pool patching to preserve new personal prediction fields in `frontend/src/main.jsx`
+- [X] T009 [US3] Render result, viewer prediction, and clickable personal points on completed matchday overview cards in `frontend/src/main.jsx`
+- [X] T010 [US3] Render viewer result, prediction, and clickable personal points near the locked match detail header in `frontend/src/main.jsx`
+- [X] T011 [US3] Add responsive styles for matchday personal scoring summaries in `frontend/src/styles.css`
+- [X] T012 [US3] Update post-save matchday pool patching to preserve new personal prediction fields in `frontend/src/main.jsx`
 
 **Checkpoint**: User Story 3 is independently testable from the matchday tab and a locked match route.
 
@@ -78,9 +78,9 @@
 
 ### Implementation for User Story 4
 
-- [ ] T013 [US4] Refactor `matchday_match_detail` to batch-load selected match predictions and use the single-match point helper in `backend/app.py`
-- [ ] T014 [US4] Add match-scoped database indexes for prediction, quiz, Leeuwtje, and top-scorer lookups in `backend/app.py`
-- [ ] T015 [US4] Add regression coverage for selected-match point accuracy after the refactor in `backend/api_data_sync_test.py`
+- [X] T013 [US4] Refactor `matchday_match_detail` to batch-load selected match predictions and use the single-match point helper in `backend/app.py`
+- [X] T014 [US4] Add match-scoped database indexes for prediction, quiz, Leeuwtje, and top-scorer lookups in `backend/app.py`
+- [X] T015 [US4] Add regression coverage for selected-match point accuracy after the refactor in `backend/api_data_sync_test.py`
 
 **Checkpoint**: User Story 4 keeps the same visible data while removing per-prediction tournament-wide point recomputation.
 
@@ -94,9 +94,9 @@
 
 ### Implementation for User Story 5
 
-- [ ] T016 [US5] Make daily recap rank movement always compare standings before and after the recap matchday in `backend/app.py`
-- [ ] T017 [US5] Replace conflicting supplied-leaderboard movement test with matchday-baseline tests in `backend/api_data_sync_test.py`
-- [ ] T018 [US5] Include full day-score rows and target date metadata in daily recap payload in `backend/app.py`
+- [X] T016 [US5] Make daily recap rank movement always compare standings before and after the recap matchday in `backend/app.py`
+- [X] T017 [US5] Replace conflicting supplied-leaderboard movement test with matchday-baseline tests in `backend/api_data_sync_test.py`
+- [X] T018 [US5] Include full day-score rows and target date metadata in daily recap payload in `backend/app.py`
 
 **Checkpoint**: User Story 5 is independently testable through backend recap tests and the existing recap board.
 
@@ -110,10 +110,10 @@
 
 ### Implementation for User Story 6
 
-- [ ] T019 [US6] Add all active participants and per-match day-score breakdowns to recap payload in `backend/app.py`
-- [ ] T020 [US6] Add the day-score modal, header action, one-open-row behavior, and point breakdown rendering in `frontend/src/main.jsx`
-- [ ] T021 [US6] Add responsive modal and day-score detail styles in `frontend/src/styles.css`
-- [ ] T022 [US6] Add backend regression tests for all-active-player day-score rows, zero-point participants, and per-match breakdowns in `backend/api_data_sync_test.py`
+- [X] T019 [US6] Add all active participants and per-match day-score breakdowns to recap payload in `backend/app.py`
+- [X] T020 [US6] Add the day-score modal, header action, one-open-row behavior, and point breakdown rendering in `frontend/src/main.jsx`
+- [X] T021 [US6] Add responsive modal and day-score detail styles in `frontend/src/styles.css`
+- [X] T022 [US6] Add backend regression tests for all-active-player day-score rows, zero-point participants, and per-match breakdowns in `backend/api_data_sync_test.py`
 
 **Checkpoint**: User Story 6 is independently testable from the home page daily recap.
 
@@ -127,8 +127,8 @@
 
 ### Implementation for User Story 2
 
-- [ ] T023 [US2] Remove missing-prediction legend and row highlight class usage from leaderboard markup in `frontend/src/main.jsx`
-- [ ] T024 [US2] Remove unused missing-prediction highlight styles from `frontend/src/styles.css`
+- [X] T023 [US2] Remove missing-prediction legend and row highlight class usage from leaderboard markup in `frontend/src/main.jsx`
+- [X] T024 [US2] Remove unused missing-prediction highlight styles from `frontend/src/styles.css`
 
 **Checkpoint**: User Story 2 is independently testable from the leaderboard page.
 
@@ -138,11 +138,11 @@
 
 **Purpose**: Validate the integrated feature and keep documentation aligned.
 
-- [ ] T025 Run focused backend tests for matchday and recap scenarios with `npm run py:test`
-- [ ] T026 Run frontend production build with `npm run build`
-- [ ] T027 Run full repository check with `npm run check`
-- [ ] T028 Update completed task checkboxes in `specs/004-matchday-recap-updates/tasks.md`
-- [ ] T029 Review final diffs for unrelated changes and preserve existing user edits in `frontend/src/main.jsx` and `backend/genai_service.py`
+- [X] T025 Run focused backend tests for matchday and recap scenarios with `npm run py:test`
+- [X] T026 Run frontend production build with `npm run build`
+- [X] T027 Run full repository check with `npm run check`
+- [X] T028 Update completed task checkboxes in `specs/004-matchday-recap-updates/tasks.md`
+- [X] T029 Review final diffs for unrelated changes and preserve existing user edits in `frontend/src/main.jsx` and `backend/genai_service.py`
 
 ---
 

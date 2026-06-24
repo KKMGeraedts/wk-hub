@@ -1012,33 +1012,6 @@ tr.highlight td {
     font-weight: 800;
 }
 
-.leaderboard-legend {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    margin-bottom: 10px;
-    color: var(--muted);
-    font-size: 13px;
-    font-weight: 800;
-}
-
-.legend-swatch {
-    width: 14px;
-    height: 14px;
-    border-radius: 3px;
-    border: 1px solid rgba(138, 90, 0, 0.32);
-}
-
-.legend-swatch.missing-predictions,
-.leaderboard-row.has-missing-predictions td,
-.leaderboard-row.has-missing-predictions.highlight td {
-    background: var(--missing-predictions);
-}
-
-.leaderboard-row.has-missing-predictions.highlight td {
-    font-weight: 800;
-}
-
 .home-layout {
     display: grid;
     gap: 16px;
@@ -1299,10 +1272,43 @@ tr.highlight td {
     min-width: 0;
 }
 
-.matchday-result-line {
-    color: var(--orange-dark);
+.matchday-score-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    align-items: center;
+    margin-top: 2px;
+}
+
+.matchday-score-summary > span:not(.points-popover-anchor) {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 9px;
+    border: 1px solid #dfe5ed;
+    border-radius: 999px;
+    background: #ffffff;
+    color: #233041;
     font-size: 12px;
+    font-weight: 900;
+}
+
+.matchday-score-summary strong {
+    margin-right: 5px;
+    color: var(--muted);
+    font-size: 10px;
     font-weight: 950;
+    text-transform: uppercase;
+}
+
+.matchday-score-summary.is-detail > span:not(.points-popover-anchor) {
+    border-color: rgba(255, 255, 255, 0.28);
+    background: rgba(255, 255, 255, 0.16);
+    color: #ffffff;
+}
+
+.matchday-score-summary.is-detail strong {
+    color: rgba(255, 255, 255, 0.76);
 }
 
 .matchday-status {
@@ -1467,11 +1473,6 @@ tr.highlight td {
     color: var(--muted);
     font-size: 12px;
     font-weight: 900;
-}
-
-.matchday-stats .matchday-points-chip {
-    background: rgba(47, 127, 114, 0.14);
-    color: var(--green);
 }
 
 .matchday-detail-layout {
@@ -1800,6 +1801,13 @@ tr.highlight td {
     gap: 9px;
 }
 
+.daily-recap-board-heading {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+}
+
 .daily-recap-board h4 {
     margin: 0;
     color: var(--blue);
@@ -1861,6 +1869,87 @@ tr.highlight td {
     font-size: 12px;
     font-weight: 900;
     white-space: nowrap;
+}
+
+.day-score-modal {
+    display: grid;
+    gap: 0;
+    width: min(820px, calc(100vw - 32px));
+    max-height: min(760px, calc(100vh - 32px));
+    overflow: hidden;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: var(--shadow);
+}
+
+.day-score-list {
+    overflow: auto;
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+}
+
+.day-score-row {
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+}
+
+.day-score-row-button {
+    display: grid;
+    grid-template-columns: 34px auto minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: center;
+    width: 100%;
+    min-height: 54px;
+    padding: 9px 11px;
+    border: 0;
+    background: #ffffff;
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+}
+
+.day-score-row-button:hover,
+.day-score-row-button:focus-visible {
+    background: #f8fafc;
+    outline: none;
+}
+
+.day-score-row-button strong {
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 950;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.day-score-row-button b {
+    color: var(--blue);
+    font-size: 13px;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
+.day-score-breakdowns {
+    display: grid;
+    gap: 10px;
+    padding: 0 11px 11px;
+    border-top: 1px solid var(--line);
+    background: #f8fafc;
+}
+
+.day-score-match {
+    display: grid;
+    gap: 7px;
+    padding-top: 10px;
+}
+
+.day-score-match > strong {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 950;
 }
 
 .recap-highlight {

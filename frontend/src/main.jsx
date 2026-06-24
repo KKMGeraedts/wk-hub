@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 
 const AMSTERDAM_TZ = "Europe/Amsterdam";
+const MATCHDAY_SESSION_END_HOUR = 4;
 const NETHERLANDS_ID = "ned";
 const TROPHY_SRC = "/world-cup-trophy.svg";
 const POINTS_POPOVER_EVENT = "wk-points-popover-open";
@@ -140,6 +141,42 @@ function localDateKey(match) {
     month: "2-digit",
     day: "2-digit",
   }).format(escapeDate(match));
+}
+
+function dateKey(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function amsterdamDateParts(date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: AMSTERDAM_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+    hour: Number(values.hour),
+  };
+}
+
+function tournamentSessionDateKeyFromDate(date) {
+  const { year, month, day, hour } = amsterdamDateParts(date);
+  if (!year || !month || !day) return "";
+  const sessionDate = new Date(Date.UTC(year, month - 1, day, 12));
+  if (hour <= MATCHDAY_SESSION_END_HOUR) {
+    sessionDate.setUTCDate(sessionDate.getUTCDate() - 1);
+  }
+  return dateKey(sessionDate);
+}
+
+function tournamentSessionDateKey(match) {
+  return tournamentSessionDateKeyFromDate(escapeDate(match));
 }
 
 function scheduleGroupedPredictions(groups) {
@@ -1519,7 +1556,10 @@ function PointsPopoverAnchor({ label, points, open, onToggle, onClose }) {
       <button
         className="points-chip"
         type="button"
-        onClick={onToggle}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
         aria-expanded={open}
       >
         {label}
@@ -1664,18 +1704,40 @@ function Schedule({ matches, teams, venues, pool, onPoolUpdate, onMatch }) {
   const predictions = poolPredictions(pool);
   const matchPoints = poolMatchPoints(pool);
   const now = new Date();
-  const isHistoricMatch = (match) => {
-    const completed = match.home_score != null && match.away_score != null;
-    return completed || (escapeDate(match) < now && !isMatchLive(match, now));
+  const currentSessionKey = tournamentSessionDateKeyFromDate(now);
+  const grouped = matches
+    .slice()
+    .sort((left, right) => escapeDate(left) - escapeDate(right))
+    .reduce((days, match) => {
+      const key = tournamentSessionDateKey(match);
+      if (!days.has(key)) days.set(key, []);
+      days.get(key).push(match);
+      return days;
+    }, new Map());
+  const sessionGroups = [...grouped.entries()].map(([key, dayMatches]) => ({
+    key,
+    matches: dayMatches,
+  }));
+  const todayGroups = sessionGroups.filter((group) => group.key === currentSessionKey);
+  const historicGroups = sessionGroups
+    .filter((group) => group.key < currentSessionKey)
+    .sort((left, right) => right.key.localeCompare(left.key));
+  const futureGroups = sessionGroups
+    .filter((group) => group.key > currentSessionKey)
+    .sort((left, right) => left.key.localeCompare(right.key));
+  const orderedGroups = [...todayGroups, ...historicGroups, ...futureGroups];
+  const renderGroup = (group) => {
+    const dayMatches = group.matches;
+    const label = group.key === currentSessionKey ? "Vandaag" : formatDate(dayMatches[0]);
+    return (
+      <React.Fragment key={group.key}>
+        <h3 className="date-heading">{label}</h3>
+        <div className="match-list">
+          {dayMatches.map(renderMatch)}
+        </div>
+      </React.Fragment>
+    );
   };
-  const historicMatches = matches.filter(isHistoricMatch);
-  const activeAndFutureMatches = matches.filter((match) => !isHistoricMatch(match));
-  const grouped = activeAndFutureMatches.reduce((days, match) => {
-    const key = localDateKey(match);
-    if (!days.has(key)) days.set(key, []);
-    days.get(key).push(match);
-    return days;
-  }, new Map());
   const renderMatch = (match) => {
     const lock = matchLock(pool, match.id);
     const locked = Boolean(lock.locked);
@@ -1711,22 +1773,7 @@ function Schedule({ matches, teams, venues, pool, onPoolUpdate, onMatch }) {
 
   return (
     <>
-      {historicMatches.length > 0 && (
-        <>
-          <h3 className="date-heading historic-heading">Historic games</h3>
-          <div className="match-list historic-match-list">
-            {historicMatches.map(renderMatch)}
-          </div>
-        </>
-      )}
-      {[...grouped.entries()].map(([key, dayMatches]) => (
-        <React.Fragment key={key}>
-          <h3 className="date-heading">{formatDate(dayMatches[0])}</h3>
-          <div className="match-list">
-            {dayMatches.map(renderMatch)}
-          </div>
-        </React.Fragment>
-      ))}
+      {orderedGroups.map(renderGroup)}
       <MatchdayPredictionModal
         match={activeMatch}
         teams={teams}
@@ -1739,6 +1786,19 @@ function Schedule({ matches, teams, venues, pool, onPoolUpdate, onMatch }) {
 }
 
 function patchPoolAfterMatchPrediction(pool, matchId, result) {
+  const patchMatchdayMatch = (match) =>
+    (match.id ?? match.match_id) === matchId
+      ? {
+          ...match,
+          has_my_prediction: true,
+          my_prediction: result.prediction
+            ? {
+                home_score: result.prediction.home_score,
+                away_score: result.prediction.away_score,
+              }
+            : match.my_prediction,
+        }
+      : match;
   const nextNotifications = (pool.notifications ?? [])
     .map((notification) => {
       if (!notification.items?.length) return notification;
@@ -1771,13 +1831,13 @@ function patchPoolAfterMatchPrediction(pool, matchId, result) {
     },
     matchday: pool.matchday
       ? {
-        ...pool.matchday,
-        matches: (pool.matchday.matches ?? []).map((match) =>
-          (match.id ?? match.match_id) === matchId
-            ? { ...match, has_my_prediction: true }
-            : match,
-        ),
-      }
+          ...pool.matchday,
+          matches: (pool.matchday.matches ?? []).map(patchMatchdayMatch),
+          sessions: (pool.matchday.sessions ?? []).map((session) => ({
+            ...session,
+            matches: (session.matches ?? []).map(patchMatchdayMatch),
+          })),
+        }
       : pool.matchday,
   };
 }
@@ -3878,7 +3938,7 @@ function AdminBroadcastPage() {
   );
 }
 
-function AdminDataSyncPage({ onSyncComplete }) {
+function AdminDataSyncPage({ teams, onSyncComplete }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
@@ -3957,6 +4017,22 @@ function AdminDataSyncPage({ onSyncComplete }) {
     .filter(Boolean);
   const manualQuizFills = result?.genai_jobs?.manual_quiz_fills ?? [];
 
+  function manualFillChoiceOptions(fill) {
+    return quizChoices(
+      {
+        home_team_id: fill.home_team_id,
+        away_team_id: fill.away_team_id,
+        quiz: {
+          question: fill.question,
+          type: fill.type,
+          choices: fill.choices ?? [],
+          dynamic_choice_points: 5,
+        },
+      },
+      teams,
+    );
+  }
+
   function updateManualFillDraft(matchId, key, value) {
     setManualFillDrafts((current) => ({
       ...current,
@@ -3970,8 +4046,13 @@ function AdminDataSyncPage({ onSyncComplete }) {
   async function saveManualQuizFill(fill) {
     const draft = manualFillDrafts[fill.match_id] ?? {};
     const answer = String(draft.correct_answer ?? "").trim();
+    const choices = manualFillChoiceOptions(fill).map((choice) => choice.value);
     if (!answer) {
       setError("Fill in the correct quiz answer before saving.");
+      return;
+    }
+    if (!choices.includes(answer)) {
+      setError("Select one of the available quiz answers before saving.");
       return;
     }
     setSavingManualFillId(fill.match_id);
@@ -3981,7 +4062,7 @@ function AdminDataSyncPage({ onSyncComplete }) {
         method: "PATCH",
         body: JSON.stringify({
           question: fill.question,
-          choices: fill.choices ?? [],
+          choices,
           correct_answers: [answer],
           viewership_answer: draft.viewership_answer,
         }),
@@ -4212,7 +4293,7 @@ function AdminDataSyncPage({ onSyncComplete }) {
                 </div>
                 {manualQuizFills.map((fill) => {
                   const draft = manualFillDrafts[fill.match_id] ?? {};
-                  const hasChoices = (fill.choices ?? []).length > 0;
+                  const options = manualFillChoiceOptions(fill);
                   const matchTitle =
                     fill.home_team_name && fill.away_team_name
                       ? `${fill.home_team_name} vs ${fill.away_team_name}`
@@ -4225,39 +4306,31 @@ function AdminDataSyncPage({ onSyncComplete }) {
                       </div>
                       <div className="admin-genai-correction">
                         <strong>Manual answer</strong>
-                        {hasChoices ? (
+                        {options.length ? (
                           <div className="admin-genai-correction-options">
-                            {fill.choices.map((choice) => (
-                              <label key={choice}>
+                            {options.map((choice) => (
+                              <label key={choice.value}>
                                 <input
                                   type="radio"
                                   name={`manual-quiz-fill-${fill.match_id}`}
-                                  value={choice}
-                                  checked={draft.correct_answer === choice}
+                                  value={choice.value}
+                                  checked={draft.correct_answer === choice.value}
                                   onChange={() =>
                                     updateManualFillDraft(
                                       fill.match_id,
                                       "correct_answer",
-                                      choice,
+                                      choice.value,
                                     )
                                   }
                                 />
-                                <span>{choice}</span>
+                                <span>{String(choice.label).replace(/\s\([^)]*pts\)$/, "")}</span>
                               </label>
                             ))}
                           </div>
                         ) : (
-                          <input
-                            value={draft.correct_answer ?? ""}
-                            onChange={(event) =>
-                              updateManualFillDraft(
-                                fill.match_id,
-                                "correct_answer",
-                                event.target.value,
-                              )
-                            }
-                            placeholder="Correct answer"
-                          />
+                          <div className="form-error">
+                            No selectable quiz answers are available for this match.
+                          </div>
                         )}
                         {fill.viewership_required && (
                           <label>
@@ -4280,7 +4353,8 @@ function AdminDataSyncPage({ onSyncComplete }) {
                           type="button"
                           disabled={
                             savingManualFillId === fill.match_id ||
-                            !String(draft.correct_answer ?? "").trim()
+                            !String(draft.correct_answer ?? "").trim() ||
+                            !options.length
                           }
                           onClick={() => saveManualQuizFill(fill)}
                         >
@@ -4328,7 +4402,7 @@ function AdminPage({ currentUser, teams, onSyncComplete }) {
       ) : section === "messages" ? (
         <AdminBroadcastPage />
       ) : section === "sync" ? (
-        <AdminDataSyncPage onSyncComplete={onSyncComplete} />
+        <AdminDataSyncPage teams={teams} onSyncComplete={onSyncComplete} />
       ) : (
         <AdminLabelsPage teams={teams} />
       )}
@@ -4569,9 +4643,11 @@ function OutcomeBreakdown({ match, teams }) {
 }
 
 function DailyRecap({ recap }) {
+  const [dayScoreOpen, setDayScoreOpen] = useState(false);
   const topPlayers = recap?.top_players ?? [];
   const topWinners = recap?.top_winners ?? [];
   const topLosers = recap?.top_losers ?? [];
+  const dayScores = recap?.day_scores ?? [];
   const renderRankChanges = (players, emptyText) => (
     <>
       {!players.length && <div className="empty compact">{emptyText}</div>}
@@ -4606,7 +4682,18 @@ function DailyRecap({ recap }) {
       <div className="panel-body recap-body">
         <div className="daily-recap-grid">
           <section className="daily-recap-board">
-            <h4>Dagscore</h4>
+            <div className="daily-recap-board-heading">
+              <h4>Dagscore</h4>
+              {!!dayScores.length && (
+                <button
+                  className="text-button compact"
+                  type="button"
+                  onClick={() => setDayScoreOpen(true)}
+                >
+                  Bekijk alles
+                </button>
+              )}
+            </div>
             {!topPlayers.length && (
               <div className="empty compact">Nog geen dagpunten.</div>
             )}
@@ -4635,7 +4722,71 @@ function DailyRecap({ recap }) {
           </section>
         </div>
       </div>
+      {dayScoreOpen && (
+        <DayScoreModal recap={recap} onClose={() => setDayScoreOpen(false)} />
+      )}
     </article>
+  );
+}
+
+function DayScoreModal({ recap, onClose }) {
+  const [expandedUserId, setExpandedUserId] = useState(null);
+  const rows = recap?.day_scores ?? [];
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <article
+        className="day-score-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Dagscore"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="prediction-modal-header">
+          <div>
+            <h3>Dagscore</h3>
+            <p>{recap?.date ? formatSessionDate(recap.date) : "Laatste wedstrijddag"}</p>
+          </div>
+          <button className="text-button" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="day-score-list">
+          {!rows.length && <div className="empty compact">Nog geen dagpunten.</div>}
+          {rows.map((player) => {
+            const expanded = expandedUserId === player.user_id;
+            return (
+              <section className="day-score-row" key={player.user_id}>
+                <button
+                  className="day-score-row-button"
+                  type="button"
+                  onClick={() =>
+                    setExpandedUserId((current) =>
+                      current === player.user_id ? null : player.user_id,
+                    )
+                  }
+                  aria-expanded={expanded}
+                >
+                  <span className="daily-rank">{player.rank ?? "-"}</span>
+                  <ProfileAvatar player={player} size="small" />
+                  <strong>{player.name}</strong>
+                  <b>{player.points ?? 0} pts</b>
+                </button>
+                {expanded && (
+                  <div className="day-score-breakdowns">
+                    {(player.matches ?? []).map((match) => (
+                      <div className="day-score-match" key={match.match_id}>
+                        <strong>{match.label}</strong>
+                        <MatchPointBreakdown points={match.points} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      </article>
+    </div>
   );
 }
 
@@ -4951,6 +5102,11 @@ function MatchdayPredictionModal({
 
 function MatchdayPage({ pool, teams, venues, onMatch }) {
   const summary = pool.matchday;
+  const [openPointsId, setOpenPointsId] = useState(null);
+  const popoverScope = useMemo(
+    () => `matchday-${Math.random().toString(36).slice(2)}`,
+    [],
+  );
   const sessions = summary?.sessions?.length
     ? summary.sessions
     : summary?.matches
@@ -4975,6 +5131,16 @@ function MatchdayPage({ pool, teams, venues, onMatch }) {
       Math.min(current, Math.max(0, sessions.length - 1)),
     );
   }, [sessions.length]);
+
+  useEffect(() => {
+    function closeOtherPopover(event) {
+      if (event.detail?.scope !== popoverScope) setOpenPointsId(null);
+    }
+    window.addEventListener(POINTS_POPOVER_EVENT, closeOtherPopover);
+    return () => {
+      window.removeEventListener(POINTS_POPOVER_EVENT, closeOtherPopover);
+    };
+  }, [popoverScope]);
 
   function sessionTitle() {
     if (selectedSession?.is_historic) return "Historische wedstrijddag";
@@ -5054,13 +5220,20 @@ function MatchdayPage({ pool, teams, venues, onMatch }) {
             const match = { ...rawMatch, id: rawMatch.id ?? rawMatch.match_id };
             const venue = venues.get(match.venue_id);
             const matchStatusMessage = statusMessage(match);
-            const totalPoints = match.my_points?.total_points ?? 0;
+            const myPrediction = match.my_prediction;
+            const hasMyPrediction = Boolean(myPrediction);
             return (
-              <button
+              <article
                 className={`matchday-card ${match.has_my_prediction ? "is-predicted" : "is-missing"} is-clickable`}
                 key={match.match_id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => openMatch(match)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  openMatch(match);
+                }}
               >
                 <span
                   className={
@@ -5086,25 +5259,50 @@ function MatchdayPage({ pool, teams, venues, onMatch }) {
                     {venue?.city ?? "Venue to confirm"}
                   </span>
                   {match.completed && (
-                    <span className="matchday-result-line">
-                      Uitslag: {match.home_score ?? "-"} - {match.away_score ?? "-"}
+                    <span className="matchday-score-summary">
+                      <span>
+                        <strong>Uitslag</strong>
+                        {match.home_score ?? "-"} - {match.away_score ?? "-"}
+                      </span>
+                      <span>
+                        <strong>Mijn voorspelling</strong>
+                        {hasMyPrediction
+                          ? `${myPrediction.home_score} - ${myPrediction.away_score}`
+                          : "-"}
+                      </span>
+                      {hasMyPrediction && match.my_points && (
+                        <PointsPopoverAnchor
+                          label={`Jij: ${match.my_points.total_points ?? 0} pts`}
+                          points={match.my_points}
+                          open={openPointsId === match.id}
+                          onToggle={() => {
+                            setOpenPointsId((current) => {
+                              const next = current === match.id ? null : match.id;
+                              if (next) {
+                                window.dispatchEvent(
+                                  new CustomEvent(POINTS_POPOVER_EVENT, {
+                                    detail: { scope: popoverScope },
+                                  }),
+                                );
+                              }
+                              return next;
+                            });
+                          }}
+                          onClose={() => setOpenPointsId(null)}
+                        />
+                      )}
                     </span>
                   )}
                 </span>
                 <span className="matchday-side">
                   <OutcomeBreakdown match={match} teams={teams} />
                   <span className="matchday-stats">
-                    {match.completed && (
-                      <span className="matchday-points-chip">
-                        Jij: {totalPoints} pts
-                      </span>
-                    )}
                     <span>{match.prediction_count} voorspellingen</span>
                     <span>{match.quiz_answer_count} quiz</span>
                     <span>{match.leeuwtjes_count} Leeuwtjes</span>
                   </span>
                 </span>
-              </button>
+              </article>
             );
           })}
         </div>
@@ -5225,6 +5423,8 @@ function MatchdayMatchPage({ matchId, teams, venues, onBack }) {
   }
 
   const venue = venues.get(match.venue_id);
+  const myPrediction = match.my_prediction;
+  const hasMyPrediction = Boolean(myPrediction);
   return (
     <div className="matchday-detail-layout">
       <button className="text-button" type="button" onClick={onBack}>
@@ -5243,6 +5443,39 @@ function MatchdayMatchPage({ matchId, teams, venues, onBack }) {
         </div>
         <div className="matchday-detail-outcomes">
           <OutcomeBreakdown match={match} teams={teams} />
+          <div className="matchday-score-summary is-detail">
+            <span>
+              <strong>Uitslag</strong>
+              {match.home_score ?? "-"} - {match.away_score ?? "-"}
+            </span>
+            <span>
+              <strong>Mijn voorspelling</strong>
+              {hasMyPrediction
+                ? `${myPrediction.home_score} - ${myPrediction.away_score}`
+                : "-"}
+            </span>
+            {hasMyPrediction && match.my_points && (
+              <PointsPopoverAnchor
+                label={`Jij: ${match.my_points.total_points ?? 0} pts`}
+                points={match.my_points}
+                open={openPointsId === "viewer"}
+                onToggle={() => {
+                  setOpenPointsId((current) => {
+                    const next = current === "viewer" ? null : "viewer";
+                    if (next) {
+                      window.dispatchEvent(
+                        new CustomEvent(POINTS_POPOVER_EVENT, {
+                          detail: { scope: popoverScope },
+                        }),
+                      );
+                    }
+                    return next;
+                  });
+                }}
+                onClose={() => setOpenPointsId(null)}
+              />
+            )}
+          </div>
           <div className="matchday-stats">
             <span>{match.prediction_count} voorspellingen</span>
             <span>{match.quiz_answer_count} quiz</span>
@@ -5358,13 +5591,6 @@ function Leaderboard({
         <span className="pill green">{pool.leaderboard.length} players</span>
       </div>
       <div className="panel-body">
-        <div className="leaderboard-legend" aria-label="Leaderboard legend">
-          <span
-            className="legend-swatch missing-predictions"
-            aria-hidden="true"
-          />
-          <span>missing predictions</span>
-        </div>
         <div className="table-wrap">
           <table>
             <thead>
@@ -5382,15 +5608,8 @@ function Leaderboard({
             </thead>
             <tbody>
               {pool.leaderboard.map((row, index) => {
-                const missingPredictions = !row.all_predictions_complete;
-                const rowClass = [
-                  "leaderboard-row",
-                  missingPredictions ? "has-missing-predictions" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ");
                 return (
-                  <tr key={row.user_id} className={rowClass}>
+                  <tr key={row.user_id} className="leaderboard-row">
                     <td>{index + 1}</td>
                     <td>
                       {profileLinksEnabled ? (

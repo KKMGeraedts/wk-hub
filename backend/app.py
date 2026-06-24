@@ -1605,6 +1605,22 @@ def init_db() -> None:
         WHERE is_active = 1
         """,
         """
+        CREATE INDEX IF NOT EXISTS idx_match_predictions_match_id
+        ON match_predictions (match_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_quiz_predictions_match_id
+        ON quiz_predictions (match_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_leeuwtje_predictions_match_id
+        ON leeuwtje_predictions (match_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_top_scorer_predictions_user_id
+        ON top_scorer_predictions (user_id)
+        """,
+        """
         CREATE TABLE IF NOT EXISTS genai_job_results (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             job_type TEXT NOT NULL,
@@ -2030,6 +2046,22 @@ def init_db() -> None:
         CREATE UNIQUE INDEX IF NOT EXISTS idx_admin_sync_notifications_active_unique
         ON admin_sync_notifications (type, target_type, target_id)
         WHERE is_active = 1
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_match_predictions_match_id
+        ON match_predictions (match_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_quiz_predictions_match_id
+        ON quiz_predictions (match_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_leeuwtje_predictions_match_id
+        ON leeuwtje_predictions (match_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_top_scorer_predictions_user_id
+        ON top_scorer_predictions (user_id)
         """,
         """
         CREATE TABLE IF NOT EXISTS genai_job_results (
@@ -4808,6 +4840,108 @@ def user_match_points_by_match(
     return points_by_match
 
 
+def match_points_for_prediction(
+    match: dict[str, Any],
+    match_prediction: Any | None,
+    quiz_prediction: Any | None,
+    *,
+    leeuwtje: bool = False,
+    striker_entry: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    score_breakdown = match_prediction_breakdown(match_prediction, match)
+    score_points = int(score_breakdown["total_points"])
+    leeuwtje_points = score_points if match_prediction and leeuwtje else 0
+    quiz_points = quiz_points_for_prediction(match, quiz_prediction, set())
+    striker_entry = striker_entry or {}
+    striker_points = int(striker_entry.get("points") or 0)
+    quiz = match.get("quiz") or {}
+    return {
+        "score_points": score_points,
+        "score_breakdown": score_breakdown,
+        "leeuwtje_points": leeuwtje_points,
+        "quiz_points": quiz_points,
+        "striker_points": striker_points,
+        "striker_scorers": striker_entry.get("scorers", []),
+        "total_points": score_points + leeuwtje_points + quiz_points + striker_points,
+        "score_kind": score_breakdown["score_kind"],
+        "prediction": (
+            {
+                "home_score": match_prediction["home_score"],
+                "away_score": match_prediction["away_score"],
+            }
+            if match_prediction
+            else None
+        ),
+        "result": {
+            "home_score": match.get("home_score"),
+            "away_score": match.get("away_score"),
+        },
+        "quiz": (
+            {
+                "question": quiz.get("question"),
+                "answer": quiz_prediction["answer"] if quiz_prediction else None,
+                "points": quiz_points,
+                "answered": quiz_prediction is not None,
+                "correct": quiz_points > 0,
+            }
+            if quiz
+            else None
+        ),
+        "leeuwtje": leeuwtje,
+    }
+
+
+def striker_points_for_match_from_picks(
+    match: dict[str, Any],
+    picks: list[str],
+    goal_rows: list[Any],
+    scorer_links: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    if not picks:
+        return {"points": 0, "scorers": []}
+    pick_keys = {
+        key: pick for pick in picks for key in genai_service.player_counter_keys(pick) if key
+    }
+    if not pick_keys:
+        return {"points": 0, "scorers": []}
+
+    multiplier = float(score_rule_for_match(match).get("multiplier", 1.0))
+    goal_points = round_match_points(STRIKER_GOAL_POINTS * multiplier)
+    scorers: dict[str, dict[str, Any]] = {}
+    total_points = 0
+    for row in goal_rows:
+        detail = normalize_answer(row["detail"])
+        comments = normalize_answer(row["comments"])
+        if "own goal" in detail or "own goal" in comments:
+            continue
+        matched_pick = next(
+            (
+                pick_keys[key]
+                for scorer_name in scorer_names_with_genai_link(row, scorer_links or {})
+                for key in genai_service.player_counter_keys(scorer_name)
+                if key in pick_keys
+            ),
+            None,
+        )
+        if not matched_pick:
+            continue
+        total_points += goal_points
+        scorer = scorers.setdefault(
+            matched_pick,
+            {"name": matched_pick, "goals": 0, "points": 0},
+        )
+        scorer["goals"] += 1
+        scorer["points"] += goal_points
+    return {
+        "points": total_points,
+        "scorers": sorted(
+            scorers.values(),
+            key=lambda scorer: (-scorer["points"], scorer["name"]),
+        ),
+        "multiplier": multiplier,
+    }
+
+
 def standings_from_scores(
     group: dict[str, Any],
     matches: list[dict[str, Any]],
@@ -6162,6 +6296,11 @@ def build_matchday_summary(
     my_prediction_ids = {
         row["match_id"] for row in my_predictions if row["match_id"] in visible_match_ids
     }
+    my_predictions_by_match = {
+        row["match_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
+        for row in my_predictions
+        if row["match_id"] in visible_match_ids
+    }
     my_match_points = user_match_points_by_match(
         data,
         {row["match_id"]: row for row in my_predictions},
@@ -6195,6 +6334,7 @@ def build_matchday_summary(
                     "locked": is_prediction_locked(match, current),
                     "completed": match_result(match) is not None,
                     "has_my_prediction": match["id"] in my_prediction_ids,
+                    "my_prediction": my_predictions_by_match.get(match["id"]),
                     "my_points": points,
                     "prediction_count": len(match_predictions),
                     "home_win_count": outcomes["home"],
@@ -6252,6 +6392,7 @@ def build_matchday_summary(
 def matchday_match_detail(
     data: dict[str, Any],
     match_id: str,
+    user_id: int | None = None,
     now: datetime | None = None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     current = now or utc_now()
@@ -6303,18 +6444,28 @@ def matchday_match_detail(
             FROM top_scorer_predictions
             """,
         ).fetchall()
+        goal_rows = execute(
+            conn,
+            """
+            SELECT match_id, player_name, event_type, detail, comments
+            FROM match_events
+            WHERE match_id = ? AND LOWER(event_type) = 'goal'
+            """,
+            (match_id,),
+        ).fetchall()
+        scorer_links = accepted_match_scorer_links(conn)
 
     users_by_id = {row["id"]: row for row in users}
     quiz_by_user = {row["user_id"]: row["answer"] for row in quiz_rows}
+    quiz_prediction_by_user = {
+        row["user_id"]: {"answer": row["answer"] or "", "viewership_prediction": None}
+        for row in quiz_rows
+    }
     leeuwtje_user_ids = {row["user_id"] for row in leeuwtje_rows}
     outcomes = Counter(outcome_bucket(prediction) for prediction in predictions)
     predictions_by_user = {
         row["user_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
         for row in predictions
-    }
-    quiz_by_user_points = {
-        row["user_id"]: {"answer": row["answer"] or "", "viewership_prediction": None}
-        for row in quiz_rows
     }
     striker_picks_by_user = {row["user_id"]: striker_pick_names(row) for row in top_scorer_rows}
 
@@ -6323,16 +6474,18 @@ def matchday_match_detail(
         user = users_by_id.get(prediction["user_id"])
         if user is None:
             continue
-        points_by_match = user_match_points_by_match(
-            data,
-            {match_id: predictions_by_user[user["id"]]},
-            (
-                {match_id: quiz_by_user_points[user["id"]]}
-                if user["id"] in quiz_by_user_points
-                else {}
-            ),
-            [match_id] if user["id"] in leeuwtje_user_ids else [],
+        striker_entry = striker_points_for_match_from_picks(
+            match,
             striker_picks_by_user.get(user["id"], []),
+            goal_rows,
+            scorer_links,
+        )
+        points = match_points_for_prediction(
+            match,
+            predictions_by_user[user["id"]],
+            quiz_prediction_by_user.get(user["id"]),
+            leeuwtje=user["id"] in leeuwtje_user_ids,
+            striker_entry=striker_entry,
         )
         rows.append(
             {
@@ -6345,7 +6498,7 @@ def matchday_match_detail(
                 "outcome": outcome_bucket(prediction),
                 "leeuwtje": user["id"] in leeuwtje_user_ids,
                 "quiz_answer": quiz_by_user.get(user["id"]),
-                "points": points_by_match.get(match_id),
+                "points": points,
             }
         )
 
@@ -6388,6 +6541,22 @@ def matchday_match_detail(
             }
         )
 
+    viewer_prediction = predictions_by_user.get(user_id) if user_id is not None else None
+    viewer_points = None
+    if user_id is not None:
+        viewer_points = match_points_for_prediction(
+            match,
+            viewer_prediction,
+            quiz_prediction_by_user.get(user_id),
+            leeuwtje=user_id in leeuwtje_user_ids,
+            striker_entry=striker_points_for_match_from_picks(
+                match,
+                striker_picks_by_user.get(user_id, []),
+                goal_rows,
+                scorer_links,
+            ),
+        )
+
     return (
         {
             "match": {
@@ -6408,6 +6577,8 @@ def matchday_match_detail(
                 "away_win_count": outcomes["away"],
                 "quiz_answer_count": len(sorted_quiz_rows),
                 "leeuwtjes_count": len(leeuwtje_user_ids),
+                "my_prediction": viewer_prediction,
+                "my_points": viewer_points,
             },
             "score_groups": score_groups,
             "quiz_answer_groups": quiz_answer_groups,
@@ -6506,6 +6677,40 @@ def rank_users_by_scores(
     return {user["id"]: index for index, user in enumerate(ranked_users, start=1)}
 
 
+def rank_changes_between_scores(
+    users: list[Any],
+    previous_scores: dict[int, int],
+    current_scores: dict[int, int],
+    user_pictures: dict[int, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    previous_ranks = rank_users_by_scores(users, previous_scores)
+    current_ranks = rank_users_by_scores(users, current_scores)
+    movers = []
+    for user in users:
+        user_id = user["id"]
+        movement = previous_ranks[user_id] - current_ranks[user_id]
+        if movement == 0:
+            continue
+        name = row_value(user, "name") or "Unknown"
+        movers.append(
+            {
+                "user_id": user_id,
+                "name": name,
+                "rank": current_ranks[user_id],
+                "rank_previous": previous_ranks[user_id],
+                "rank_movement": movement,
+                "profile_picture": (user_pictures or {}).get(
+                    user_id,
+                    {
+                        "initials": initials(name),
+                        "hue": avatar_hue(name),
+                    },
+                ),
+            }
+        )
+    return movers
+
+
 def daily_movers_with_ties(
     data: dict[str, Any],
     users: list[Any],
@@ -6551,33 +6756,11 @@ def daily_movers_with_ties(
         )
         for user in users
     }
-    previous_ranks = rank_users_by_scores(users, previous_scores)
-    current_ranks = rank_users_by_scores(users, current_scores)
-    movers = []
-    for user in users:
-        user_id = user["id"]
-        movement = previous_ranks[user_id] - current_ranks[user_id]
-        if movement == 0:
-            continue
-        name = row_value(user, "name") or "Unknown"
-        movers.append(
-            {
-                "user_id": user_id,
-                "name": name,
-                "rank": current_ranks[user_id],
-                "rank_previous": previous_ranks[user_id],
-                "rank_movement": movement,
-                "profile_picture": (user_pictures or {}).get(
-                    user_id,
-                    {
-                        "initials": initials(name),
-                        "hue": avatar_hue(name),
-                    },
-                ),
-            }
-        )
-
-    return sorted_rank_changes(movers, mode="absolute", limit=limit)
+    return sorted_rank_changes(
+        rank_changes_between_scores(users, previous_scores, current_scores, user_pictures),
+        mode="absolute",
+        limit=limit,
+    )
 
 
 def leaderboard_rank_changes(
@@ -6654,6 +6837,7 @@ def build_daily_recap(
             "body": "De recap verschijnt zodra er gespeelde wedstrijden met uitslagen zijn.",
             "moments": [],
             "top_players": [],
+            "day_scores": [],
             "top_movers": [],
             "top_winners": [],
             "top_losers": [],
@@ -6689,6 +6873,7 @@ def build_daily_recap(
 
     user_names = {user["id"]: user["name"] for user in users}
     user_pictures = {user["id"]: user_profile_picture(user) for user in users}
+    users_list = list(users)
     by_user: dict[int, list[Any]] = {}
     for prediction in predictions:
         by_user.setdefault(prediction["user_id"], []).append(prediction)
@@ -6699,9 +6884,20 @@ def build_daily_recap(
     for row in leeuwtjes:
         leeuwtjes_by_user.setdefault(row["user_id"], set()).add(row["match_id"])
 
-    viewership_winners = quiz_viewership_winners(data, list(quiz_predictions))
     daily_points: Counter[int] = Counter()
-    for user in users:
+    points_by_user: dict[int, dict[str, dict[str, Any]]] = {}
+    previous_dates = sorted(
+        {
+            tournament_session_date(match)
+            for match in completed_matches
+            if tournament_session_date(match) < target_date
+        }
+    )
+    previous_date = previous_dates[-1] if previous_dates else None
+    match_dates = {match["id"]: tournament_session_date(match) for match in data["matches"]}
+    previous_scores: dict[int, int] = {}
+    current_scores: dict[int, int] = {}
+    for user in users_list:
         user_predictions = {
             prediction["match_id"]: prediction for prediction in by_user.get(user["id"], [])
         }
@@ -6712,44 +6908,84 @@ def build_daily_recap(
             list(leeuwtjes_by_user.get(user["id"], set())),
             striker_pick_names(top_scorers.get(user["id"])),
         )
+        points_by_user[user["id"]] = points_by_match
         daily_points[user["id"]] = sum(
             int(points.get("total_points") or 0)
             for match_id, points in points_by_match.items()
             if match_id in target_ids
+        )
+        previous_scores[user["id"]] = (
+            sum(
+                int(points.get("total_points") or 0)
+                for match_id, points in points_by_match.items()
+                if previous_date is not None and match_dates.get(match_id) <= previous_date
+            )
+            if previous_date is not None
+            else 0
+        )
+        current_scores[user["id"]] = sum(
+            int(points.get("total_points") or 0)
+            for match_id, points in points_by_match.items()
+            if match_dates.get(match_id) <= target_date
         )
 
     top_user_id, top_points = (None, 0)
     if daily_points:
         top_user_id, top_points = daily_points.most_common(1)[0]
     top_players = top_daily_scores_with_ties(daily_points, user_names, user_pictures)
-    if leaderboard:
-        rank_changes = leaderboard_rank_changes(leaderboard, limit=len(leaderboard))
-    else:
-        rank_changes = daily_movers_with_ties(
-            data,
-            list(users),
-            by_user,
-            quiz_by_user,
-            leeuwtjes_by_user,
-            viewership_winners,
-            target_date,
-            user_pictures,
-            limit=len(users),
-        )
+    rank_changes = rank_changes_between_scores(
+        users_list,
+        previous_scores,
+        current_scores,
+        user_pictures,
+    )
     top_movers = sorted_rank_changes(rank_changes, mode="absolute", limit=5)
     top_winners = sorted_rank_changes(rank_changes, mode="up", limit=3)
     top_losers = sorted_rank_changes(rank_changes, mode="down", limit=3)
 
     moments = []
+    match_labels: dict[str, str] = {}
     for match in sorted(target_matches, key=match_kickoff):
-        moments.append(
+        label = (
+            f"{teams.get(match['home_team_id'], {}).get('name', match['home_team_id'])} "
+            f"{match['home_score']}-{match['away_score']} "
+            f"{teams.get(match['away_team_id'], {}).get('name', match['away_team_id'])}"
+        )
+        match_labels[match["id"]] = label
+        moments.append({"match_id": match["id"], "label": label})
+
+    day_score_rows = []
+    sorted_daily_scores = sorted(
+        daily_points.items(),
+        key=lambda item: (-item[1], normalize_identity(user_names.get(item[0], ""))),
+    )
+    previous_points = None
+    current_rank = 0
+    for index, (user_id, points) in enumerate(sorted_daily_scores, start=1):
+        if points != previous_points:
+            current_rank = index
+            previous_points = points
+        day_score_rows.append(
             {
-                "match_id": match["id"],
-                "label": (
-                    f"{teams.get(match['home_team_id'], {}).get('name', match['home_team_id'])} "
-                    f"{match['home_score']}-{match['away_score']} "
-                    f"{teams.get(match['away_team_id'], {}).get('name', match['away_team_id'])}"
+                "user_id": user_id,
+                "rank": current_rank,
+                "name": user_names.get(user_id, "Unknown"),
+                "points": points,
+                "profile_picture": user_pictures.get(
+                    user_id,
+                    {
+                        "initials": initials(user_names.get(user_id, "Unknown")),
+                        "hue": avatar_hue(user_names.get(user_id, "Unknown")),
+                    },
                 ),
+                "matches": [
+                    {
+                        "match_id": match["id"],
+                        "label": match_labels.get(match["id"], match["id"]),
+                        "points": points_by_user.get(user_id, {}).get(match["id"]),
+                    }
+                    for match in sorted(target_matches, key=match_kickoff)
+                ],
             }
         )
 
@@ -6757,6 +6993,7 @@ def build_daily_recap(
         "available": True,
         "title": f"Recap {target_date.isoformat()}",
         "body": f"{len(target_matches)} gespeelde wedstrijden verwerkt.",
+        "date": target_date.isoformat(),
         "moments": moments,
         "top_player": (
             {"name": user_names.get(top_user_id), "points": top_points}
@@ -6764,6 +7001,7 @@ def build_daily_recap(
             else None
         ),
         "top_players": top_players,
+        "day_scores": day_score_rows,
         "top_movers": top_movers,
         "top_winners": top_winners,
         "top_losers": top_losers,
@@ -7611,11 +7849,12 @@ def pool():
 
 @app.get("/api/matchday/matches/<match_id>")
 def matchday_match(match_id: str):
-    _user, error_response = require_current_user()
+    user, error_response = require_current_user()
     if error_response:
         return error_response
+    assert user is not None
     data = load_world_cup_data()
-    detail, error = matchday_match_detail(data, match_id)
+    detail, error = matchday_match_detail(data, match_id, user_id=user["id"])
     if error == "not_found":
         return jsonify({"error": "Match not found."}), 404
     if error == "not_locked":

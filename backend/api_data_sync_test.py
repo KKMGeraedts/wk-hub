@@ -620,6 +620,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 {
                     "id": "m001",
                     "match_number": 33,
+                    "home_team_id": "ned",
+                    "away_team_id": "usa",
                     "home_team": "Netherlands",
                     "away_team": "Sweden",
                     "quiz": {
@@ -681,6 +683,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(len(fills), 1)
         self.assertEqual(fills[0]["match_id"], "m001")
         self.assertEqual(fills[0]["home_team_name"], "Netherlands")
+        self.assertEqual(fills[0]["home_team_id"], "ned")
+        self.assertEqual(fills[0]["away_team_id"], "usa")
         self.assertTrue(fills[0]["viewership_required"])
         self.assertEqual(fills[0]["choices"], [])
         recompute.assert_called_once()
@@ -691,6 +695,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
                 {
                     "id": "m33",
                     "match_number": 33,
+                    "home_team_id": "ned",
+                    "away_team_id": "swe",
                     "home_team": "Netherlands",
                     "away_team": "Sweden",
                     "quiz": {
@@ -748,7 +754,10 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         payload = response.get_json()
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(payload["genai_jobs"]["manual_quiz_fills"][0]["match_id"], "m33")
+        fill = payload["genai_jobs"]["manual_quiz_fills"][0]
+        self.assertEqual(fill["match_id"], "m33")
+        self.assertEqual(fill["home_team_id"], "ned")
+        self.assertEqual(fill["away_team_id"], "swe")
 
     def test_admin_can_save_open_quiz_label_without_predefined_choices(self) -> None:
         question = "Welke speler wordt volgens de FIFA man van de wedstrijd?"
@@ -2379,6 +2388,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertTrue(historic_match["completed"])
         self.assertEqual(historic_match["home_score"], 2)
         self.assertEqual(historic_match["away_score"], 1)
+        self.assertEqual(historic_match["my_prediction"], {"home_score": 2, "away_score": 1})
         self.assertEqual(historic_match["my_points"]["total_points"], 12)
 
     def test_matchday_match_detail_requires_locked_predictions(self) -> None:
@@ -2554,6 +2564,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             return wk_app.matchday_match_detail(
                 data,
                 "m001",
+                user_id=1,
                 now=datetime(2026, 6, 11, 21, 30, tzinfo=UTC),
             )
 
@@ -2567,6 +2578,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(points["striker_points"], 6)
         self.assertEqual(points["total_points"], 33)
         self.assertEqual(points["striker_scorers"][0]["name"], "Cody Gakpo")
+        self.assertEqual(detail["match"]["my_prediction"], {"home_score": 1, "away_score": 0})
+        self.assertEqual(detail["match"]["my_points"]["total_points"], 33)
 
     def test_daily_recap_movers_use_target_session_only(self) -> None:
         previous_match = make_match("m000", datetime(2026, 6, 10, 19, 0, tzinfo=UTC))
@@ -2630,7 +2643,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual([row["name"] for row in recap["top_winners"]], ["Chris"])
         self.assertEqual([row["name"] for row in recap["top_losers"]], ["Anna", "Bram"])
 
-    def test_daily_recap_movers_match_supplied_leaderboard_movements(self) -> None:
+    def test_daily_recap_ignores_supplied_leaderboard_movements(self) -> None:
         target_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
         target_match["status"] = "completed"
         target_match["home_score"] = 1
@@ -2681,20 +2694,56 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         recap = self.run_with_temp_db(scenario)
 
-        self.assertEqual(
-            [
-                (row["name"], row["rank_previous"], row["rank"], row["rank_movement"])
-                for row in recap["top_winners"]
+        self.assertEqual(recap["top_winners"], [])
+        self.assertEqual(recap["top_losers"], [])
+
+    def test_daily_recap_day_scores_include_all_active_players_and_breakdowns(self) -> None:
+        target_match = make_match("m001", datetime(2026, 6, 11, 19, 0, tzinfo=UTC))
+        target_match["status"] = "completed"
+        target_match["home_score"] = 1
+        target_match["away_score"] = 0
+        data = {
+            "matches": [target_match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
             ],
-            [("Karel", 9, 4, 5)],
-        )
-        self.assertEqual(
-            [
-                (row["name"], row["rank_previous"], row["rank"], row["rank_movement"])
-                for row in recap["top_losers"]
-            ],
-            [("Olivier", 1, 2, -1)],
-        )
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES
+                    (1, 'Anna', 'anna@example.com', 'x', 0),
+                    (2, 'Bram', 'bram@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES (1, 'm001', 1, 0)
+                """,
+            )
+            conn.commit()
+            return wk_app.build_daily_recap(
+                data,
+                now=datetime(2026, 6, 12, 4, 30, tzinfo=UTC),
+                leaderboard=[],
+            )
+
+        recap = self.run_with_temp_db(scenario)
+
+        self.assertEqual([row["name"] for row in recap["day_scores"]], ["Anna", "Bram"])
+        self.assertEqual([row["points"] for row in recap["day_scores"]], [12, 0])
+        self.assertEqual(recap["day_scores"][0]["matches"][0]["match_id"], "m001")
+        self.assertEqual(recap["day_scores"][0]["matches"][0]["points"]["total_points"], 12)
+        self.assertEqual(recap["day_scores"][1]["matches"][0]["points"]["total_points"], 0)
 
     def test_leaderboard_leeuwtjes_show_available_not_future_assignments(self) -> None:
         completed_match = make_match("m001", datetime(2026, 6, 11, 18, 0, tzinfo=UTC))
