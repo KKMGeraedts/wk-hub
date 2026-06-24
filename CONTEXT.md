@@ -44,6 +44,10 @@ _Avoid_: Calendar day, fixture date
 The elimination part of the tournament after the group stage, from the Round of 32 through the Final.
 _Avoid_: Knockout phase, bracket phase
 
+**Bracket Slot**:
+A placeholder for a Knockout Stage team that is not known yet, such as a group position or prior match winner.
+_Avoid_: Unknown team, TBD team
+
 **Missing Action**:
 A prediction or quiz answer that a participant can still complete before its lock time. Urgent missing actions are limited to matches on the current or next matchday, while Knockout Stage planning may show all known open missing actions.
 _Avoid_: Incomplete data, notification
