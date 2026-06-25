@@ -119,6 +119,18 @@ function formatTime(match) {
   }).format(escapeDate(match));
 }
 
+function formatDateTimeIso(value) {
+  if (!value) return "Unknown";
+  return new Intl.DateTimeFormat("nl-NL", {
+    timeZone: AMSTERDAM_TZ,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function broadcastInfo() {
   return {
     name: "NOS/NPO live",
@@ -214,6 +226,7 @@ const VIEW_ROUTES = {
   venues: "/venues",
   faq: "/faq",
   matchday: "/matchday",
+  knockout: "/knockout",
   pool: "/predictions",
   adjust: "/predictions/adjust",
 };
@@ -310,6 +323,15 @@ function routeForView(view, profileId = "", teamId = "", matchdayMatchId = "") {
   return VIEW_ROUTES[view] ?? VIEW_ROUTES.leaderboard;
 }
 
+const KNOCKOUT_ROUND_ORDER = [
+  "Round of 32",
+  "Round of 16",
+  "Quarter-final",
+  "Semi-final",
+  "Third-place play-off",
+  "Final",
+];
+
 function onboardingViewAllowed(_poolState, routedView) {
   if (!routedView) return false;
   return !ONBOARDING_VIEWS.has(routedView);
@@ -383,6 +405,36 @@ function poolMatchPoints(pool) {
     : {};
 }
 
+function poolKnockout(pool) {
+  return pool?.knockout && typeof pool.knockout === "object"
+    ? pool.knockout
+    : { is_relevant: false, rounds: [], missing_actions: [] };
+}
+
+function knockoutMatches(knockout) {
+  return (knockout?.rounds ?? []).flatMap((round) => round.matches ?? []);
+}
+
+function knockoutMatchById(knockout, matchId) {
+  return knockoutMatches(knockout).find((match) => match.id === matchId) ?? null;
+}
+
+function knockoutSideLabel(side) {
+  if (!side) return "Nog onbekend";
+  return side.kind === "team" ? side.name : side.label;
+}
+
+function knockoutSideTeamId(side) {
+  return side?.kind === "team" ? side.id : "";
+}
+
+function knockoutStatusLabel(status) {
+  if (status === "open") return "Open";
+  if (status === "locked") return "Locked";
+  if (status === "completed") return "Played";
+  return "Path";
+}
+
 function poolStrikerPicks(pool) {
   return Array.isArray(pool?.striker_picks)
     ? pool.striker_picks
@@ -399,6 +451,7 @@ function viewLabel(view) {
     teams: "Teams",
     schedule: "Schedule",
     matchday: "Matchday",
+    knockout: "Knockout",
     venues: "Venues",
     admin: "Admin",
     faq: "FAQ",
@@ -1439,6 +1492,313 @@ function MatchPredictionRow({
 function predictionScoreLabel(prediction) {
   if (!scoreComplete(prediction)) return "... - ...";
   return `${prediction.home_score} - ${prediction.away_score}`;
+}
+
+function KnockoutSide({ side }) {
+  const label = knockoutSideLabel(side);
+  if (side?.kind === "team") {
+    return (
+      <span className="knockout-side is-team">
+        <TeamFlag id={side.id} />
+        <strong>{label}</strong>
+      </span>
+    );
+  }
+  return (
+    <span className="knockout-side is-slot">
+      <em>{label}</em>
+    </span>
+  );
+}
+
+function KnockoutMatchTile({ match, selected, onSelect }) {
+  const missingCount = match.missing_actions?.length ?? 0;
+  return (
+    <button
+      className={[
+        "knockout-tile",
+        selected ? "is-selected" : "",
+        `is-${match.status ?? "not_yet_actionable"}`,
+        missingCount ? "has-missing" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      type="button"
+      onClick={onSelect}
+    >
+      <span className="knockout-tile-meta">
+        <b>#{match.match_number}</b>
+        <em>{knockoutStatusLabel(match.status)}</em>
+      </span>
+      <KnockoutSide side={match.home} />
+      <KnockoutSide side={match.away} />
+      {missingCount > 0 && (
+        <span className="knockout-missing-badge">{missingCount}</span>
+      )}
+    </button>
+  );
+}
+
+function knockoutDetailMatch(match) {
+  return {
+    id: match.id,
+    date: match.date,
+    time_utc: match.kickoff_at?.slice(11, 16),
+    round: match.round,
+    home_team_id: knockoutSideTeamId(match.home),
+    away_team_id: knockoutSideTeamId(match.away),
+    quiz: match.quiz,
+  };
+}
+
+function KnockoutPage({ pool, teams, onPoolUpdate, focusMatchId = "" }) {
+  const knockout = poolKnockout(pool);
+  const allMatches = knockoutMatches(knockout);
+  const firstMissingMatchId = knockout.missing_actions?.[0]?.match_id ?? "";
+  const [selectedMatchId, setSelectedMatchId] = useState(
+    () => focusMatchId || firstMissingMatchId || allMatches[0]?.id || "",
+  );
+  const selectedMatch =
+    knockoutMatchById(knockout, selectedMatchId) ?? allMatches[0] ?? null;
+  const [scores, setScores] = useState({ home_score: "", away_score: "" });
+  const [quizDraft, setQuizDraft] = useState({ answer: "" });
+  const [leeuwtjeActive, setLeeuwtjeActive] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!focusMatchId) return;
+    if (knockoutMatchById(knockout, focusMatchId)) {
+      setSelectedMatchId(focusMatchId);
+    }
+  }, [focusMatchId, knockout]);
+
+  useEffect(() => {
+    if (!selectedMatch) return;
+    setScores({
+      home_score: selectedMatch.prediction?.home_score ?? "",
+      away_score: selectedMatch.prediction?.away_score ?? "",
+    });
+    setQuizDraft({ answer: selectedMatch.quiz_prediction?.answer ?? "" });
+    setLeeuwtjeActive(Boolean(selectedMatch.leeuwtje));
+    setError("");
+  }, [selectedMatch?.id, selectedMatch?.prediction, selectedMatch?.quiz_prediction, selectedMatch?.leeuwtje]);
+
+  function setScore(_matchId, key, value) {
+    setScores((current) => ({ ...current, [key]: value }));
+  }
+
+  function setQuizAnswer(_matchId, value) {
+    setQuizDraft({ answer: value });
+  }
+
+  async function saveSelected() {
+    if (!selectedMatch) return;
+    setSaving(true);
+    setError("");
+    const nextLeeuwtjes = new Set(poolLeeuwtjeMatchIds(pool));
+    if (leeuwtjeActive) {
+      nextLeeuwtjes.add(selectedMatch.id);
+    } else {
+      nextLeeuwtjes.delete(selectedMatch.id);
+    }
+    try {
+      const updated = await apiJson("/api/predictions", {
+        method: "POST",
+        body: JSON.stringify({
+          predictions: scoreComplete(scores)
+            ? [
+              {
+                match_id: selectedMatch.id,
+                home_score: Number(scores.home_score),
+                away_score: Number(scores.away_score),
+              },
+            ]
+            : [],
+          quiz_predictions: selectedMatch.quiz
+            ? [
+              {
+                match_id: selectedMatch.id,
+                answer: String(quizDraft.answer ?? "").trim(),
+              },
+            ]
+            : [],
+          leeuwtjes_match_ids: [...nextLeeuwtjes],
+        }),
+      });
+      onPoolUpdate(updated);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!allMatches.length) {
+    return (
+      <article className="panel knockout-page">
+        <div className="panel-header">
+          <div>
+            <h3>Knockout</h3>
+            <p>The Knockout Stage schedule is not available yet.</p>
+          </div>
+        </div>
+      </article>
+    );
+  }
+
+  const detailMatch = selectedMatch ? knockoutDetailMatch(selectedMatch) : null;
+  const openForPredictions = selectedMatch?.status === "open";
+  const locked = !openForPredictions;
+  const canToggleLeeuwtje =
+    leeuwtjeActive || poolLeeuwtjeMatchIds(pool).length < leeuwtjesTotal(pool);
+  const quizAnswer = String(quizDraft.answer ?? "").trim();
+  const existingQuizAnswer = String(
+    selectedMatch?.quiz_prediction?.answer ?? "",
+  ).trim();
+  const canSaveSelected =
+    openForPredictions &&
+    (scoreComplete(scores) ||
+      (selectedMatch?.quiz && quizAnswer !== existingQuizAnswer) ||
+      Boolean(selectedMatch?.leeuwtje) !== leeuwtjeActive);
+
+  return (
+    <div className="knockout-page">
+      <section className="panel knockout-board-panel">
+        <div className="panel-header">
+          <div>
+            <h3>Knockout</h3>
+            <p>Select a match to inspect the path and complete open predictions.</p>
+          </div>
+          <span className="pill orange">
+            {knockout.missing_actions?.length ?? 0} open
+          </span>
+        </div>
+        <div className="panel-body">
+          <div className="knockout-board" aria-label="Knockout Stage bracket">
+            {KNOCKOUT_ROUND_ORDER.map((roundName) => {
+              const round = knockout.rounds?.find((item) => item.round === roundName);
+              if (!round?.matches?.length) return null;
+              return (
+                <section className="knockout-round" key={roundName}>
+                  <h4>{roundName}</h4>
+                  <div className="knockout-round-stack">
+                    {round.matches.map((match) => (
+                      <KnockoutMatchTile
+                        key={match.id}
+                        match={match}
+                        selected={selectedMatch?.id === match.id}
+                        onSelect={() => setSelectedMatchId(match.id)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <aside className="panel knockout-detail-panel">
+        <div className="panel-header">
+          <div>
+            <h3>
+              {selectedMatch
+                ? `Match ${selectedMatch.match_number}`
+                : "Select match"}
+            </h3>
+            <p>
+              {selectedMatch
+                ? `${selectedMatch.round} · ${selectedMatch.date ?? "Date unknown"}`
+                : "Choose a tile in the bracket."}
+            </p>
+          </div>
+          {selectedMatch && (
+            <span className={`pill ${openForPredictions ? "green" : ""}`}>
+              {knockoutStatusLabel(selectedMatch.status)}
+            </span>
+          )}
+        </div>
+        {selectedMatch && detailMatch && (
+          <div className="panel-body knockout-detail-body">
+            <div className="knockout-detail-teams">
+              <KnockoutSide side={selectedMatch.home} />
+              <span>vs</span>
+              <KnockoutSide side={selectedMatch.away} />
+            </div>
+            <div className="knockout-detail-meta">
+              <span>{selectedMatch.venue?.name ?? "Venue to confirm"}</span>
+              <span>Lock: {formatDateTimeIso(selectedMatch.lock_at)}</span>
+            </div>
+
+            {selectedMatch.status === "not_yet_actionable" ? (
+              <div className="empty compact">
+                This match opens once both Bracket Slots are resolved.
+              </div>
+            ) : (
+              <>
+                <MatchPredictionEditor
+                  match={detailMatch}
+                  teams={teams}
+                  scores={scores}
+                  locked={locked}
+                  onScore={setScore}
+                  onSubmit={saveSelected}
+                  saving={saving}
+                  compact
+                  showSubmit={false}
+                />
+                {selectedMatch.quiz ? (
+                  <MatchQuizEditor
+                    match={detailMatch}
+                    teams={teams}
+                    prediction={quizDraft}
+                    locked={locked}
+                    onAnswer={setQuizAnswer}
+                  />
+                ) : (
+                  <div className="fixture-quiz">
+                    <div className="fixture-quiz-heading">
+                      <div>
+                        <strong>Quiz question not set yet</strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div className="knockout-detail-actions">
+                  <LeeuwtjeButton
+                    active={leeuwtjeActive}
+                    disabled={locked || !canToggleLeeuwtje}
+                    remaining={Math.max(
+                      0,
+                      leeuwtjesTotal(pool) - poolLeeuwtjeMatchIds(pool).length,
+                    )}
+                    onToggle={() => setLeeuwtjeActive((current) => !current)}
+                  />
+                  <button
+                    className="primary-button"
+                    type="button"
+                    onClick={saveSelected}
+                    disabled={saving || !canSaveSelected}
+                  >
+                    {saving ? "Saving..." : "Save prediction"}
+                  </button>
+                </div>
+                <div className="knockout-missing-list">
+                  {(selectedMatch.missing_actions ?? []).map((item) => (
+                    <span key={`${item.kind}-${item.match_id}`} className="pill orange">
+                      {item.kind === "quiz" ? "Quiz open" : "Score open"}
+                    </span>
+                  ))}
+                </div>
+              </>
+            )}
+            {error && <span className="form-error">{error}</span>}
+          </div>
+        )}
+      </aside>
+    </div>
+  );
 }
 
 function splitExactScorePoints(total) {
@@ -3092,14 +3452,25 @@ function genaiPlayerLinkSummary(link) {
 }
 
 function adminQuizFromDraft(match, draft) {
-  if (!match?.quiz) return null;
+  if (!match?.quiz && !String(draft?.question ?? "").trim()) return null;
   const choices = String(draft.choices ?? "")
     .split("\n")
     .map((choice) => choice.trim())
     .filter(Boolean);
+  const baseQuiz = match?.quiz ?? {
+    question: "",
+    type:
+      choices.length === 2 &&
+        choices.map((choice) => choice.toLowerCase()).sort().join("|") === "ja|nee"
+        ? "yes_no"
+        : choices.length
+          ? "choice"
+          : "open",
+    choices: [],
+  };
   return {
-    ...match.quiz,
-    question: draft.question || match.quiz.question,
+    ...baseQuiz,
+    question: draft.question || baseQuiz.question,
     choices,
   };
 }
@@ -3123,6 +3494,11 @@ function adminQuizChoicePoints(quiz, choice) {
   if (quiz?.dynamic_choice_points !== undefined) return quiz.dynamic_choice_points;
   if (quiz?.type === "yes_no") return 3;
   return 5;
+}
+
+function AdminTeamOrSlot({ id, placeholder, teams }) {
+  if (id) return <TeamLabel id={id} teams={teams} />;
+  return <span className="admin-bracket-slot">{placeholder || "Bracket slot"}</span>;
 }
 
 function AdminLabelsPage({ teams }) {
@@ -3345,6 +3721,8 @@ function AdminLabelsPage({ teams }) {
                 ]
                   .map((item) => item.genai_link)
                   .filter(Boolean);
+                const needsQuizReview = Boolean(labelMatch.quiz_review_needed);
+                const quizReviewReasons = labelMatch.quiz_review_reasons ?? [];
                 const labelDraft = drafts[labelMatch.match_id] ?? {};
                 const activeQuiz = adminQuizFromDraft(labelMatch, labelDraft);
                 const quizOptions = adminQuizChoiceOptions(
@@ -3357,11 +3735,14 @@ function AdminLabelsPage({ teams }) {
                 );
                 return (
                   <article
-                    className={
-                      editing
-                        ? "prediction-fixture-row admin-label-match is-active"
-                        : "prediction-fixture-row admin-label-match"
-                    }
+                    className={[
+                      "prediction-fixture-row",
+                      "admin-label-match",
+                      editing ? "is-active" : "",
+                      needsQuizReview ? "needs-quiz-review" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     key={labelMatch.match_id}
                   >
                     <div className="fixture-row-header">
@@ -3369,8 +3750,16 @@ function AdminLabelsPage({ teams }) {
                         <span className="fixture-number">{index + 1}</span>
                         <span>
                           <strong>
-                            <TeamLabel id={labelMatch.home_team_id} teams={teams} />{" "}
-                            <TeamLabel id={labelMatch.away_team_id} teams={teams} />
+                            <AdminTeamOrSlot
+                              id={labelMatch.home_team_id}
+                              placeholder={labelMatch.home_placeholder}
+                              teams={teams}
+                            />{" "}
+                            <AdminTeamOrSlot
+                              id={labelMatch.away_team_id}
+                              placeholder={labelMatch.away_placeholder}
+                              teams={teams}
+                            />
                           </strong>
                           <em>
                             {labelMatch.date ?? "Date unknown"} ·{" "}
@@ -3380,6 +3769,9 @@ function AdminLabelsPage({ teams }) {
                         </span>
                       </div>
                       <div className="fixture-row-status admin-label-status">
+                        {needsQuizReview && (
+                          <span className="pill warning">Quiz needs review</span>
+                        )}
                         <LabelSourcePill source={labelSource(labelMatch, "result")} />
                         <LabelSourcePill source={labelSource(labelMatch, "quiz")} />
                         <LabelSourcePill source={labelSource(labelMatch, "events")} />
@@ -3433,6 +3825,11 @@ function AdminLabelsPage({ teams }) {
                           <strong>
                             {labelMatch.quiz?.question ?? "No quiz question"}
                           </strong>
+                          {needsQuizReview && (
+                            <span className="admin-review-warning">
+                              Review needed: {quizReviewReasons.join(", ")}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="admin-label-readout-grid">
@@ -3558,9 +3955,13 @@ function AdminLabelsPage({ teams }) {
 
                         <section className="admin-label-section">
                           <h4>Quiz label</h4>
-                          {match.quiz ? (
-                            <>
-                              {match.quiz.genai && (
+                          <>
+                              {!match.quiz && (
+                                <div className="admin-quiz-unset">
+                                  No quiz question set yet. Add one here before participants answer it.
+                                </div>
+                              )}
+                              {match.quiz?.genai && (
                                 <div className="admin-genai-detail">
                                   <div>
                                     <strong>{match.quiz.genai.source}</strong>
@@ -3680,9 +4081,6 @@ function AdminLabelsPage({ teams }) {
                                 </button>
                               </div>
                             </>
-                          ) : (
-                            <div className="empty">No quiz for this match.</div>
-                          )}
                         </section>
 
                         <section className="admin-label-section is-wide">
@@ -4033,6 +4431,17 @@ function AdminDataSyncPage({ teams, onSyncComplete }) {
     );
   }
 
+  function quizMatchAbbreviation(item) {
+    const homeId = item.home_team_id;
+    const awayId = item.away_team_id;
+    const home = teams.get(homeId);
+    const away = teams.get(awayId);
+    const homeCode = home?.code ?? String(homeId ?? "").toUpperCase();
+    const awayCode = away?.code ?? String(awayId ?? "").toUpperCase();
+    if (!homeCode || !awayCode) return item.match_id ? `Match ${item.match_id}` : "";
+    return `${homeCode} vs ${awayCode}`;
+  }
+
   function updateManualFillDraft(matchId, key, value) {
     setManualFillDrafts((current) => ({
       ...current,
@@ -4213,7 +4622,10 @@ function AdminDataSyncPage({ teams, onSyncComplete }) {
                   return (
                     <div className="admin-genai-review" key={review.job_result_id}>
                       <div>
-                        <strong>{review.question}</strong>
+                        <div className="admin-genai-question-row">
+                          <strong>{review.question}</strong>
+                          <span>{quizMatchAbbreviation(review)}</span>
+                        </div>
                         <span>
                           GenAI answer: {review.genai_answers.join(", ") || "Missing"}
                           {review.confidence ? ` · ${review.confidence} confidence` : ""}
@@ -4301,7 +4713,10 @@ function AdminDataSyncPage({ teams, onSyncComplete }) {
                   return (
                     <div className="admin-genai-review" key={fill.match_id}>
                       <div>
-                        <strong>{fill.question}</strong>
+                        <div className="admin-genai-question-row">
+                          <strong>{fill.question}</strong>
+                          <span>{quizMatchAbbreviation(fill)}</span>
+                        </div>
                         <span>{matchTitle}</span>
                       </div>
                       <div className="admin-genai-correction">
@@ -7539,6 +7954,7 @@ function App() {
   const [selectedMatchdayMatchId, setSelectedMatchdayMatchId] = useState(() =>
     matchdayMatchIdFromRoute(window.location.pathname),
   );
+  const [selectedKnockoutMatchId, setSelectedKnockoutMatchId] = useState("");
   const [now, setNow] = useState(() => new Date());
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [changePasswordOpen, setChangePasswordOpen] = useState(false);
@@ -7571,11 +7987,27 @@ function App() {
   }
 
   function navigateToPredictionTarget(item) {
+    if (item?.target_view === "knockout") {
+      setSelectedKnockoutMatchId(item?.target_match_id ?? item?.match_id ?? "");
+      navigateToView("knockout");
+      return;
+    }
     setPredictionFocusTarget({
       match_id: item?.target_match_id ?? item?.match_id ?? "",
       kind: item?.target_kind ?? item?.kind ?? "prediction",
     });
     navigateToView(item?.target_view === "pool" ? "pool" : "adjust");
+  }
+
+  function navigateToMyPredictions() {
+    const knockout = poolKnockout(pool);
+    if (knockout.is_relevant) {
+      const firstMissing = knockout.missing_actions?.[0];
+      setSelectedKnockoutMatchId(firstMissing?.match_id ?? "");
+      navigateToView("knockout");
+      return;
+    }
+    navigateToView("adjust");
   }
 
   async function handleNotificationAction(item) {
@@ -7965,9 +8397,11 @@ function App() {
     : 0;
   const selectedTeam = maps.teams.get(selectedTeamId) ?? null;
   const venueRows = data.venues;
+  const knockout = poolKnockout(pool);
   const navItems = [
     "home",
     "matchday",
+    knockout.is_relevant ? "knockout" : null,
     "leaderboard",
     "groups",
     "teams",
@@ -7998,7 +8432,7 @@ function App() {
             notifications={visibleNotifications}
             open={notificationsOpen}
             onToggle={() => setNotificationsOpen((current) => !current)}
-            onPredictions={() => navigateToView("adjust")}
+            onPredictions={navigateToMyPredictions}
             onNotificationAction={handleNotificationAction}
             onCelebrateBadge={celebrateBadge}
             onDismissNotification={dismissNotification}
@@ -8016,12 +8450,13 @@ function App() {
           <button
             className="my-predictions-button"
             type="button"
-            onClick={() => navigateToView("adjust")}
+            onClick={navigateToMyPredictions}
           >
             <span>Mijn voorspellingen</span>
             <b>
-              {pool.progress?.group_stage_predictions ?? 0}/
-              {pool.progress?.group_stage_total ?? 0}
+              {knockout.is_relevant
+                ? knockout.missing_actions?.length ?? 0
+                : `${pool.progress?.group_stage_predictions ?? 0}/${pool.progress?.group_stage_total ?? 0}`}
             </b>
           </button>
           <button
@@ -8134,6 +8569,17 @@ function App() {
               teams={maps.teams}
               venues={maps.venues}
               onMatch={navigateToMatchdayMatch}
+            />
+          </section>
+        )}
+
+        {view === "knockout" && (
+          <section className="view is-active">
+            <KnockoutPage
+              pool={pool}
+              teams={maps.teams}
+              onPoolUpdate={updatePoolOnly}
+              focusMatchId={selectedKnockoutMatchId}
             />
           </section>
         )}

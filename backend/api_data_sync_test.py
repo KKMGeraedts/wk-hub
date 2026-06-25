@@ -815,6 +815,36 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(match["quiz"]["correct_answers"], ["Brian Brobbey"])
         self.assertEqual(match["quiz"]["viewership_answer"], 1234567)
 
+    def test_admin_labels_flag_completed_quizzes_with_missing_labels(self) -> None:
+        match = make_match("m33", datetime.now(UTC) - timedelta(hours=3))
+        match["status"] = "completed"
+        match["home_score"] = 2
+        match["away_score"] = 0
+        match["quiz"] = {
+            "question": "Hoeveel kijkers waren er?",
+            "type": "open",
+            "viewership": True,
+        }
+        data = {
+            "matches": [match],
+            "teams": [],
+            "groups": [],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(_conn):
+            return wk_app.admin_labels_payload(data)
+
+        payload = self.run_with_temp_db(scenario)
+        label_match = payload["matches"][0]
+
+        self.assertTrue(label_match["quiz_review_needed"])
+        self.assertEqual(
+            label_match["quiz_review_reasons"],
+            ["Quiz label missing", "Viewership missing"],
+        )
+
     def test_missing_result_batch_recomputes_no_points_per_match(self) -> None:
         data: dict[str, Any] = {"matches": [], "teams": []}
         with (
@@ -4279,7 +4309,10 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         response, review = self.run_with_temp_db(scenario)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.get_json()["review"]["review_status"], "approved")
+        response_review = response.get_json()["review"]
+        self.assertEqual(response_review["review_status"], "approved")
+        self.assertEqual(response_review["home_team_id"], data["matches"][0]["home_team_id"])
+        self.assertEqual(response_review["away_team_id"], data["matches"][0]["away_team_id"])
         self.assertEqual(review["decision"], "approved")
         self.assertEqual(json.loads(review["selected_answers_json"]), ["Netherlands"])
 

@@ -1884,7 +1884,8 @@ tr.highlight td {
 }
 
 .day-score-list {
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 8px;
     min-height: 0;
     overflow-y: auto;
@@ -1893,6 +1894,7 @@ tr.highlight td {
 }
 
 .day-score-row {
+    flex: 0 0 auto;
     overflow: hidden;
     border: 1px solid var(--line);
     border-radius: 8px;
@@ -1905,7 +1907,7 @@ tr.highlight td {
     gap: 10px;
     align-items: center;
     width: 100%;
-    min-height: 54px;
+    height: 54px;
     padding: 9px 11px;
     border: 0;
     background: #ffffff;
@@ -2534,6 +2536,11 @@ tr.highlight td {
     gap: 12px;
 }
 
+.admin-label-match.needs-quiz-review {
+    border-color: #f3c56b;
+    box-shadow: inset 5px 0 0 #f3c56b;
+}
+
 .admin-label-status {
     align-items: center;
 }
@@ -2551,6 +2558,18 @@ tr.highlight td {
 
 .admin-label-readout {
     margin-top: 0;
+}
+
+.admin-review-warning {
+    display: inline-flex;
+    width: fit-content;
+    margin-top: 6px;
+    padding: 5px 8px;
+    border-radius: 8px;
+    background: #fff3d8;
+    color: #8a5a00;
+    font-size: 12px;
+    font-weight: 900;
 }
 
 .admin-label-readout-grid {
@@ -2972,11 +2991,43 @@ tr.highlight td {
     min-width: 0;
 }
 
+.admin-genai-question-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.admin-genai-question-row strong {
+    min-width: 0;
+}
+
+.admin-genai-question-row span {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    min-height: 22px;
+    padding: 2px 8px;
+    border: 1px solid #dfe5ed;
+    border-radius: 999px;
+    background: #f6f8fb;
+    color: var(--blue);
+    font-size: 12px;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
 .admin-genai-review > div:first-child span {
     width: fit-content;
     padding: 0;
     border: 0;
     border-radius: 0;
+}
+
+.admin-genai-review > div:first-child .admin-genai-question-row span {
+    padding: 2px 8px;
+    border: 1px solid #dfe5ed;
+    border-radius: 999px;
 }
 
 .admin-genai-review-actions {
@@ -3126,7 +3177,7 @@ tr.highlight td {
     gap: 10px;
     width: min(360px, 100%);
     padding: 16px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--line);
     border-radius: 8px;
     background: #ffffff;
     box-shadow: 0 16px 38px rgba(18, 43, 75, 0.1);
@@ -5576,6 +5627,184 @@ tr.highlight td {
     padding: 14px;
 }
 
+.knockout-page {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+    gap: 18px;
+    align-items: start;
+}
+
+.knockout-board-panel .panel-body {
+    overflow-x: auto;
+}
+
+.knockout-board {
+    min-width: 980px;
+    display: grid;
+    grid-template-columns: 1.35fr 1.12fr 0.92fr 0.72fr 0.72fr 0.62fr;
+    gap: 14px;
+    align-items: stretch;
+    padding: 4px 4px 10px;
+}
+
+.knockout-round {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 10px;
+}
+
+.knockout-round h4 {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--muted);
+    text-transform: uppercase;
+}
+
+.knockout-round-stack {
+    display: grid;
+    gap: 10px;
+    align-content: space-around;
+}
+
+.knockout-tile {
+    position: relative;
+    display: grid;
+    gap: 6px;
+    width: 100%;
+    min-height: 104px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
+    color: var(--ink);
+    text-align: left;
+    cursor: pointer;
+    box-shadow: 0 8px 18px rgba(14, 28, 48, 0.06);
+}
+
+.knockout-tile:hover,
+.knockout-tile.is-selected {
+    border-color: var(--orange);
+    background: #fff8f2;
+}
+
+.knockout-tile.is-completed,
+.knockout-tile.is-not_yet_actionable {
+    background: #f8fafc;
+}
+
+.knockout-tile.has-missing::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    border-radius: 8px 0 0 8px;
+    background: var(--orange);
+}
+
+.knockout-tile-meta,
+.knockout-side {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+}
+
+.knockout-tile-meta {
+    grid-template-columns: auto auto;
+    justify-content: space-between;
+    font-size: 0.74rem;
+    color: var(--muted);
+}
+
+.knockout-side strong,
+.knockout-side em {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-style: normal;
+}
+
+.knockout-side.is-slot em {
+    color: var(--blue);
+    font-weight: 800;
+}
+
+.knockout-missing-badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: inline-grid;
+    place-items: center;
+    min-width: 22px;
+    height: 22px;
+    border-radius: 999px;
+    background: var(--orange);
+    color: #ffffff;
+    font-size: 0.76rem;
+    font-weight: 900;
+}
+
+.knockout-detail-panel {
+    position: sticky;
+    top: 18px;
+}
+
+.knockout-detail-body,
+.knockout-detail-actions,
+.knockout-missing-list {
+    display: grid;
+    gap: 12px;
+}
+
+.knockout-detail-teams {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    padding: 12px;
+    border-radius: 8px;
+    background: #f8fafc;
+}
+
+.knockout-detail-teams > span:nth-child(2) {
+    color: var(--muted);
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
+.knockout-detail-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.knockout-detail-meta span {
+    padding: 9px 10px;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: var(--muted);
+    font-size: 0.86rem;
+}
+
+.admin-quiz-unset {
+    padding: 10px;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: var(--muted);
+    font-size: 0.88rem;
+}
+
+.admin-bracket-slot {
+    display: inline-flex;
+    padding: 2px 7px;
+    border-radius: 8px;
+    background: #f8fafc;
+    color: var(--blue);
+    font-weight: 800;
+}
+
 @media (max-width: 880px) {
     .login-page,
     .hero-panel {
@@ -5623,6 +5852,21 @@ tr.highlight td {
     }
     .matchday-layout {
         grid-template-columns: 1fr;
+    }
+    .knockout-page,
+    .knockout-detail-meta,
+    .knockout-detail-teams {
+        grid-template-columns: 1fr;
+    }
+    .knockout-board {
+        min-width: 760px;
+        grid-template-columns: repeat(6, 148px);
+    }
+    .knockout-tile {
+        min-height: 116px;
+    }
+    .knockout-detail-panel {
+        position: static;
     }
     .matchday-card {
         grid-template-columns: 1fr;

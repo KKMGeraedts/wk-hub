@@ -748,6 +748,10 @@ def quiz_genai_review_payload(
     return {
         "job_result_id": job_result_id,
         "match_id": clean_text(match.get("id")),
+        "home_team_id": clean_text(match.get("home_team_id")),
+        "away_team_id": clean_text(match.get("away_team_id")),
+        "home_team_name": clean_text(match.get("home_team")),
+        "away_team_name": clean_text(match.get("away_team")),
         "question": clean_text(quiz.get("question")),
         "choices": [clean_text(choice) for choice in quiz.get("choices") or []],
         "genai_answers": parse_correct_answers_json(

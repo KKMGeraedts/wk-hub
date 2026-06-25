@@ -386,12 +386,30 @@ def apply_quiz_label_overrides(data: dict[str, Any]) -> None:
     overrides = {row["match_id"]: row for row in rows}
     for match in data.get("matches", []):
         quiz = match.get("quiz")
+        row = overrides.get(match["id"])
         if not isinstance(quiz, dict):
-            continue
+            if not row:
+                continue
+            setup_question = clean_text(row["question"] if row_has_key(row, "question") else None)
+            setup_choices = parse_text_list_json(
+                row["choices_json"] if row_has_key(row, "choices_json") else None
+            )
+            if not setup_question:
+                continue
+            quiz = {
+                "question": setup_question,
+                "type": (
+                    "yes_no"
+                    if {normalize_answer(choice) for choice in setup_choices} == {"ja", "nee"}
+                    else "choice" if setup_choices else "open"
+                ),
+            }
+            if setup_choices:
+                quiz["choices"] = setup_choices
+            match["quiz"] = quiz
         auto_row = auto_labels.get(match["id"])
         if auto_row is not None:
             genai_service.apply_auto_quiz_label(match, auto_row)
-        row = overrides.get(match["id"])
         if not row:
             continue
         question = clean_text(row["question"] if row_has_key(row, "question") else None)
@@ -4734,7 +4752,12 @@ def quiz_complete(quiz: dict[str, Any] | None, prediction: Any | None) -> bool:
     if not quiz:
         return True
     answer = clean_text(prediction["answer"] if prediction else "")
-    return bool(answer)
+    if not answer:
+        return False
+    choices = [clean_text(choice) for choice in quiz.get("choices", []) if clean_text(choice)]
+    return not (
+        choices and normalize_answer(answer) not in {normalize_answer(choice) for choice in choices}
+    )
 
 
 def quiz_answer_points(quiz: dict[str, Any], prediction: Any | None) -> int:
@@ -5949,6 +5972,188 @@ def match_display_label(match: dict[str, Any]) -> str:
     if home and away:
         return f"{home} - {away}"
     return clean_text(match.get("id")) or "Wedstrijd"
+
+
+KNOCKOUT_ROUNDS = (
+    "Round of 32",
+    "Round of 16",
+    "Quarter-final",
+    "Semi-final",
+    "Third-place play-off",
+    "Final",
+)
+
+
+def is_knockout_match(match: dict[str, Any]) -> bool:
+    return match.get("round") != "Group Stage"
+
+
+def bracket_slot_payload(label: Any) -> dict[str, str] | None:
+    slot_label = clean_text(label)
+    if not slot_label:
+        return None
+    return {"kind": "slot", "label": slot_label}
+
+
+def knockout_side_payload(
+    match: dict[str, Any],
+    side: str,
+    teams: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
+    team_id = clean_text(match.get(f"{side}_team_id"))
+    if team_id:
+        team = teams.get(team_id, {})
+        return {
+            "kind": "team",
+            "id": team_id,
+            "name": clean_text(match.get(f"{side}_team"))
+            or clean_text(team.get("name"))
+            or team_id,
+            "code": clean_text(team.get("code")),
+        }
+    return bracket_slot_payload(match.get(f"{side}_placeholder"))
+
+
+def knockout_match_status(match: dict[str, Any], now: datetime) -> str:
+    if not match.get("home_team_id") or not match.get("away_team_id"):
+        return "not_yet_actionable"
+    if match.get("status") == "completed" or (
+        match.get("home_score") is not None and match.get("away_score") is not None
+    ):
+        return "completed"
+    if is_prediction_locked(match, now):
+        return "locked"
+    return "open"
+
+
+def knockout_missing_action_items(
+    data: dict[str, Any],
+    predictions: dict[str, dict[str, Any]],
+    quiz_predictions: dict[str, Any],
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    # Knockout draw and advancing-team prediction semantics are intentionally
+    # unresolved; until decided, knockout matches use the existing score shape.
+    items: list[dict[str, Any]] = []
+    current = now or utc_now()
+    for match in sorted(
+        (candidate for candidate in data["matches"] if is_knockout_match(candidate)),
+        key=match_kickoff,
+    ):
+        if not match.get("home_team_id") or not match.get("away_team_id"):
+            continue
+        if is_prediction_locked(match, current):
+            continue
+        base_item = {
+            "match_id": match["id"],
+            "label": match_display_label(match),
+            "subtitle": " - ".join(
+                part
+                for part in (str(match.get("date") or ""), clean_text(match.get("round")))
+                if part
+            ),
+            "deadline": iso_utc(match_lock_time(match)),
+            "target_view": "knockout",
+            "target_match_id": match["id"],
+        }
+        if match["id"] not in predictions:
+            items.append(
+                {
+                    **base_item,
+                    "kind": "prediction",
+                    "title": "Knockout voorspelling open",
+                    "body": f"{base_item['label']} mist nog een scorevoorspelling.",
+                    "target_kind": "prediction",
+                }
+            )
+        quiz = match.get("quiz")
+        quiz_prediction = quiz_predictions.get(match["id"])
+        if quiz and not quiz_complete(quiz, quiz_prediction):
+            items.append(
+                {
+                    **base_item,
+                    "kind": "quiz",
+                    "title": "Knockout quizvraag open",
+                    "body": f"{base_item['label']} mist nog een quizantwoord.",
+                    "target_kind": "quiz",
+                }
+            )
+    return items
+
+
+def build_knockout_projection(
+    data: dict[str, Any],
+    *,
+    predictions: dict[str, dict[str, Any]],
+    quiz_predictions: dict[str, Any],
+    leeuwtje_match_ids: list[str],
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    current = now or utc_now()
+    teams = {team["id"]: team for team in data.get("teams", [])}
+    venues = {venue["id"]: venue for venue in data.get("venues", [])}
+    missing_items = knockout_missing_action_items(data, predictions, quiz_predictions, current)
+    missing_by_match: dict[str, list[dict[str, Any]]] = {}
+    for item in missing_items:
+        missing_by_match.setdefault(item["match_id"], []).append(item)
+    knockout_matches = [match for match in data.get("matches", []) if is_knockout_match(match)]
+    known_open = [
+        match
+        for match in knockout_matches
+        if match.get("home_team_id")
+        and match.get("away_team_id")
+        and not is_prediction_locked(match, current)
+    ]
+    rounds = []
+    for round_name in KNOCKOUT_ROUNDS:
+        round_matches = []
+        for match in sorted(
+            (candidate for candidate in knockout_matches if candidate.get("round") == round_name),
+            key=lambda candidate: int(candidate.get("match_number") or 0),
+        ):
+            venue = venues.get(match.get("venue_id"), {})
+            status = knockout_match_status(match, current)
+            lock_at = match_lock_time(match)
+            round_matches.append(
+                {
+                    "id": match["id"],
+                    "match_number": match.get("match_number"),
+                    "round": match.get("round"),
+                    "date": match.get("date"),
+                    "kickoff_at": iso_utc(match_kickoff(match)),
+                    "lock_at": iso_utc(lock_at),
+                    "venue": (
+                        {
+                            "id": match.get("venue_id"),
+                            "name": venue.get("name"),
+                            "city": venue.get("city"),
+                        }
+                        if venue
+                        else None
+                    ),
+                    "home": knockout_side_payload(match, "home", teams),
+                    "away": knockout_side_payload(match, "away", teams),
+                    "status": status,
+                    "locked": status in {"locked", "completed"},
+                    "prediction": predictions.get(match["id"]),
+                    "quiz": match.get("quiz"),
+                    "quiz_prediction": quiz_predictions.get(match["id"]),
+                    "leeuwtje": match["id"] in set(leeuwtje_match_ids),
+                    "missing_actions": missing_by_match.get(match["id"], []),
+                }
+            )
+        if round_matches:
+            rounds.append({"round": round_name, "matches": round_matches})
+    return {
+        "is_relevant": bool(known_open or missing_items)
+        or any(
+            current <= match_kickoff(match) <= current + timedelta(days=7)
+            and match.get("status") != "completed"
+            for match in knockout_matches
+        ),
+        "rounds": rounds,
+        "missing_actions": missing_items,
+    }
 
 
 def visible_missing_action_matches(
@@ -7169,6 +7374,13 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         ),
         "prize_pot": prize_pot_payload_for_user(prize_pot_status, prize_pot_count),
         "matchday": build_matchday_summary(data, user["id"] if user else None, now),
+        "knockout": build_knockout_projection(
+            data,
+            predictions=predictions,
+            quiz_predictions=quiz_predictions,
+            leeuwtje_match_ids=leeuwtje_match_ids,
+            now=now,
+        ),
         "daily_recap": build_daily_recap(
             data, now, leaderboard, viewer_user_id=user["id"] if user else None
         ),
@@ -7350,8 +7562,10 @@ def quiz_label_for_admin(
     auto_label: Any | None = None,
 ) -> dict[str, Any] | None:
     quiz = match.get("quiz")
-    if not isinstance(quiz, dict):
+    if not isinstance(quiz, dict) and override is None:
         return None
+    if not isinstance(quiz, dict):
+        quiz = {}
     correct_answers = quiz.get("correct_answers")
     if correct_answers is None and quiz.get("correct_answer") is not None:
         correct_answers = [quiz.get("correct_answer")]
@@ -7364,6 +7578,7 @@ def quiz_label_for_admin(
         "choices": quiz.get("choices") or [],
         "choice_points": quiz.get("choice_points") or {},
         "dynamic_choice_points": quiz.get("dynamic_choice_points"),
+        "viewership_required": bool(quiz.get("viewership")),
         "correct_answer": quiz.get("correct_answer"),
         "correct_answers": correct_answers or [],
         "viewership_answer": quiz.get("viewership_answer"),
@@ -7515,6 +7730,20 @@ def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
     matches = []
     for match in data.get("matches", []):
         result = results.get(match["id"])
+        quiz_label = quiz_label_for_admin(
+            match,
+            quizzes.get(match["id"]),
+            auto_quizzes.get(match["id"]),
+        )
+        quiz_review_reasons = []
+        if quiz_label is not None and (result is not None or match_result(match) is not None):
+            if not quiz_label.get("correct_answers"):
+                quiz_review_reasons.append("Quiz label missing")
+            if (
+                quiz_label.get("viewership_required")
+                and quiz_label.get("viewership_answer") is None
+            ):
+                quiz_review_reasons.append("Viewership missing")
         matches.append(
             {
                 "match_id": match["id"],
@@ -7523,14 +7752,14 @@ def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
                 "date": match.get("date"),
                 "home_team_id": match.get("home_team_id"),
                 "away_team_id": match.get("away_team_id"),
+                "home_placeholder": match.get("home_placeholder"),
+                "away_placeholder": match.get("away_placeholder"),
                 "home_team_name": match.get("home_team"),
                 "away_team_name": match.get("away_team"),
                 "result": dict(result) if result else None,
-                "quiz": quiz_label_for_admin(
-                    match,
-                    quizzes.get(match["id"]),
-                    auto_quizzes.get(match["id"]),
-                ),
+                "quiz": quiz_label,
+                "quiz_review_needed": bool(quiz_review_reasons),
+                "quiz_review_reasons": quiz_review_reasons,
                 "events": events_by_match.get(match["id"], []),
                 "player_stats": stats_by_match.get(match["id"], []),
             }
@@ -8153,7 +8382,7 @@ def admin_update_quiz_label(match_id: str):
     match = match_by_id(data, match_id)
     if match is None:
         return jsonify({"error": "Match not found."}), 404
-    if not match.get("quiz"):
+    if not match.get("quiz") and not is_knockout_match(match):
         return jsonify({"error": "This match has no quiz label."}), 400
     payload = request.get_json(silent=True) or {}
     reason = clean_optional_payload_text(payload, "reason", 240)
@@ -8169,6 +8398,8 @@ def admin_update_quiz_label(match_id: str):
             after = None
         else:
             question = clean_optional_payload_text(payload, "question", 260)
+            if not question and not match.get("quiz"):
+                return jsonify({"error": "question is required for new quiz setup."}), 400
             raw_choices = payload.get("choices")
             if raw_choices is None:
                 choices = []
