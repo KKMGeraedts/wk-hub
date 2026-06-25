@@ -76,7 +76,11 @@
 - [X] T021 [US2] Add Leeuwtje display/toggle behavior for open knockout matches in `frontend/src/main.jsx`
 - [X] T022 [US2] Update tile and detail states after successful save without a full page reload in `frontend/src/main.jsx`
 - [X] T023 [US2] Preserve existing today/tomorrow notification and wall-of-shame scope in `backend/app.py`
-- [X] T024 [US2] Add a guardrail comment or helper boundary in `backend/app.py` making knockout draw/advancing-team semantics intentionally unresolved
+- [X] T024 [US2] Replace the obsolete knockout draw guardrail with explicit Prediction Result and Advancing Team handling in `backend/app.py`
+- [X] T042 Add additive `match_results` fields for Advancing Team, Match Decision Method, provider score evidence, extra-time score evidence, and penalty score evidence in `backend/app.py`
+- [X] T043 Resolve group-position and prior-match Bracket Slots in loaded tournament data without persisting resolved teams in `backend/app.py`
+- [X] T044 Surface unresolved bracket slot blockers as admin-only Admin Sync Issues in `backend/app.py`
+- [X] T045 Add admin manual Advancing Team correction controls for Knockout Stage results in `frontend/src/main.jsx`
 
 **Checkpoint**: User Story 2 is independently usable for personal knockout prediction work.
 

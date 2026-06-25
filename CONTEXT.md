@@ -49,8 +49,20 @@ The elimination part of the tournament after the group stage, from the Round of 
 _Avoid_: Knockout phase, bracket phase
 
 **Bracket Slot**:
-A placeholder for a Knockout Stage team that is not known yet, such as a group position or prior match winner.
+A position in the Knockout Stage bracket, such as a group position or prior-match winner. A Bracket Slot can be unresolved or resolved from trusted tournament facts.
 _Avoid_: Unknown team, TBD team
+
+**Resolved Bracket Slot**:
+A Bracket Slot whose team can be determined from trusted tournament facts, such as a final group standing or a completed Knockout Stage match.
+_Avoid_: Populated placeholder, known placeholder
+
+**Composite Third-Place Slot**:
+A Bracket Slot that names multiple possible third-place group sources, where the final team depends on the tournament's third-place allocation rules.
+_Avoid_: Third-place placeholder, wildcard slot
+
+**Final Group**:
+A World Cup group whose Group Stage matches all have trusted final results. Final group standings can resolve group-position Bracket Slots such as `1A`, `2A`, and `3A`.
+_Avoid_: Completed table, locked group
 
 **Knockout Match Tile**:
 A selectable visual representation of one Knockout Stage match in the bracket. A tile can represent either known teams or Bracket Slots and opens match details when selected.
@@ -63,6 +75,18 @@ _Avoid_: Matchday page, schedule page
 **Missing Action**:
 A prediction or quiz answer that a participant can still complete before its lock time. Urgent missing actions are limited to matches on the current or next matchday, while Knockout Stage planning may show all known open missing actions.
 _Avoid_: Incomplete data, notification
+
+**Prediction Result**:
+The match score and outcome that participant score predictions are judged against. For this pool, Prediction Result always means the 90-minute result and excludes extra time and penalties, even when provider data also reports an after-extra-time or penalty outcome.
+_Avoid_: Final score, full-time score
+
+**Advancing Team**:
+The team that progresses from a Knockout Stage match after the tie is fully decided, including extra time or penalties when needed.
+_Avoid_: Winner, score winner
+
+**Match Decision Method**:
+How a completed Knockout Stage match was decided: in regular time, after extra time, or by penalties.
+_Avoid_: Status, result type
 
 **Day Score**:
 The points earned by each active participant from scoring facts on a single matchday. A day score list includes every active participant, including participants who earned zero points.

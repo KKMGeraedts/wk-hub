@@ -42,11 +42,17 @@
 
 **Alternatives considered**: Requiring quiz setup before score prediction would simplify tile completeness rules but would unnecessarily prevent valid score predictions.
 
-## Decision: Keep knockout score semantics unresolved
+## Decision: Separate Prediction Result from Advancing Team
 
-**Rationale**: The user wants to discuss whether knockout draws require an advancing-team prediction with a colleague. The feature must not accidentally introduce or hard-code that behavior.
+**Rationale**: Participant score predictions are always judged at the 90-minute mark, while the Knockout Stage bracket needs the team that advances after the tie is fully decided. API-Football exposes both facts separately: `score.fulltime` carries the 90-minute Prediction Result, while `teams.home.winner` / `teams.away.winner` identifies the Advancing Team after regular time, extra time, or penalties.
 
-**Alternatives considered**: Implementing score-only now is simplest but may be wrong. Implementing score-plus-advancing-team now is likely better for penalty scenarios but premature without product agreement.
+**Alternatives considered**: Using the provider `goals` score everywhere is simpler, but it is wrong for pool scoring after extra time or penalties because it can include non-90-minute goals. Adding participant advancing-team predictions is out of scope; the Advancing Team is a trusted tournament fact for bracket progression, not a participant prediction.
+
+## Decision: Resolve bracket slots in loaded tournament data
+
+**Rationale**: Once trusted tournament facts identify a Bracket Slot's team, the app should treat that Knockout Stage side like a known team for prediction availability, Missing Actions, lock behavior, and display. Resolving slots in loaded in-memory tournament data keeps static tournament JSON and persisted match rows as source data while allowing existing match logic to work with `home_team_id` and `away_team_id`.
+
+**Alternatives considered**: Persisting resolved teams to static JSON or match rows would make the resolution durable but create extra correction work if provider facts change. Keeping resolved teams only in a separate Knockout Page projection would avoid mutating loaded data, but duplicate prediction and Missing Action logic would then need to understand both raw and projected teams.
 
 ## Decision: Add `Knockout` top-level navigation when relevant
 

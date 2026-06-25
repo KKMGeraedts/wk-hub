@@ -74,3 +74,4 @@ npm run check
 - 2026-06-24: `npm run check` passed after review fixes for knockout relevance, new quiz setup validation, and quiz-only saves.
 - 2026-06-24: Vite dev server served `/knockout` with HTTP 200 at `http://127.0.0.1:5175/knockout`.
 - 2026-06-24: Browser/screenshot QA was not completed because no browser-control tool or local Playwright install was available in this session.
+- 2026-06-25: `npm run check` passed after adding Prediction Result / Advancing Team storage, in-memory Bracket Slot resolution, admin sync issues, and admin Advancing Team correction.

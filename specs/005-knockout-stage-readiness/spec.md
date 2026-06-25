@@ -113,13 +113,23 @@ As a participant, I want navigation and the existing My Predictions entry point 
 - **FR-018**: If a Quiz Correction happens after lock time, the system MUST NOT automatically reopen participant answers.
 - **FR-019**: The `Knockout` top-level navigation item MUST become visible when Knockout Stage planning is relevant.
 - **FR-020**: The existing My Predictions entry point MUST route participants to Knockout Stage work when Knockout Stage planning is relevant and group-stage prediction entry is no longer the main task.
-- **FR-021**: The system MUST keep unresolved knockout score semantics as an explicit open product decision and MUST NOT introduce advancing-team prediction rules until that decision is made.
-- **FR-022**: The Knockout Page MUST work on mobile and desktop without controls or text overlapping.
+- **FR-021**: Knockout Stage score predictions MUST be judged against the 90-minute Prediction Result, excluding extra time and penalties.
+- **FR-022**: Knockout Stage bracket progression MUST use the separate Advancing Team fact when a completed tie is decided after extra time or penalties.
+- **FR-023**: Admins MUST be able to manually correct the Advancing Team for a completed Knockout Stage match without changing participant score prediction semantics.
+- **FR-024**: The Knockout Page MUST work on mobile and desktop without controls or text overlapping.
+- **FR-025**: A Knockout Stage match MUST become actionable when both Bracket Slots resolve to teams and the match has not locked; an API provider fixture link MUST NOT be required for participants to make predictions.
+- **FR-026**: If a correction changes a resolved Bracket Slot after participants have already predicted that Knockout Stage match, the system MUST NOT automatically delete or reopen those predictions; admins handle any exceptional cleanup manually.
+- **FR-027**: Prior-match Bracket Slots such as `W73` and `L73` MUST resolve only from an Advancing Team fact, not by inferring advancement from the 90-minute Prediction Result.
+- **FR-028**: Composite Third-Place Slots MUST remain unresolved until the official allocation rule is encoded or a trusted provider fixture identifies both teams.
+- **FR-029**: Once the relevant groups are final, an unresolved Composite Third-Place Slot MUST surface as an admin-only Admin Sync Issue while remaining a normal Bracket Slot placeholder for participants.
+- **FR-030**: Group-position Bracket Slots MUST use the same standings ordering logic as group-position quiz scoring, so bracket resolution and scoring facts do not disagree.
+- **FR-031**: If final group standings cannot confidently resolve a group-position Bracket Slot, the affected Bracket Slot MUST remain unresolved and surface as an admin-only Admin Sync Issue.
+- **FR-032**: The system MUST NOT introduce a separate manual Bracket Slot override; unresolved group-position slots must be resolved by correcting trusted match facts or improving the shared standings logic.
 
 ### Key Entities *(include if feature involves data)*
 
 - **Knockout Stage**: The elimination part of the tournament after the group stage, from Round of 32 through Final.
-- **Bracket Slot**: A placeholder for a Knockout Stage team that is not known yet, such as a group position or prior match winner.
+- **Bracket Slot**: A position in the Knockout Stage bracket, such as a group position or prior-match winner, which can be unresolved or resolved from trusted tournament facts.
 - **Knockout Match Tile**: A selectable visual representation of one Knockout Stage match in the bracket.
 - **Missing Action**: A prediction or quiz answer that a participant can still complete before its lock time.
 - **Quiz Question**: A match-specific question that participants answer before a match locks.

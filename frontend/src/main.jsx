@@ -3528,6 +3528,8 @@ function AdminLabelsPage({ teams }) {
           status_short: match.result?.status_short ?? "FT",
           status_long: match.result?.status_long ?? "Manual result",
           elapsed: match.result?.elapsed ?? 90,
+          advancing_team_id: match.result?.advancing_team_id ?? "",
+          decision_method: match.result?.decision_method ?? "",
           question: match.quiz?.question ?? "",
           choices: (match.quiz?.choices ?? []).join("\n"),
           correct_answers: match.quiz?.correct_answers ?? [],
@@ -3574,6 +3576,8 @@ function AdminLabelsPage({ teams }) {
           status_short: draft.status_short,
           status_long: draft.status_long,
           elapsed: draft.elapsed,
+          advancing_team_id: draft.advancing_team_id,
+          decision_method: draft.decision_method,
         }),
       });
       setLabels(result);
@@ -3868,6 +3872,25 @@ function AdminLabelsPage({ teams }) {
                           <strong>Stats</strong>
                           {statSummary}
                         </span>
+                        {labelMatch.is_knockout && (
+                          <span>
+                            <strong>Advancing team</strong>
+                            {labelMatch.result?.advancing_team_id ? (
+                              <TeamLabel
+                                id={labelMatch.result.advancing_team_id}
+                                teams={teams}
+                              />
+                            ) : (
+                              "Missing"
+                            )}
+                          </span>
+                        )}
+                        {labelMatch.is_knockout && (
+                          <span>
+                            <strong>Decision</strong>
+                            {labelMatch.result?.decision_method || "Missing"}
+                          </span>
+                        )}
                         <span
                           className={
                             playerGenaiLinks.length
@@ -3932,6 +3955,49 @@ function AdminLabelsPage({ teams }) {
                                 }
                               />
                             </label>
+                            {match.is_knockout && (
+                              <label>
+                                Decision
+                                <select
+                                  value={draft.decision_method ?? ""}
+                                  onChange={(event) =>
+                                    updateDraft("decision_method", event.target.value)
+                                  }
+                                >
+                                  <option value="">From status</option>
+                                  <option value="regular_time">Regular time</option>
+                                  <option value="extra_time">Extra time</option>
+                                  <option value="penalties">Penalties</option>
+                                </select>
+                              </label>
+                            )}
+                            {match.is_knockout && (
+                              <label>
+                                Advancing team
+                                <select
+                                  value={draft.advancing_team_id ?? ""}
+                                  onChange={(event) =>
+                                    updateDraft("advancing_team_id", event.target.value)
+                                  }
+                                >
+                                  <option value="">Not set</option>
+                                  {match.home_team_id && (
+                                    <option value={match.home_team_id}>
+                                      {teams[match.home_team_id]?.name ??
+                                        match.home_team_name ??
+                                        match.home_team_id}
+                                    </option>
+                                  )}
+                                  {match.away_team_id && (
+                                    <option value={match.away_team_id}>
+                                      {teams[match.away_team_id]?.name ??
+                                        match.away_team_name ??
+                                        match.away_team_id}
+                                    </option>
+                                  )}
+                                </select>
+                              </label>
+                            )}
                           </div>
                           <div className="admin-label-actions">
                             <button

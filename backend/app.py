@@ -177,6 +177,14 @@ API_FOOTBALL_SQUAD_SYNC_BATCH_SIZE = int(os.environ.get("API_FOOTBALL_SQUAD_SYNC
 API_FOOTBALL_SQUAD_REFRESH_HOURS = int(os.environ.get("API_FOOTBALL_SQUAD_REFRESH_HOURS", "24"))
 API_FOOTBALL_SYNC_TOKEN = os.environ.get("WK_HUB_SYNC_TOKEN") or os.environ.get("CRON_SECRET", "")
 API_FOOTBALL_PROVIDER_KEY = "api-football"
+MATCH_DECISION_REGULAR_TIME = "regular_time"
+MATCH_DECISION_EXTRA_TIME = "extra_time"
+MATCH_DECISION_PENALTIES = "penalties"
+MATCH_DECISION_METHODS = {
+    MATCH_DECISION_REGULAR_TIME,
+    MATCH_DECISION_EXTRA_TIME,
+    MATCH_DECISION_PENALTIES,
+}
 SYNC_TARGET_MATCH_RESULT = "match_result"
 SYNC_TARGET_TEAM_SQUAD = "team_squad"
 SYNC_TARGET_STRIKER_PICK = "striker_pick"
@@ -331,6 +339,7 @@ def load_world_cup_data() -> dict[str, Any]:
         apply_quiz_label_overrides(data)
         apply_synced_team_profiles(data)
         apply_synced_match_results(data)
+        resolve_bracket_slots(data)
 
     return data
 
@@ -869,6 +878,48 @@ def active_admin_sync_notifications(conn: Any) -> list[dict[str, Any]]:
         """,
     ).fetchall()
     return [json_ready(row) for row in rows]
+
+
+def sync_bracket_slot_admin_notifications(data: dict[str, Any]) -> None:
+    issue_types = {
+        "unresolved_group_position_slot",
+        "unresolved_composite_third_place_slot",
+        "missing_advancing_team",
+    }
+    issues = [
+        issue
+        for issue in (data.get("meta", {}).get("bracket_slot_issues") or [])
+        if issue.get("type") in issue_types and clean_text(issue.get("slot"))
+    ]
+    active_keys = {(issue["type"], clean_text(issue["slot"])) for issue in issues}
+    with get_db() as conn:
+        for issue in issues:
+            create_admin_sync_notification(
+                conn,
+                notification_type=issue["type"],
+                target_type="bracket_slot",
+                target_id=clean_text(issue["slot"]),
+                title=issue["title"],
+                body=issue["body"],
+            )
+        existing_rows = execute(
+            conn,
+            """
+            SELECT type, target_id
+            FROM admin_sync_notifications
+            WHERE target_type = 'bracket_slot'
+              AND is_active = 1
+            """,
+        ).fetchall()
+        for row in existing_rows:
+            key = (row["type"], row["target_id"])
+            if row["type"] in issue_types and key not in active_keys:
+                resolve_admin_sync_notification(
+                    conn,
+                    notification_type=row["type"],
+                    target_type="bracket_slot",
+                    target_id=row["target_id"],
+                )
 
 
 def int_env_value(name: str, default: int) -> int:
@@ -1472,6 +1523,14 @@ def init_db() -> None:
             elapsed INTEGER,
             home_score INTEGER,
             away_score INTEGER,
+            advancing_team_id TEXT,
+            decision_method TEXT,
+            provider_home_score INTEGER,
+            provider_away_score INTEGER,
+            extra_time_home_score INTEGER,
+            extra_time_away_score INTEGER,
+            penalty_home_score INTEGER,
+            penalty_away_score INTEGER,
             synced_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """,
@@ -1915,6 +1974,14 @@ def init_db() -> None:
             elapsed INTEGER,
             home_score INTEGER,
             away_score INTEGER,
+            advancing_team_id TEXT,
+            decision_method TEXT,
+            provider_home_score INTEGER,
+            provider_away_score INTEGER,
+            extra_time_home_score INTEGER,
+            extra_time_away_score INTEGER,
+            penalty_home_score INTEGER,
+            penalty_away_score INTEGER,
             synced_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
         )
         """,
@@ -2296,6 +2363,30 @@ def init_db() -> None:
                     conn.execute(
                         f"ALTER TABLE quiz_label_overrides ADD COLUMN {column_name} {column_type}"
                     )
+            match_result_columns_to_add = {
+                "advancing_team_id": "TEXT",
+                "decision_method": "TEXT",
+                "provider_home_score": "INTEGER",
+                "provider_away_score": "INTEGER",
+                "extra_time_home_score": "INTEGER",
+                "extra_time_away_score": "INTEGER",
+                "penalty_home_score": "INTEGER",
+                "penalty_away_score": "INTEGER",
+            }
+            for column_name, column_type in match_result_columns_to_add.items():
+                match_result_column = conn.execute(
+                    """
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'match_results'
+                      AND column_name = %s
+                    """,
+                    (column_name,),
+                ).fetchone()
+                if match_result_column is None:
+                    conn.execute(
+                        f"ALTER TABLE match_results ADD COLUMN {column_name} {column_type}"
+                    )
         else:
             conn.executescript(";\n".join(sqlite_schema))
             quiz_columns = conn.execute("PRAGMA table_info(quiz_predictions)").fetchall()
@@ -2359,6 +2450,23 @@ def init_db() -> None:
             for column_name in ("question", "choices_json"):
                 if column_name not in quiz_override_column_names:
                     conn.execute(f"ALTER TABLE quiz_label_overrides ADD COLUMN {column_name} TEXT")
+            match_result_columns = conn.execute("PRAGMA table_info(match_results)").fetchall()
+            match_result_column_names = {row["name"] for row in match_result_columns}
+            match_result_columns_to_add = {
+                "advancing_team_id": "TEXT",
+                "decision_method": "TEXT",
+                "provider_home_score": "INTEGER",
+                "provider_away_score": "INTEGER",
+                "extra_time_home_score": "INTEGER",
+                "extra_time_away_score": "INTEGER",
+                "penalty_home_score": "INTEGER",
+                "penalty_away_score": "INTEGER",
+            }
+            for column_name, column_type in match_result_columns_to_add.items():
+                if column_name not in match_result_column_names:
+                    conn.execute(
+                        f"ALTER TABLE match_results ADD COLUMN {column_name} {column_type}"
+                    )
         if ADMIN_EMAILS:
             for admin_email in ADMIN_EMAILS:
                 execute(
@@ -3104,7 +3212,10 @@ def apply_synced_match_results(data: dict[str, Any]) -> None:
                 conn,
                 """
                 SELECT match_id, source_fixture_id, status_long, status_short, elapsed,
-                       home_score, away_score, synced_at
+                       home_score, away_score, advancing_team_id, decision_method,
+                       provider_home_score, provider_away_score, extra_time_home_score,
+                       extra_time_away_score, penalty_home_score, penalty_away_score,
+                       synced_at
                 FROM match_results
                 """,
             ).fetchall()
@@ -3129,6 +3240,15 @@ def apply_synced_match_results(data: dict[str, Any]) -> None:
             match["status"] = "completed"
             match["home_score"] = int(row["home_score"])
             match["away_score"] = int(row["away_score"])
+            match["decision_method"] = row["decision_method"]
+            match["provider_home_score"] = row["provider_home_score"]
+            match["provider_away_score"] = row["provider_away_score"]
+            match["extra_time_home_score"] = row["extra_time_home_score"]
+            match["extra_time_away_score"] = row["extra_time_away_score"]
+            match["penalty_home_score"] = row["penalty_home_score"]
+            match["penalty_away_score"] = row["penalty_away_score"]
+        if row["advancing_team_id"] is not None:
+            match["advancing_team_id"] = row["advancing_team_id"]
 
 
 def apply_synced_team_profiles(data: dict[str, Any]) -> None:
@@ -3239,6 +3359,217 @@ def apply_synced_team_profiles(data: dict[str, Any]) -> None:
         team["profile"] = profile
 
 
+PRIOR_MATCH_SLOT_PATTERN = re.compile(r"^([WL])(\d+)$")
+
+
+def set_match_side_team(
+    match: dict[str, Any],
+    side: str,
+    team_id: str,
+    teams: dict[str, dict[str, Any]],
+    slot_label: str,
+) -> None:
+    team = teams.get(team_id, {})
+    match[f"{side}_team_id"] = team_id
+    match[f"{side}_team"] = clean_text(team.get("name")) or team_id
+    match.setdefault("resolved_bracket_slots", {})[side] = {
+        "label": slot_label,
+        "team_id": team_id,
+    }
+
+
+def group_matches_are_final(matches: list[dict[str, Any]]) -> bool:
+    return bool(matches) and all(match_result(match) is not None for match in matches)
+
+
+def standings_row_sort_key(row: dict[str, Any]) -> tuple[int, int, int]:
+    return (
+        int(row["points"]),
+        int(row["goals_for"]) - int(row["goals_against"]),
+        int(row["goals_for"]),
+    )
+
+
+def tied_standings_positions(rows: list[dict[str, Any]]) -> set[int]:
+    tied: set[int] = set()
+    keys = [standings_row_sort_key(row) for row in rows]
+    for index, key in enumerate(keys):
+        if (index > 0 and keys[index - 1] == key) or (
+            index + 1 < len(keys) and keys[index + 1] == key
+        ):
+            tied.add(index + 1)
+    return tied
+
+
+def resolved_group_position_slots(
+    data: dict[str, Any],
+    issues: list[dict[str, str]],
+) -> dict[str, str]:
+    group_matches_by_id = group_stage_matches_by_id(data)
+    resolved: dict[str, str] = {}
+    for group in data.get("groups", []):
+        group_id = clean_text(group.get("id"))
+        if not group_id:
+            continue
+        matches = [
+            match for match in group_matches_by_id.values() if match.get("group") == group_id
+        ]
+        if not group_matches_are_final(matches):
+            continue
+        scores = {
+            match["id"]: (int(match["home_score"]), int(match["away_score"]))
+            for match in matches
+            if match_result(match) is not None
+        }
+        rows = standings_rows_from_scores(group, matches, scores)
+        tied_positions = tied_standings_positions(rows)
+        for position, row in enumerate(rows, start=1):
+            slot = f"{position}{group_id}"
+            if position in tied_positions:
+                issues.append(
+                    {
+                        "type": "unresolved_group_position_slot",
+                        "slot": slot,
+                        "title": "Bracket slot needs standings confirmation",
+                        "body": (
+                            f"{slot} cannot be resolved confidently because Group {group_id} "
+                            "has a standings tie beyond the app's current tiebreak proof."
+                        ),
+                    }
+                )
+                continue
+            resolved[slot] = row["team_id"]
+    return resolved
+
+
+def group_stage_matches_by_id(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {match["id"]: match for match in data["matches"] if match.get("round") == "Group Stage"}
+
+
+def final_group_ids(data: dict[str, Any]) -> set[str]:
+    group_matches_by_id = group_stage_matches_by_id(data)
+    final_groups: set[str] = set()
+    for group in data.get("groups", []):
+        group_id = clean_text(group.get("id"))
+        matches = [
+            match for match in group_matches_by_id.values() if match.get("group") == group_id
+        ]
+        if group_id and group_matches_are_final(matches):
+            final_groups.add(group_id)
+    return final_groups
+
+
+def resolved_prior_match_slots(data: dict[str, Any]) -> dict[str, str]:
+    resolved: dict[str, str] = {}
+    for match in data.get("matches", []):
+        if not is_knockout_match(match):
+            continue
+        match_number = clean_text(match.get("match_number"))
+        advancing_team_id = clean_text(match.get("advancing_team_id"))
+        if not match_number or not advancing_team_id:
+            continue
+        team_ids = {
+            clean_text(match.get("home_team_id")),
+            clean_text(match.get("away_team_id")),
+        } - {""}
+        if advancing_team_id not in team_ids:
+            continue
+        losing_team_ids = sorted(team_id for team_id in team_ids if team_id != advancing_team_id)
+        resolved[f"W{match_number}"] = advancing_team_id
+        if len(losing_team_ids) == 1:
+            resolved[f"L{match_number}"] = losing_team_ids[0]
+    return resolved
+
+
+def resolve_bracket_slot_label(
+    label: Any,
+    resolved_slots: dict[str, str],
+    issues: list[dict[str, str]],
+    final_groups: set[str],
+    knockout_by_number: dict[str, dict[str, Any]],
+) -> str | None:
+    slot_label = clean_text(label)
+    if not slot_label:
+        return None
+    if slot_label in resolved_slots:
+        return resolved_slots[slot_label]
+    prior_match = PRIOR_MATCH_SLOT_PATTERN.match(slot_label)
+    if prior_match:
+        source_match = knockout_by_number.get(prior_match.group(2))
+        if (
+            source_match
+            and source_match.get("status") == "completed"
+            and not clean_text(source_match.get("advancing_team_id"))
+        ):
+            issues.append(
+                {
+                    "type": "missing_advancing_team",
+                    "slot": slot_label,
+                    "title": "Bracket slot needs advancing team",
+                    "body": (
+                        f"{slot_label} cannot be resolved because match "
+                        f"{prior_match.group(2)} has no Advancing Team fact."
+                    ),
+                }
+            )
+    if "/" in slot_label:
+        candidate_groups = {
+            part[-1] for part in slot_label.split("/") if part and part[-1].isalpha()
+        }
+        if candidate_groups and not candidate_groups.issubset(final_groups):
+            return None
+        issues.append(
+            {
+                "type": "unresolved_composite_third_place_slot",
+                "slot": slot_label,
+                "title": "Composite third-place slot needs confirmation",
+                "body": (
+                    f"{slot_label} cannot be resolved until the official allocation rule "
+                    "is encoded or a trusted provider fixture identifies both teams."
+                ),
+            }
+        )
+    return None
+
+
+def resolve_bracket_slots(data: dict[str, Any]) -> None:
+    issues: list[dict[str, str]] = []
+    teams = {team["id"]: team for team in data.get("teams", [])}
+    final_groups = final_group_ids(data)
+    knockout_by_number = {
+        clean_text(match.get("match_number")): match
+        for match in data.get("matches", [])
+        if is_knockout_match(match) and clean_text(match.get("match_number"))
+    }
+    group_slots = resolved_group_position_slots(data, issues)
+    knockout_matches = [match for match in data.get("matches", []) if is_knockout_match(match)]
+    for _ in range(len(knockout_matches)):
+        changed = False
+        resolved_slots = {**group_slots, **resolved_prior_match_slots(data)}
+        for match in knockout_matches:
+            for side in ("home", "away"):
+                if clean_text(match.get(f"{side}_team_id")):
+                    continue
+                slot_label = clean_text(match.get(f"{side}_placeholder"))
+                team_id = resolve_bracket_slot_label(
+                    slot_label,
+                    resolved_slots,
+                    issues,
+                    final_groups,
+                    knockout_by_number,
+                )
+                if team_id:
+                    set_match_side_team(match, side, team_id, teams, slot_label)
+                    changed = True
+        if not changed:
+            break
+
+    deduped_issues: dict[tuple[str, str], dict[str, str]] = {}
+    for issue in issues:
+        deduped_issues[(issue["type"], issue["slot"])] = issue
+    data.setdefault("meta", {})["bracket_slot_issues"] = list(deduped_issues.values())
+
+
 def api_fixture_datetime(api_fixture: dict[str, Any]) -> datetime | None:
     return parse_iso_datetime(api_fixture.get("fixture", {}).get("date"))
 
@@ -3268,9 +3599,23 @@ def provider_team_mapping(
 def local_score_from_fixture(
     match: dict[str, Any], fixture: dict[str, Any], data: dict[str, Any]
 ) -> tuple[int | None, int | None]:
+    fulltime = (fixture.get("score") or {}).get("fulltime") or {}
     goals = fixture.get("goals") or {}
-    api_home_score = int_or_none(goals.get("home"))
-    api_away_score = int_or_none(goals.get("away"))
+    api_home_score = int_or_none(fulltime.get("home"))
+    api_away_score = int_or_none(fulltime.get("away"))
+    if api_home_score is None or api_away_score is None:
+        api_home_score = int_or_none(goals.get("home"))
+        api_away_score = int_or_none(goals.get("away"))
+    return local_side_score_from_api_score(match, fixture, data, api_home_score, api_away_score)
+
+
+def local_side_score_from_api_score(
+    match: dict[str, Any],
+    fixture: dict[str, Any],
+    data: dict[str, Any],
+    api_home_score: int | None,
+    api_away_score: int | None,
+) -> tuple[int | None, int | None]:
     if api_home_score is None or api_away_score is None:
         return None, None
 
@@ -3285,6 +3630,70 @@ def local_score_from_fixture(
     if api_home_local == match["away_team_id"] and api_away_local == match["home_team_id"]:
         return api_away_score, api_home_score
     return api_home_score, api_away_score
+
+
+def local_provider_total_score_from_fixture(
+    match: dict[str, Any], fixture: dict[str, Any], data: dict[str, Any]
+) -> tuple[int | None, int | None]:
+    goals = fixture.get("goals") or {}
+    return local_side_score_from_api_score(
+        match,
+        fixture,
+        data,
+        int_or_none(goals.get("home")),
+        int_or_none(goals.get("away")),
+    )
+
+
+def local_score_period_from_fixture(
+    match: dict[str, Any],
+    fixture: dict[str, Any],
+    data: dict[str, Any],
+    period: str,
+) -> tuple[int | None, int | None]:
+    score = (fixture.get("score") or {}).get(period) or {}
+    return local_side_score_from_api_score(
+        match,
+        fixture,
+        data,
+        int_or_none(score.get("home")),
+        int_or_none(score.get("away")),
+    )
+
+
+def decision_method_from_status(status_short: Any) -> str | None:
+    if status_short == "PEN":
+        return MATCH_DECISION_PENALTIES
+    if status_short == "AET":
+        return MATCH_DECISION_EXTRA_TIME
+    if status_short == "FT":
+        return MATCH_DECISION_REGULAR_TIME
+    return None
+
+
+def advancing_team_id_from_fixture(
+    match: dict[str, Any],
+    fixture: dict[str, Any],
+    data: dict[str, Any],
+) -> str | None:
+    status = (fixture.get("fixture") or {}).get("status") or {}
+    if status.get("short") not in API_FOOTBALL_FINAL_STATUSES:
+        return None
+
+    teams = fixture.get("teams") or {}
+    mapping = provider_team_mapping(match, fixture, data)
+    winning_local_ids: list[str] = []
+    for side in ("home", "away"):
+        api_team = teams.get(side) or {}
+        if api_team.get("winner") is not True:
+            continue
+        api_team_id = int_or_none(api_team.get("id"))
+        local_team_id = mapping.get(api_team_id) if api_team_id is not None else None
+        if not local_team_id:
+            local_team_id = match.get(f"{side}_team_id")
+        if local_team_id:
+            winning_local_ids.append(local_team_id)
+    return winning_local_ids[0] if len(set(winning_local_ids)) == 1 else None
 
 
 def team_conceded_by_local_id(
@@ -3657,6 +4066,17 @@ def store_api_football_fixture_snapshot(
     status = api_fixture.get("status") or {}
     status_short = status.get("short")
     home_score, away_score = local_score_from_fixture(match, fixture, data)
+    provider_home_score, provider_away_score = local_provider_total_score_from_fixture(
+        match, fixture, data
+    )
+    extra_time_home_score, extra_time_away_score = local_score_period_from_fixture(
+        match, fixture, data, "extratime"
+    )
+    penalty_home_score, penalty_away_score = local_score_period_from_fixture(
+        match, fixture, data, "penalty"
+    )
+    advancing_team_id = advancing_team_id_from_fixture(match, fixture, data)
+    decision_method = decision_method_from_status(status_short)
     elapsed = int_or_none(status.get("elapsed"))
     mapping = provider_team_mapping(match, fixture, data)
     conceded = team_conceded_by_local_id(match, fixture, data)
@@ -3715,9 +4135,11 @@ def store_api_football_fixture_snapshot(
             """
             INSERT INTO match_results (
                 match_id, source, source_fixture_id, status_long, status_short,
-                elapsed, home_score, away_score, synced_at
+                elapsed, home_score, away_score, advancing_team_id, decision_method,
+                provider_home_score, provider_away_score, extra_time_home_score,
+                extra_time_away_score, penalty_home_score, penalty_away_score, synced_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(match_id)
             DO UPDATE SET source = excluded.source,
                           source_fixture_id = excluded.source_fixture_id,
@@ -3726,6 +4148,14 @@ def store_api_football_fixture_snapshot(
                           elapsed = excluded.elapsed,
                           home_score = excluded.home_score,
                           away_score = excluded.away_score,
+                          advancing_team_id = excluded.advancing_team_id,
+                          decision_method = excluded.decision_method,
+                          provider_home_score = excluded.provider_home_score,
+                          provider_away_score = excluded.provider_away_score,
+                          extra_time_home_score = excluded.extra_time_home_score,
+                          extra_time_away_score = excluded.extra_time_away_score,
+                          penalty_home_score = excluded.penalty_home_score,
+                          penalty_away_score = excluded.penalty_away_score,
                           synced_at = CURRENT_TIMESTAMP
             """,
             (
@@ -3737,6 +4167,14 @@ def store_api_football_fixture_snapshot(
                 elapsed,
                 home_score,
                 away_score,
+                advancing_team_id,
+                decision_method,
+                provider_home_score,
+                provider_away_score,
+                extra_time_home_score,
+                extra_time_away_score,
+                penalty_home_score,
+                penalty_away_score,
             ),
         )
 
@@ -4965,11 +5403,11 @@ def striker_points_for_match_from_picks(
     }
 
 
-def standings_from_scores(
+def standings_rows_from_scores(
     group: dict[str, Any],
     matches: list[dict[str, Any]],
     scores_by_match: dict[str, tuple[int, int]],
-) -> list[str]:
+) -> list[dict[str, Any]]:
     rows = {
         team_id: {
             "team_id": team_id,
@@ -5012,6 +5450,15 @@ def standings_from_scores(
             row["team_id"],
         ),
     )
+    return ordered
+
+
+def standings_from_scores(
+    group: dict[str, Any],
+    matches: list[dict[str, Any]],
+    scores_by_match: dict[str, tuple[int, int]],
+) -> list[str]:
+    ordered = standings_rows_from_scores(group, matches, scores_by_match)
     return [row["team_id"] for row in ordered]
 
 
@@ -7352,6 +7799,8 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         None,
     )
     viewer_badges = viewer_leaderboard_row.get("badges", []) if viewer_leaderboard_row else []
+    if user and bool(user.get("is_admin")) and not CONFIG_ERROR:
+        sync_bracket_slot_admin_notifications(data)
 
     return {
         "me": user,
@@ -7441,7 +7890,10 @@ def match_result_details(match_id: str, data: dict[str, Any]) -> dict[str, Any] 
             conn,
             """
             SELECT match_id, source, source_fixture_id, status_long, status_short,
-                   elapsed, home_score, away_score, synced_at
+                   elapsed, home_score, away_score, advancing_team_id, decision_method,
+                   provider_home_score, provider_away_score, extra_time_home_score,
+                   extra_time_away_score, penalty_home_score, penalty_away_score,
+                   synced_at
             FROM match_results
             WHERE match_id = ?
             """,
@@ -7623,12 +8075,16 @@ def quiz_label_for_admin(
 
 
 def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
+    sync_bracket_slot_admin_notifications(data)
     with get_db() as conn:
         result_rows = execute(
             conn,
             """
             SELECT match_id, source, source_fixture_id, status_long, status_short,
-                   elapsed, home_score, away_score, synced_at
+                   elapsed, home_score, away_score, advancing_team_id, decision_method,
+                   provider_home_score, provider_away_score, extra_time_home_score,
+                   extra_time_away_score, penalty_home_score, penalty_away_score,
+                   synced_at
             FROM match_results
             """,
         ).fetchall()
@@ -7756,6 +8212,8 @@ def admin_labels_payload(data: dict[str, Any]) -> dict[str, Any]:
                 "away_placeholder": match.get("away_placeholder"),
                 "home_team_name": match.get("home_team"),
                 "away_team_name": match.get("away_team"),
+                "is_knockout": is_knockout_match(match),
+                "resolved_bracket_slots": match.get("resolved_bracket_slots") or {},
                 "result": dict(result) if result else None,
                 "quiz": quiz_label,
                 "quiz_review_needed": bool(quiz_review_reasons),
@@ -8286,7 +8744,8 @@ def admin_update_result_label(match_id: str):
         return error_response
     assert admin is not None
     data = load_world_cup_data()
-    if match_by_id(data, match_id) is None:
+    match = match_by_id(data, match_id)
+    if match is None:
         return jsonify({"error": "Match not found."}), 404
     payload = request.get_json(silent=True) or {}
     reason = clean_optional_payload_text(payload, "reason", 240)
@@ -8329,11 +8788,26 @@ def admin_update_result_label(match_id: str):
         elapsed = int_payload_value(payload, "elapsed")
         status_short = clean_optional_payload_text(payload, "status_short", 24) or "FT"
         status_long = clean_optional_payload_text(payload, "status_long", 80) or "Manual result"
+        advancing_team_id = clean_optional_payload_text(payload, "advancing_team_id", 80)
+        decision_method = clean_optional_payload_text(payload, "decision_method", 40)
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     assert home_score is not None and away_score is not None
     if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
         return jsonify({"error": "Scores must be between 0 and 30."}), 400
+    valid_side_team_ids = {
+        clean_text(match.get("home_team_id")),
+        clean_text(match.get("away_team_id")),
+    } - {""}
+    if advancing_team_id and advancing_team_id not in valid_side_team_ids:
+        return jsonify({"error": "Advancing team must be one of the match teams."}), 400
+    if not is_knockout_match(match):
+        advancing_team_id = None
+        decision_method = None
+    else:
+        decision_method = decision_method or decision_method_from_status(status_short)
+        if decision_method and decision_method not in MATCH_DECISION_METHODS:
+            return jsonify({"error": "Decision method is invalid."}), 400
 
     with get_db() as conn:
         before = execute(
@@ -8346,9 +8820,10 @@ def admin_update_result_label(match_id: str):
             """
             INSERT INTO match_results (
                 match_id, source, source_fixture_id, status_long, status_short,
-                elapsed, home_score, away_score, synced_at
+                elapsed, home_score, away_score, advancing_team_id, decision_method,
+                synced_at
             )
-            VALUES (?, 'manual', NULL, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, 'manual', NULL, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(match_id)
             DO UPDATE SET source = 'manual',
                           source_fixture_id = NULL,
@@ -8357,9 +8832,20 @@ def admin_update_result_label(match_id: str):
                           elapsed = excluded.elapsed,
                           home_score = excluded.home_score,
                           away_score = excluded.away_score,
+                          advancing_team_id = excluded.advancing_team_id,
+                          decision_method = excluded.decision_method,
                           synced_at = CURRENT_TIMESTAMP
             """,
-            (match_id, status_long, status_short, elapsed, home_score, away_score),
+            (
+                match_id,
+                status_long,
+                status_short,
+                elapsed,
+                home_score,
+                away_score,
+                advancing_team_id,
+                decision_method,
+            ),
         )
         after = execute(
             conn,
