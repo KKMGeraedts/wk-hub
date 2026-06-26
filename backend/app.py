@@ -7071,8 +7071,7 @@ def matchday_match_detail(
     match = match_by_id(data, match_id)
     if match is None:
         return None, "not_found"
-    if not is_prediction_locked(match, current):
-        return None, "not_locked"
+    locked = is_prediction_locked(match, current)
 
     with get_db() as conn:
         users = execute(
@@ -7134,7 +7133,7 @@ def matchday_match_detail(
         for row in quiz_rows
     }
     leeuwtje_user_ids = {row["user_id"] for row in leeuwtje_rows}
-    outcomes = Counter(outcome_bucket(prediction) for prediction in predictions)
+    outcomes = Counter(outcome_bucket(prediction) for prediction in predictions) if locked else Counter()
     predictions_by_user = {
         row["user_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
         for row in predictions
@@ -7142,7 +7141,7 @@ def matchday_match_detail(
     striker_picks_by_user = {row["user_id"]: striker_pick_names(row) for row in top_scorer_rows}
 
     rows = []
-    for prediction in predictions:
+    for prediction in (predictions if locked else []):
         user = users_by_id.get(prediction["user_id"])
         if user is None:
             continue
@@ -7242,7 +7241,7 @@ def matchday_match_detail(
                 "group": match.get("group"),
                 "venue_id": match.get("venue_id"),
                 "quiz": match.get("quiz"),
-                "locked": True,
+                "locked": locked,
                 "prediction_count": len(rows),
                 "home_win_count": outcomes["home"],
                 "draw_count": outcomes["draw"],

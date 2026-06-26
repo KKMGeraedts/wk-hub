@@ -411,6 +411,16 @@ function poolKnockout(pool) {
     : { is_relevant: false, rounds: [], missing_actions: [] };
 }
 
+function hasUnlockedGroupStageMatches(data, pool) {
+  const locks = pool?.locks?.matches ?? {};
+  return (data?.matches ?? []).some(
+    (match) =>
+      match?.round === "Group Stage" &&
+      locks[match.id] &&
+      locks[match.id].locked === false,
+  );
+}
+
 function knockoutMatches(knockout) {
   return (knockout?.rounds ?? []).flatMap((round) => round.matches ?? []);
 }
@@ -433,6 +443,19 @@ function knockoutStatusLabel(status) {
   if (status === "locked") return "Locked";
   if (status === "completed") return "Played";
   return "Path";
+}
+
+function knockoutTileStatusLabel(status, missingCount) {
+  if (missingCount) return "Open";
+  if (status === "open") return "Open";
+  if (status === "locked") return "Locked";
+  if (status === "completed") return "Played";
+  return "";
+}
+
+function knockoutSourceMatchNumber(side) {
+  const label = knockoutSideLabel(side);
+  return label.match(/^[WL](\d+)$/i)?.[1] ?? "";
 }
 
 function poolStrikerPicks(pool) {
@@ -1511,10 +1534,13 @@ function KnockoutSide({ side }) {
   );
 }
 
-function KnockoutMatchTile({ match, selected, onSelect }) {
+function KnockoutMatchTile({ match, selected, onSelect, tileRef }) {
   const missingCount = match.missing_actions?.length ?? 0;
+  const statusLabel = knockoutStatusLabel(match.status);
+  const tileStatusLabel = knockoutTileStatusLabel(match.status, missingCount);
   return (
     <button
+      ref={tileRef}
       className={[
         "knockout-tile",
         selected ? "is-selected" : "",
@@ -1525,17 +1551,102 @@ function KnockoutMatchTile({ match, selected, onSelect }) {
         .join(" ")}
       type="button"
       onClick={onSelect}
+      aria-current={selected ? "true" : undefined}
+      aria-label={`Match ${match.match_number}, ${statusLabel}`}
     >
       <span className="knockout-tile-meta">
         <b>#{match.match_number}</b>
-        <em>{knockoutStatusLabel(match.status)}</em>
+        {tileStatusLabel && <em>{tileStatusLabel}</em>}
       </span>
       <KnockoutSide side={match.home} />
       <KnockoutSide side={match.away} />
-      {missingCount > 0 && (
-        <span className="knockout-missing-badge">{missingCount}</span>
-      )}
     </button>
+  );
+}
+
+function KnockoutConnectors({ matches, boardRef, tileRefs, selectedMatchId }) {
+  const [geometry, setGeometry] = useState({ width: 0, height: 0, paths: [] });
+
+  useEffect(() => {
+    const board = boardRef.current;
+    if (!board) return undefined;
+
+    const matchesByNumber = new Map(
+      matches.map((match) => [String(match.match_number), match]),
+    );
+
+    function computeGeometry() {
+      const boardRect = board.getBoundingClientRect();
+      const paths = [];
+
+      matches.forEach((target) => {
+        [target.home, target.away].forEach((side) => {
+          const sourceNumber = knockoutSourceMatchNumber(side);
+          if (!sourceNumber) return;
+          const source = matchesByNumber.get(sourceNumber);
+          if (!source) return;
+          const sourceNode = tileRefs.current.get(source.id);
+          const targetNode = tileRefs.current.get(target.id);
+          if (!sourceNode || !targetNode) return;
+
+          const sourceRect = sourceNode.getBoundingClientRect();
+          const targetRect = targetNode.getBoundingClientRect();
+          const sourceCenterX = sourceRect.left + sourceRect.width / 2;
+          const targetCenterX = targetRect.left + targetRect.width / 2;
+          const flowsRight = targetCenterX >= sourceCenterX;
+          const sourceX = (flowsRight ? sourceRect.right : sourceRect.left) - boardRect.left;
+          const sourceY = sourceRect.top + sourceRect.height / 2 - boardRect.top;
+          const targetX = (flowsRight ? targetRect.left : targetRect.right) - boardRect.left;
+          const targetY = targetRect.top + targetRect.height / 2 - boardRect.top;
+          const midX = sourceX + (targetX - sourceX) / 2;
+
+          paths.push({
+            id: `${source.id}-${target.id}-${knockoutSideLabel(side)}`,
+            active: source.id === selectedMatchId || target.id === selectedMatchId,
+            d: `M ${sourceX} ${sourceY} H ${midX} V ${targetY} H ${targetX}`,
+          });
+        });
+      });
+
+      setGeometry({
+        width: board.scrollWidth,
+        height: board.scrollHeight,
+        paths,
+      });
+    }
+
+    const frame = window.requestAnimationFrame(computeGeometry);
+    const resizeObserver = new ResizeObserver(computeGeometry);
+    resizeObserver.observe(board);
+    window.addEventListener("resize", computeGeometry);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", computeGeometry);
+    };
+  }, [boardRef, matches, selectedMatchId, tileRefs]);
+
+  if (!geometry.paths.length) return null;
+
+  return (
+    <svg
+      className="knockout-connectors"
+      width={geometry.width}
+      height={geometry.height}
+      viewBox={`0 0 ${geometry.width} ${geometry.height}`}
+      aria-hidden="true"
+      focusable="false"
+    >
+      {geometry.paths.map((path) => (
+        <path
+          key={path.id}
+          className={path.active ? "is-active" : ""}
+          d={path.d}
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </svg>
   );
 }
 
@@ -1551,7 +1662,150 @@ function knockoutDetailMatch(match) {
   };
 }
 
-function KnockoutPage({ pool, teams, onPoolUpdate, focusMatchId = "" }) {
+function KnockoutMatchModal({
+  selectedMatch,
+  detailMatch,
+  teams,
+  scores,
+  quizDraft,
+  leeuwtjeActive,
+  locked,
+  openForPredictions,
+  canToggleLeeuwtje,
+  canSaveSelected,
+  saving,
+  error,
+  pool,
+  onScore,
+  onQuizAnswer,
+  onToggleLeeuwtje,
+  onSave,
+  onClose,
+  onMatchDetail,
+}) {
+  if (!selectedMatch || !detailMatch) return null;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <article
+        className="prediction-modal knockout-match-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Match ${selectedMatch.match_number}`}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="prediction-modal-header">
+          <div>
+            <h3>Match {selectedMatch.match_number}</h3>
+            <p>
+              {selectedMatch.round} · {selectedMatch.date ?? "Date unknown"}
+            </p>
+          </div>
+          <button className="text-button" type="button" onClick={onClose}>
+            Close
+          </button>
+        </div>
+        <div className="prediction-modal-body knockout-detail-body">
+          <div className="knockout-detail-teams">
+            <KnockoutSide side={selectedMatch.home} />
+            <span>vs</span>
+            <KnockoutSide side={selectedMatch.away} />
+          </div>
+          <div className="knockout-detail-meta">
+            <span>{selectedMatch.venue?.name ?? "Venue to confirm"}</span>
+            <span>Lock: {formatDateTimeIso(selectedMatch.lock_at)}</span>
+          </div>
+
+          {selectedMatch.status === "not_yet_actionable" ? (
+            <div className="empty compact">
+              This match opens once both Bracket Slots are resolved.
+            </div>
+          ) : (
+            <>
+              <MatchPredictionEditor
+                match={detailMatch}
+                teams={teams}
+                scores={scores}
+                locked={locked}
+                onScore={onScore}
+                onSubmit={onSave}
+                saving={saving}
+                compact
+                showSubmit={false}
+              />
+              {selectedMatch.quiz ? (
+                <MatchQuizEditor
+                  match={detailMatch}
+                  teams={teams}
+                  prediction={quizDraft}
+                  locked={locked}
+                  onAnswer={onQuizAnswer}
+                />
+              ) : (
+                <div className="fixture-quiz">
+                  <div className="fixture-quiz-heading">
+                    <div>
+                      <strong>Quiz question not set yet</strong>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="knockout-detail-actions">
+                <LeeuwtjeButton
+                  active={leeuwtjeActive}
+                  disabled={locked || !canToggleLeeuwtje}
+                  remaining={Math.max(
+                    0,
+                    leeuwtjesTotal(pool) - poolLeeuwtjeMatchIds(pool).length,
+                  )}
+                  onToggle={onToggleLeeuwtje}
+                />
+                <button
+                  className="primary-button"
+                  type="button"
+                  onClick={onSave}
+                  disabled={saving || !canSaveSelected}
+                >
+                  {saving ? "Saving..." : "Save prediction"}
+                </button>
+              </div>
+              <div className="knockout-missing-list">
+                {(selectedMatch.missing_actions ?? []).map((item) => (
+                  <span key={`${item.kind}-${item.match_id}`} className="pill orange">
+                    {item.kind === "quiz" ? "Quiz open" : "Score open"}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+
+          <button
+            className="text-button"
+            type="button"
+            onClick={() => onMatchDetail(selectedMatch.id)}
+          >
+            View match detail
+          </button>
+          {openForPredictions && (
+            <span className="form-hint">
+              Your prediction is shown there immediately. Other predictions are
+              revealed by the matchday detail rules after predictions are fixed.
+            </span>
+          )}
+          {error && <span className="form-error">{error}</span>}
+        </div>
+      </article>
+    </div>
+  );
+}
+
+function KnockoutPage({
+  pool,
+  teams,
+  onPoolUpdate,
+  onMatchDetail,
+  focusMatchId = "",
+}) {
   const knockout = poolKnockout(pool);
   const allMatches = knockoutMatches(knockout);
   const firstMissingMatchId = knockout.missing_actions?.[0]?.match_id ?? "";
@@ -1565,11 +1819,15 @@ function KnockoutPage({ pool, teams, onPoolUpdate, focusMatchId = "" }) {
   const [leeuwtjeActive, setLeeuwtjeActive] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
+  const boardRef = useRef(null);
+  const tileRefs = useRef(new Map());
 
   useEffect(() => {
     if (!focusMatchId) return;
     if (knockoutMatchById(knockout, focusMatchId)) {
       setSelectedMatchId(focusMatchId);
+      setModalOpen(true);
     }
   }, [focusMatchId, knockout]);
 
@@ -1661,6 +1919,71 @@ function KnockoutPage({ pool, teams, onPoolUpdate, focusMatchId = "" }) {
     (scoreComplete(scores) ||
       (selectedMatch?.quiz && quizAnswer !== existingQuizAnswer) ||
       Boolean(selectedMatch?.leeuwtje) !== leeuwtjeActive);
+  const roundMatches = new Map(
+    KNOCKOUT_ROUND_ORDER.map((roundName) => [
+      roundName,
+      knockout.rounds?.find((item) => item.round === roundName)?.matches ?? [],
+    ]),
+  );
+  const splitBracketColumns = [
+    {
+      key: "left-r32",
+      roundName: "Round of 32",
+      matches: (roundMatches.get("Round of 32") ?? []).slice(0, 8),
+      side: "left",
+    },
+    {
+      key: "left-r16",
+      roundName: "Round of 16",
+      matches: (roundMatches.get("Round of 16") ?? []).slice(0, 4),
+      side: "left",
+    },
+    {
+      key: "left-qf",
+      roundName: "Quarter-final",
+      matches: (roundMatches.get("Quarter-final") ?? []).slice(0, 2),
+      side: "left",
+    },
+    {
+      key: "left-sf",
+      roundName: "Semi-final",
+      matches: (roundMatches.get("Semi-final") ?? []).slice(0, 1),
+      side: "left",
+    },
+    {
+      key: "center-finals",
+      roundName: "Finals",
+      matches: [
+        ...(roundMatches.get("Final") ?? []),
+        ...(roundMatches.get("Third-place play-off") ?? []),
+      ],
+      side: "center",
+    },
+    {
+      key: "right-sf",
+      roundName: "Semi-final",
+      matches: (roundMatches.get("Semi-final") ?? []).slice(1, 2),
+      side: "right",
+    },
+    {
+      key: "right-qf",
+      roundName: "Quarter-final",
+      matches: (roundMatches.get("Quarter-final") ?? []).slice(2, 4),
+      side: "right",
+    },
+    {
+      key: "right-r16",
+      roundName: "Round of 16",
+      matches: (roundMatches.get("Round of 16") ?? []).slice(4, 8),
+      side: "right",
+    },
+    {
+      key: "right-r32",
+      roundName: "Round of 32",
+      matches: (roundMatches.get("Round of 32") ?? []).slice(8, 16),
+      side: "right",
+    },
+  ].filter((column) => column.matches.length);
 
   return (
     <div className="knockout-page">
@@ -1675,20 +1998,46 @@ function KnockoutPage({ pool, teams, onPoolUpdate, focusMatchId = "" }) {
           </span>
         </div>
         <div className="panel-body">
-          <div className="knockout-board" aria-label="Knockout Stage bracket">
-            {KNOCKOUT_ROUND_ORDER.map((roundName) => {
-              const round = knockout.rounds?.find((item) => item.round === roundName);
-              if (!round?.matches?.length) return null;
+          <div
+            className="knockout-board"
+            aria-label="Knockout Stage bracket"
+            ref={boardRef}
+          >
+            <KnockoutConnectors
+              matches={allMatches}
+              boardRef={boardRef}
+              tileRefs={tileRefs}
+              selectedMatchId={selectedMatch?.id ?? ""}
+            />
+            {splitBracketColumns.map((column) => {
+              const roundClassName = [
+                "knockout-round",
+                column.side === "center" ? "is-final" : "",
+                column.side === "left" ? "is-left-path" : "",
+                column.side === "right" ? "is-right-path" : "",
+              ]
+                .filter(Boolean)
+                .join(" ");
               return (
-                <section className="knockout-round" key={roundName}>
-                  <h4>{roundName}</h4>
+                <section className={roundClassName} key={column.key}>
+                  <h4>{column.roundName}</h4>
                   <div className="knockout-round-stack">
-                    {round.matches.map((match) => (
+                    {column.matches.map((match) => (
                       <KnockoutMatchTile
                         key={match.id}
                         match={match}
                         selected={selectedMatch?.id === match.id}
-                        onSelect={() => setSelectedMatchId(match.id)}
+                        tileRef={(node) => {
+                          if (node) {
+                            tileRefs.current.set(match.id, node);
+                          } else {
+                            tileRefs.current.delete(match.id);
+                          }
+                        }}
+                        onSelect={() => {
+                          setSelectedMatchId(match.id);
+                          setModalOpen(true);
+                        }}
                       />
                     ))}
                   </div>
@@ -1699,104 +2048,29 @@ function KnockoutPage({ pool, teams, onPoolUpdate, focusMatchId = "" }) {
         </div>
       </section>
 
-      <aside className="panel knockout-detail-panel">
-        <div className="panel-header">
-          <div>
-            <h3>
-              {selectedMatch
-                ? `Match ${selectedMatch.match_number}`
-                : "Select match"}
-            </h3>
-            <p>
-              {selectedMatch
-                ? `${selectedMatch.round} · ${selectedMatch.date ?? "Date unknown"}`
-                : "Choose a tile in the bracket."}
-            </p>
-          </div>
-          {selectedMatch && (
-            <span className={`pill ${openForPredictions ? "green" : ""}`}>
-              {knockoutStatusLabel(selectedMatch.status)}
-            </span>
-          )}
-        </div>
-        {selectedMatch && detailMatch && (
-          <div className="panel-body knockout-detail-body">
-            <div className="knockout-detail-teams">
-              <KnockoutSide side={selectedMatch.home} />
-              <span>vs</span>
-              <KnockoutSide side={selectedMatch.away} />
-            </div>
-            <div className="knockout-detail-meta">
-              <span>{selectedMatch.venue?.name ?? "Venue to confirm"}</span>
-              <span>Lock: {formatDateTimeIso(selectedMatch.lock_at)}</span>
-            </div>
-
-            {selectedMatch.status === "not_yet_actionable" ? (
-              <div className="empty compact">
-                This match opens once both Bracket Slots are resolved.
-              </div>
-            ) : (
-              <>
-                <MatchPredictionEditor
-                  match={detailMatch}
-                  teams={teams}
-                  scores={scores}
-                  locked={locked}
-                  onScore={setScore}
-                  onSubmit={saveSelected}
-                  saving={saving}
-                  compact
-                  showSubmit={false}
-                />
-                {selectedMatch.quiz ? (
-                  <MatchQuizEditor
-                    match={detailMatch}
-                    teams={teams}
-                    prediction={quizDraft}
-                    locked={locked}
-                    onAnswer={setQuizAnswer}
-                  />
-                ) : (
-                  <div className="fixture-quiz">
-                    <div className="fixture-quiz-heading">
-                      <div>
-                        <strong>Quiz question not set yet</strong>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                <div className="knockout-detail-actions">
-                  <LeeuwtjeButton
-                    active={leeuwtjeActive}
-                    disabled={locked || !canToggleLeeuwtje}
-                    remaining={Math.max(
-                      0,
-                      leeuwtjesTotal(pool) - poolLeeuwtjeMatchIds(pool).length,
-                    )}
-                    onToggle={() => setLeeuwtjeActive((current) => !current)}
-                  />
-                  <button
-                    className="primary-button"
-                    type="button"
-                    onClick={saveSelected}
-                    disabled={saving || !canSaveSelected}
-                  >
-                    {saving ? "Saving..." : "Save prediction"}
-                  </button>
-                </div>
-                <div className="knockout-missing-list">
-                  {(selectedMatch.missing_actions ?? []).map((item) => (
-                    <span key={`${item.kind}-${item.match_id}`} className="pill orange">
-                      {item.kind === "quiz" ? "Quiz open" : "Score open"}
-                    </span>
-                  ))}
-                </div>
-              </>
-            )}
-            {error && <span className="form-error">{error}</span>}
-          </div>
-        )}
-      </aside>
+      {modalOpen && selectedMatch && detailMatch && (
+        <KnockoutMatchModal
+          selectedMatch={selectedMatch}
+          detailMatch={detailMatch}
+          teams={teams}
+          scores={scores}
+          quizDraft={quizDraft}
+          leeuwtjeActive={leeuwtjeActive}
+          locked={locked}
+          openForPredictions={openForPredictions}
+          canToggleLeeuwtje={canToggleLeeuwtje}
+          canSaveSelected={canSaveSelected}
+          saving={saving}
+          error={error}
+          pool={pool}
+          onScore={setScore}
+          onQuizAnswer={setQuizAnswer}
+          onToggleLeeuwtje={() => setLeeuwtjeActive((current) => !current)}
+          onSave={saveSelected}
+          onClose={() => setModalOpen(false)}
+          onMatchDetail={onMatchDetail}
+        />
+      )}
     </div>
   );
 }
@@ -5978,13 +6252,21 @@ function MatchdayMatchPage({ matchId, teams, venues, onBack }) {
         <div className="panel-header">
           <div>
             <h3>Voorspellingen</h3>
-            <p>Scores, quizantwoorden en Leeuwtjes per speler.</p>
+            <p>
+              {match.locked
+                ? "Scores, quizantwoorden en Leeuwtjes per speler."
+                : "Je eigen voorspelling is zichtbaar. Andere voorspellingen verschijnen zodra de voorspellingen vaststaan."}
+            </p>
           </div>
           <span className="pill">{detail.predictions?.length ?? 0} spelers</span>
         </div>
         <div className="panel-body">
           {!detail.predictions?.length && (
-            <div className="empty compact">Nog geen voorspellingen.</div>
+            <div className="empty compact">
+              {match.locked
+                ? "Nog geen voorspellingen."
+                : "Andere voorspellingen zijn nog verborgen."}
+            </div>
           )}
           {!!detail.predictions?.length && (
             <ul className="matchday-prediction-table">
@@ -8066,6 +8348,10 @@ function App() {
   }
 
   function navigateToMyPredictions() {
+    if (hasUnlockedGroupStageMatches(data, pool)) {
+      navigateToView("adjust");
+      return;
+    }
     const knockout = poolKnockout(pool);
     if (knockout.is_relevant) {
       const firstMissing = knockout.missing_actions?.[0];
@@ -8464,6 +8750,7 @@ function App() {
   const selectedTeam = maps.teams.get(selectedTeamId) ?? null;
   const venueRows = data.venues;
   const knockout = poolKnockout(pool);
+  const groupStageStillAdjustable = hasUnlockedGroupStageMatches(data, pool);
   const navItems = [
     "home",
     "matchday",
@@ -8520,8 +8807,10 @@ function App() {
           >
             <span>Mijn voorspellingen</span>
             <b>
-              {knockout.is_relevant
-                ? knockout.missing_actions?.length ?? 0
+              {groupStageStillAdjustable
+                ? `${pool.progress?.group_stage_predictions ?? 0}/${pool.progress?.group_stage_total ?? 0}`
+                : knockout.is_relevant
+                  ? knockout.missing_actions?.length ?? 0
                 : `${pool.progress?.group_stage_predictions ?? 0}/${pool.progress?.group_stage_total ?? 0}`}
             </b>
           </button>
@@ -8645,6 +8934,7 @@ function App() {
               pool={pool}
               teams={maps.teams}
               onPoolUpdate={updatePoolOnly}
+              onMatchDetail={navigateToMatchdayMatch}
               focusMatchId={selectedKnockoutMatchId}
             />
           </section>

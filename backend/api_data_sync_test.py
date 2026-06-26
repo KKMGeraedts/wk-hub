@@ -2421,7 +2421,7 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(historic_match["my_prediction"], {"home_score": 2, "away_score": 1})
         self.assertEqual(historic_match["my_points"]["total_points"], 12)
 
-    def test_matchday_match_detail_requires_locked_predictions(self) -> None:
+    def test_matchday_match_detail_shows_only_viewer_prediction_before_lock(self) -> None:
         match = make_match("m001", datetime(2026, 6, 11, 20, 0, tzinfo=UTC))
         match["status"] = "scheduled"
         data = {
@@ -2435,16 +2435,43 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             "meta": {},
         }
 
-        detail, error = self.run_with_temp_db(
-            lambda _conn: wk_app.matchday_match_detail(
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash, is_admin)
+                VALUES
+                    (1, 'Karel', 'karel@example.com', 'x', 0),
+                    (2, 'Ada', 'ada@example.com', 'x', 0)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                VALUES
+                    (1, 'm001', 2, 1),
+                    (2, 'm001', 0, 3)
+                """,
+            )
+            conn.commit()
+            return wk_app.matchday_match_detail(
                 data,
                 "m001",
+                user_id=1,
                 now=datetime(2026, 6, 11, 18, 30, tzinfo=UTC),
             )
-        )
 
-        self.assertIsNone(detail)
-        self.assertEqual(error, "not_locked")
+        detail, error = self.run_with_temp_db(scenario)
+
+        self.assertIsNone(error)
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        self.assertFalse(detail["match"]["locked"])
+        self.assertEqual(detail["match"]["my_prediction"], {"home_score": 2, "away_score": 1})
+        self.assertEqual(detail["match"]["prediction_count"], 0)
+        self.assertEqual(detail["predictions"], [])
+        self.assertEqual(detail["score_groups"], [])
 
     def test_matchday_match_detail_groups_predictions_and_quiz_answers(self) -> None:
         match = make_match("m001", datetime(2026, 6, 11, 20, 0, tzinfo=UTC))
