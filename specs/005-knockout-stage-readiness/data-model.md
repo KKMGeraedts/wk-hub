@@ -103,6 +103,64 @@
 - Before lock time, existing answers that no longer match corrected options become Missing Actions.
 - After lock time, corrections do not automatically reopen participant answers.
 
+## Knockout Score Prediction
+
+**Represents**: A participant's predicted Knockout Stage score after maximum 120 minutes, plus the Advancing Team when the predicted score is a draw.
+
+**Key fields**:
+
+- `match_id`
+- `home_score`
+- `away_score`
+- `advancing_team_id`
+
+**Rules**:
+
+- Penalty shootout goals are never part of `home_score` or `away_score`.
+- `advancing_team_id` is required for open draw predictions.
+- Non-draw predictions derive the participant's Advancing Team from the predicted score.
+- Locked draw predictions without `advancing_team_id` can still earn home-goal and away-goal points, but cannot earn outcome or exact-score points.
+
+## Leaderboard Points
+
+**Represents**: The point categories shown in the leaderboard.
+
+**Key fields**:
+
+- `points`
+- `match_points`
+- `quiz_points`
+- `scorer_points`
+- `leeuwtje_points`
+
+**Rules**:
+
+- `points` is the sum of the four visible point categories.
+- `match_points` includes score-prediction points and tournament winner points.
+- `scorer_points` includes top-scorer and striker-pick points.
+- `leeuwtje_points` includes only Leeuwtje points from scored matches.
+- Group-position points are no longer used.
+
+## Leeuwtje Stage Accounting
+
+**Represents**: The active-stage Leeuwtje budget and remaining count shown from the leaderboard Leeuwtje Points hover.
+
+**Key fields**:
+
+- `active_stage`
+- `assigned_count`
+- `consumed_count`
+- `remaining_count`
+- `stage_total`
+
+**Rules**:
+
+- The active stage is Group Stage until all Group Stage matches have trusted final results; after that it is Knockout Stage.
+- Every participant receives a fresh Knockout Stage Leeuwtje Budget when Knockout Stage becomes active.
+- Historical Group Stage Leeuwtjes remain available for scoring but do not count against the Knockout Stage budget.
+- Assigned Leeuwtjes count against save validation for the active stage.
+- Only Consumed Leeuwtjes reduce Remaining Leeuwtje Count.
+
 ## State Transitions
 
 ```text
@@ -118,4 +176,7 @@ Unset quiz
 Valid quiz answer
   -> missing quiz action     when a pre-lock Quiz Correction invalidates the answer
   -> locked answer           when lock time passes
+
+Group Stage Leeuwtje Budget
+  -> Knockout Stage Leeuwtje Budget  when all Group Stage matches have trusted final results
 ```

@@ -77,8 +77,32 @@ A prediction or quiz answer that a participant can still complete before its loc
 _Avoid_: Incomplete data, notification
 
 **Prediction Result**:
-The match score and outcome that participant score predictions are judged against. For this pool, Prediction Result always means the 90-minute result and excludes extra time and penalties, even when provider data also reports an after-extra-time or penalty outcome.
-_Avoid_: Final score, full-time score
+The match score and outcome that participant score predictions are judged against. Group Stage Prediction Result means the regular-time result; Knockout Stage Prediction Result means the score after extra time when played, while penalties never add goals to the Prediction Result.
+_Avoid_: Final score, penalty score
+
+**Prediction Outcome**:
+The outcome component of a score prediction. In the Group Stage this is home win, draw, or away win; in the Knockout Stage this is the Advancing Team.
+_Avoid_: Winner, match result
+
+**Leeuwtje Budget**:
+The number of Leeuwtjes a participant may assign within a tournament stage. The Group Stage budget is separate from the Knockout Stage budget; unused Group Stage Leeuwtjes expire when all Group Stage matches have trusted final results, and every participant then receives a fresh Knockout Stage budget.
+_Avoid_: Carried-over Leeuwtjes, bonus pool
+
+**Leeuwtje Points**:
+The extra points earned because a participant assigned a Leeuwtje to a scored match prediction. Leeuwtje Points are cumulative across tournament stages, even though Leeuwtje Budget is stage-specific.
+_Avoid_: Remaining Leeuwtjes, selected Leeuwtjes
+
+**Match Points**:
+The leaderboard points from match-score predictions and the tournament winner pick, excluding quiz points, scorer points, and Leeuwtje Points. Group-position points are not part of Match Points.
+_Avoid_: Group-position points, Leeuwtje Points
+
+**Consumed Leeuwtje**:
+A Leeuwtje assigned to a match that already has the trusted result needed for scoring. Assigned Leeuwtjes on future or unscored matches are not consumed yet.
+_Avoid_: Available Leeuwtje, selected Leeuwtje
+
+**Remaining Leeuwtje Count**:
+The active-stage Leeuwtje Budget minus Consumed Leeuwtjes in that stage. Assigned Leeuwtjes on future or unscored matches do not reduce the Remaining Leeuwtje Count until those matches have trusted results.
+_Avoid_: Total Leeuwtjes, Leeuwtje Points
 
 **Advancing Team**:
 The team that progresses from a Knockout Stage match after the tie is fully decided, including extra time or penalties when needed.

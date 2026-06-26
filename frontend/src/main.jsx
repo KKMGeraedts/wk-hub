@@ -1157,6 +1157,21 @@ function scoreComplete(scores) {
   );
 }
 
+function isKnockoutMatchLike(match) {
+  return Boolean(match) && match.round !== "Group Stage";
+}
+
+function scoreIsDraw(scores) {
+  if (!scoreComplete(scores)) return false;
+  return Number(scores.home_score) === Number(scores.away_score);
+}
+
+function scorePredictionComplete(match, scores) {
+  if (!scoreComplete(scores)) return false;
+  if (!isKnockoutMatchLike(match) || !scoreIsDraw(scores)) return true;
+  return Boolean(String(scores?.advancing_team_id ?? "").trim());
+}
+
 function draftPredictions(draft) {
   return Object.entries(draft)
     .filter(([, scores]) => scoreComplete(scores))
@@ -1195,6 +1210,12 @@ function leeuwtjesUsed(pool) {
   );
 }
 
+function leeuwtjesAssigned(pool) {
+  return (
+    pool?.progress?.leeuwtjes_assigned ?? pool?.leeuwtjes_match_ids?.length ?? 0
+  );
+}
+
 function leeuwtjesTotal(pool) {
   return pool?.progress?.leeuwtjes_total ?? pool?.rules?.leeuwtjes_total ?? 5;
 }
@@ -1221,7 +1242,9 @@ function MatchPredictionEditor({
   compact = false,
   showSubmit = true,
 }) {
-  const canSubmit = scoreComplete(scores) && !locked && !saving;
+  const isKnockout = isKnockoutMatchLike(match);
+  const needsAdvancingTeam = isKnockout && scoreIsDraw(scores);
+  const canSubmit = scorePredictionComplete(match, scores) && !locked && !saving;
 
   function submitOnEnter(event) {
     if (event.key !== "Enter" || !showSubmit || !canSubmit) return;
@@ -1240,36 +1263,111 @@ function MatchPredictionEditor({
 
   if (compact) {
     return (
+      <div className="fixture-score-editor">
+        {isKnockout && <span className="form-hint">Score na max. 120 minuten</span>}
+        <div className={className}>
+          <input
+            aria-label={`${teams.get(match.home_team_id)?.name ?? "Home"} score`}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
+            value={scores?.home_score ?? ""}
+            disabled={locked}
+            onFocus={(event) => event.target.select()}
+            onChange={(event) =>
+              onScore(match.id, "home_score", scoreInputValue(event.target.value))
+            }
+            onKeyDown={submitOnEnter}
+          />
+          <span className="fixture-score-separator">-</span>
+          <input
+            aria-label={`${teams.get(match.away_team_id)?.name ?? "Away"} score`}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
+            value={scores?.away_score ?? ""}
+            disabled={locked}
+            onFocus={(event) => event.target.select()}
+            onChange={(event) =>
+              onScore(match.id, "away_score", scoreInputValue(event.target.value))
+            }
+            onKeyDown={submitOnEnter}
+          />
+          {showSubmit && (
+            <button
+              className="fixture-ok-button"
+              type="button"
+              onClick={onSubmit}
+              disabled={!canSubmit}
+            >
+              {saving ? "Saving..." : "OK"}
+            </button>
+          )}
+        </div>
+        {needsAdvancingTeam && (
+          <label className="fixture-advancing-select">
+            Wie gaat door?
+            <select
+              value={scores?.advancing_team_id ?? ""}
+              disabled={locked}
+              onChange={(event) =>
+                onScore(match.id, "advancing_team_id", event.target.value)
+              }
+            >
+              <option value="">Kies team</option>
+              {[match.home_team_id, match.away_team_id].filter(Boolean).map((teamId) => (
+                <option key={teamId} value={teamId}>
+                  {teams.get(teamId)?.name ?? teamId}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixture-score-editor">
+      {isKnockout && <span className="form-hint">Score na max. 120 minuten</span>}
       <div className={className}>
-        <input
-          aria-label={`${teams.get(match.home_team_id)?.name ?? "Home"} score`}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          autoComplete="off"
-          value={scores?.home_score ?? ""}
-          disabled={locked}
-          onFocus={(event) => event.target.select()}
-          onChange={(event) =>
-            onScore(match.id, "home_score", scoreInputValue(event.target.value))
-          }
-          onKeyDown={submitOnEnter}
-        />
+        <label className="fixture-team-input is-home">
+          <TeamBadge id={match.home_team_id} teams={teams} />
+          <input
+            aria-label={`${teams.get(match.home_team_id)?.name ?? "Home"} score`}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
+            value={scores?.home_score ?? ""}
+            disabled={locked}
+            onFocus={(event) => event.target.select()}
+            onChange={(event) =>
+              onScore(match.id, "home_score", scoreInputValue(event.target.value))
+            }
+            onKeyDown={submitOnEnter}
+          />
+        </label>
         <span className="fixture-score-separator">-</span>
-        <input
-          aria-label={`${teams.get(match.away_team_id)?.name ?? "Away"} score`}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          autoComplete="off"
-          value={scores?.away_score ?? ""}
-          disabled={locked}
-          onFocus={(event) => event.target.select()}
-          onChange={(event) =>
-            onScore(match.id, "away_score", scoreInputValue(event.target.value))
-          }
-          onKeyDown={submitOnEnter}
-        />
+        <label className="fixture-team-input is-away">
+          <TeamBadge id={match.away_team_id} teams={teams} align="right" />
+          <input
+            aria-label={`${teams.get(match.away_team_id)?.name ?? "Away"} score`}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            autoComplete="off"
+            value={scores?.away_score ?? ""}
+            disabled={locked}
+            onFocus={(event) => event.target.select()}
+            onChange={(event) =>
+              onScore(match.id, "away_score", scoreInputValue(event.target.value))
+            }
+            onKeyDown={submitOnEnter}
+          />
+        </label>
         {showSubmit && (
           <button
             className="fixture-ok-button"
@@ -1281,55 +1379,24 @@ function MatchPredictionEditor({
           </button>
         )}
       </div>
-    );
-  }
-
-  return (
-    <div className={className}>
-      <label className="fixture-team-input is-home">
-        <TeamBadge id={match.home_team_id} teams={teams} />
-        <input
-          aria-label={`${teams.get(match.home_team_id)?.name ?? "Home"} score`}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          autoComplete="off"
-          value={scores?.home_score ?? ""}
-          disabled={locked}
-          onFocus={(event) => event.target.select()}
-          onChange={(event) =>
-            onScore(match.id, "home_score", scoreInputValue(event.target.value))
-          }
-          onKeyDown={submitOnEnter}
-        />
-      </label>
-      <span className="fixture-score-separator">-</span>
-      <label className="fixture-team-input is-away">
-        <TeamBadge id={match.away_team_id} teams={teams} align="right" />
-        <input
-          aria-label={`${teams.get(match.away_team_id)?.name ?? "Away"} score`}
-          type="text"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          autoComplete="off"
-          value={scores?.away_score ?? ""}
-          disabled={locked}
-          onFocus={(event) => event.target.select()}
-          onChange={(event) =>
-            onScore(match.id, "away_score", scoreInputValue(event.target.value))
-          }
-          onKeyDown={submitOnEnter}
-        />
-      </label>
-      {showSubmit && (
-        <button
-          className="fixture-ok-button"
-          type="button"
-          onClick={onSubmit}
-          disabled={!canSubmit}
-        >
-          {saving ? "Saving..." : "OK"}
-        </button>
+      {needsAdvancingTeam && (
+        <label className="fixture-advancing-select">
+          Wie gaat door?
+          <select
+            value={scores?.advancing_team_id ?? ""}
+            disabled={locked}
+            onChange={(event) =>
+              onScore(match.id, "advancing_team_id", event.target.value)
+            }
+          >
+            <option value="">Kies team</option>
+            {[match.home_team_id, match.away_team_id].filter(Boolean).map((teamId) => (
+              <option key={teamId} value={teamId}>
+                {teams.get(teamId)?.name ?? teamId}
+              </option>
+            ))}
+          </select>
+        </label>
       )}
     </div>
   );
@@ -1445,7 +1512,7 @@ function MatchPredictionRow({
   quickEntry = false,
   focused = false,
 }) {
-  const complete = scoreComplete(scores);
+  const complete = scorePredictionComplete(match, scores);
   const venue = venues.get(match.venue_id);
 
   return (
@@ -1756,7 +1823,7 @@ function KnockoutMatchModal({
                   disabled={locked || !canToggleLeeuwtje}
                   remaining={Math.max(
                     0,
-                    leeuwtjesTotal(pool) - poolLeeuwtjeMatchIds(pool).length,
+                    leeuwtjesTotal(pool) - leeuwtjesAssigned(pool),
                   )}
                   onToggle={onToggleLeeuwtje}
                 />
@@ -1836,6 +1903,7 @@ function KnockoutPage({
     setScores({
       home_score: selectedMatch.prediction?.home_score ?? "",
       away_score: selectedMatch.prediction?.away_score ?? "",
+      advancing_team_id: selectedMatch.prediction?.advancing_team_id ?? "",
     });
     setQuizDraft({ answer: selectedMatch.quiz_prediction?.answer ?? "" });
     setLeeuwtjeActive(Boolean(selectedMatch.leeuwtje));
@@ -1843,7 +1911,17 @@ function KnockoutPage({
   }, [selectedMatch?.id, selectedMatch?.prediction, selectedMatch?.quiz_prediction, selectedMatch?.leeuwtje]);
 
   function setScore(_matchId, key, value) {
-    setScores((current) => ({ ...current, [key]: value }));
+    setScores((current) => {
+      const next = { ...current, [key]: value };
+      if (
+        (key === "home_score" || key === "away_score") &&
+        scoreComplete(next) &&
+        !scoreIsDraw(next)
+      ) {
+        next.advancing_team_id = "";
+      }
+      return next;
+    });
   }
 
   function setQuizAnswer(_matchId, value) {
@@ -1864,12 +1942,13 @@ function KnockoutPage({
       const updated = await apiJson("/api/predictions", {
         method: "POST",
         body: JSON.stringify({
-          predictions: scoreComplete(scores)
+          predictions: scorePredictionComplete(detailMatch, scores)
             ? [
               {
                 match_id: selectedMatch.id,
                 home_score: Number(scores.home_score),
                 away_score: Number(scores.away_score),
+                advancing_team_id: scoreIsDraw(scores) ? scores.advancing_team_id : "",
               },
             ]
             : [],
@@ -1909,14 +1988,14 @@ function KnockoutPage({
   const openForPredictions = selectedMatch?.status === "open";
   const locked = !openForPredictions;
   const canToggleLeeuwtje =
-    leeuwtjeActive || poolLeeuwtjeMatchIds(pool).length < leeuwtjesTotal(pool);
+    leeuwtjeActive || leeuwtjesAssigned(pool) < leeuwtjesTotal(pool);
   const quizAnswer = String(quizDraft.answer ?? "").trim();
   const existingQuizAnswer = String(
     selectedMatch?.quiz_prediction?.answer ?? "",
   ).trim();
   const canSaveSelected =
     openForPredictions &&
-    (scoreComplete(scores) ||
+    (scorePredictionComplete(detailMatch, scores) ||
       (selectedMatch?.quiz && quizAnswer !== existingQuizAnswer) ||
       Boolean(selectedMatch?.leeuwtje) !== leeuwtjeActive);
   const roundMatches = new Map(
@@ -2429,6 +2508,7 @@ function patchPoolAfterMatchPrediction(pool, matchId, result) {
             ? {
                 home_score: result.prediction.home_score,
                 away_score: result.prediction.away_score,
+                advancing_team_id: result.prediction.advancing_team_id,
               }
             : match.my_prediction,
         }
@@ -5729,6 +5809,7 @@ function MatchdayPredictionModal({
     setScores({
       home_score: existingPrediction.home_score ?? "",
       away_score: existingPrediction.away_score ?? "",
+      advancing_team_id: existingPrediction.advancing_team_id ?? "",
     });
     setQuizDraft({
       answer: existingQuiz.answer ?? "",
@@ -5741,17 +5822,27 @@ function MatchdayPredictionModal({
 
   const leeuwtjeTotal = leeuwtjesTotal(pool);
   const currentLeeuwtjes = new Set(poolLeeuwtjeMatchIds(pool));
-  const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - currentLeeuwtjes.size);
+  const leeuwtjesRemaining = Math.max(0, leeuwtjeTotal - leeuwtjesAssigned(pool));
   const canToggleLeeuwtje =
     leeuwtjeActive ||
     currentLeeuwtjes.has(match.id) ||
-    currentLeeuwtjes.size < leeuwtjeTotal;
+    leeuwtjesAssigned(pool) < leeuwtjeTotal;
   const locked = Boolean(match.locked);
   const quizComplete = quizAnswerComplete(match.quiz, quizDraft);
-  const canSave = scoreComplete(scores) && quizComplete && !saving && !locked;
+  const canSave = scorePredictionComplete(match, scores) && quizComplete && !saving && !locked;
 
   function setScore(_matchId, key, value) {
-    setScores((current) => ({ ...current, [key]: value }));
+    setScores((current) => {
+      const next = { ...current, [key]: value };
+      if (
+        (key === "home_score" || key === "away_score") &&
+        scoreComplete(next) &&
+        !scoreIsDraw(next)
+      ) {
+        next.advancing_team_id = "";
+      }
+      return next;
+    });
   }
 
   function setQuizAnswer(_matchId, value) {
@@ -5765,6 +5856,7 @@ function MatchdayPredictionModal({
     const body = {
       home_score: Number(scores.home_score),
       away_score: Number(scores.away_score),
+      advancing_team_id: scoreIsDraw(scores) ? scores.advancing_team_id : "",
       leeuwtje: leeuwtjeActive,
     };
     if (match.quiz) {
@@ -6346,6 +6438,42 @@ function Leaderboard({
   onProfile = () => { },
   profileLinksEnabled = true,
 }) {
+  const [sortKey, setSortKey] = useState("points");
+  const [sortDirection, setSortDirection] = useState("desc");
+  const columns = [
+    { key: "points", label: "Pts" },
+    { key: "match_points", label: "Match pts" },
+    { key: "quiz_points", label: "Quiz pts" },
+    { key: "scorer_points", label: "Scorer pts" },
+    { key: "leeuwtje_points", label: "Leeuwtje pts" },
+    { key: "exact_scores", label: "Exact" },
+    { key: "outcomes", label: "Outcome" },
+  ];
+  const rows = useMemo(() => {
+    const originalOrder = new Map(
+      (pool.leaderboard ?? []).map((row, index) => [row.user_id, index]),
+    );
+    return [...(pool.leaderboard ?? [])].sort((left, right) => {
+      const leftValue = Number(left?.[sortKey] ?? 0);
+      const rightValue = Number(right?.[sortKey] ?? 0);
+      if (leftValue !== rightValue) {
+        return sortDirection === "desc"
+          ? rightValue - leftValue
+          : leftValue - rightValue;
+      }
+      return (originalOrder.get(left.user_id) ?? 0) - (originalOrder.get(right.user_id) ?? 0);
+    });
+  }, [pool.leaderboard, sortDirection, sortKey]);
+
+  function toggleSort(nextKey) {
+    if (sortKey === nextKey) {
+      setSortDirection((current) => (current === "desc" ? "asc" : "desc"));
+      return;
+    }
+    setSortKey(nextKey);
+    setSortDirection("desc");
+  }
+
   return (
     <article className="panel">
       <div className="panel-header">
@@ -6362,20 +6490,33 @@ function Leaderboard({
               <tr>
                 <th>#</th>
                 <th>Player</th>
-                <th className="numeric">Pts</th>
-                <th className="numeric">Exact</th>
-                <th className="numeric">Outcome</th>
-                <th className="numeric">Quiz pts</th>
-                <th className="numeric">Scorer pts</th>
-                <th className="numeric">Leeuwtjes</th>
-                <th className="numeric">Predictions</th>
+                {columns.map((column) => (
+                  <th key={column.key} className="numeric">
+                    <button
+                      className="leaderboard-sort-button"
+                      type="button"
+                      onClick={() => toggleSort(column.key)}
+                    >
+                      <span>{column.label}</span>
+                      {sortKey === column.key && (
+                        <span aria-hidden="true">
+                          {sortDirection === "desc" ? "↓" : "↑"}
+                        </span>
+                      )}
+                    </button>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {pool.leaderboard.map((row, index) => {
+              {rows.map((row) => {
+                const overallRank =
+                  (pool.leaderboard ?? []).findIndex(
+                    (candidate) => candidate.user_id === row.user_id,
+                  ) + 1;
                 return (
                   <tr key={row.user_id} className="leaderboard-row">
-                    <td>{index + 1}</td>
+                    <td>{overallRank}</td>
                     <td>
                       {profileLinksEnabled ? (
                         <button
@@ -6413,19 +6554,22 @@ function Leaderboard({
                     <td className="numeric">
                       <strong>{row.points}</strong>
                     </td>
-                    <td className="numeric">{row.exact_scores}</td>
-                    <td className="numeric">{row.outcomes}</td>
+                    <td className="numeric">{row.match_points ?? row.match_score_points ?? 0}</td>
                     <td className="numeric">{row.quiz_points ?? 0}</td>
                     <td className="numeric">
                       {row.scorer_points ?? row.top_scorer_points ?? 0}
                     </td>
                     <td className="numeric">
-                      {row.leeuwtjes_available ?? 0}/
-                      {row.leeuwtjes_total ?? pool.progress?.leeuwtjes_total ?? 5}
+                      <span className="leaderboard-tooltip">
+                        {row.leeuwtje_points ?? 0}
+                        <span className="leaderboard-tooltip-bubble" role="tooltip">
+                          {row.leeuwtjes_available ?? 0}/
+                          {row.leeuwtjes_total ?? pool.progress?.leeuwtjes_total ?? 5}
+                        </span>
+                      </span>
                     </td>
-                    <td className="numeric">
-                      {row.group_stage_predictions}/{row.group_stage_total}
-                    </td>
+                    <td className="numeric">{row.exact_scores}</td>
+                    <td className="numeric">{row.outcomes}</td>
                   </tr>
                 );
               })}

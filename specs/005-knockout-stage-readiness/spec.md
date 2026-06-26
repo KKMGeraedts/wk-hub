@@ -113,18 +113,29 @@ As a participant, I want navigation and the existing My Predictions entry point 
 - **FR-018**: If a Quiz Correction happens after lock time, the system MUST NOT automatically reopen participant answers.
 - **FR-019**: The `Knockout` top-level navigation item MUST become visible when Knockout Stage planning is relevant.
 - **FR-020**: The existing My Predictions entry point MUST route participants to Knockout Stage work when Knockout Stage planning is relevant and group-stage prediction entry is no longer the main task.
-- **FR-021**: Knockout Stage score predictions MUST be judged against the 90-minute Prediction Result, excluding extra time and penalties.
-- **FR-022**: Knockout Stage bracket progression MUST use the separate Advancing Team fact when a completed tie is decided after extra time or penalties.
+- **FR-021**: Knockout Stage score predictions MUST be judged against the Knockout Stage Prediction Result, meaning the score after extra time when extra time is played, while penalty shootout goals MUST NOT be added to the predicted or scored goals.
+- **FR-022**: Knockout Stage score predictions MUST use Advancing Team as the Prediction Outcome, including when the participant predicts a non-draw score and when the completed tie is decided after extra time or penalties.
 - **FR-023**: Admins MUST be able to manually correct the Advancing Team for a completed Knockout Stage match without changing participant score prediction semantics.
 - **FR-024**: The Knockout Page MUST work on mobile and desktop without controls or text overlapping.
 - **FR-025**: A Knockout Stage match MUST become actionable when both Bracket Slots resolve to teams and the match has not locked; an API provider fixture link MUST NOT be required for participants to make predictions.
 - **FR-026**: If a correction changes a resolved Bracket Slot after participants have already predicted that Knockout Stage match, the system MUST NOT automatically delete or reopen those predictions; admins handle any exceptional cleanup manually.
-- **FR-027**: Prior-match Bracket Slots such as `W73` and `L73` MUST resolve only from an Advancing Team fact, not by inferring advancement from the 90-minute Prediction Result.
+- **FR-027**: Prior-match Bracket Slots such as `W73` and `L73` MUST resolve only from an Advancing Team fact, not by inferring advancement from the Prediction Result.
 - **FR-028**: Composite Third-Place Slots MUST remain unresolved until the official allocation rule is encoded or a trusted provider fixture identifies both teams.
 - **FR-029**: Once the relevant groups are final, an unresolved Composite Third-Place Slot MUST surface as an admin-only Admin Sync Issue while remaining a normal Bracket Slot placeholder for participants.
 - **FR-030**: Group-position Bracket Slots MUST use the same standings ordering logic as group-position quiz scoring, so bracket resolution and scoring facts do not disagree.
 - **FR-031**: If final group standings cannot confidently resolve a group-position Bracket Slot, the affected Bracket Slot MUST remain unresolved and surface as an admin-only Admin Sync Issue.
 - **FR-032**: The system MUST NOT introduce a separate manual Bracket Slot override; unresolved group-position slots must be resolved by correcting trusted match facts or improving the shared standings logic.
+- **FR-033**: If a participant enters a draw as the Knockout Stage Prediction Result, the system MUST require an Advancing Team choice before the prediction is complete while the match is open.
+- **FR-034**: If a participant enters a non-draw Knockout Stage Prediction Result, the system MUST infer the participant's Advancing Team from the predicted score and MUST NOT require a separate Advancing Team choice.
+- **FR-035**: A locked draw prediction without a participant Advancing Team MUST remain saved but MUST NOT receive outcome or exact-score points; home-goal and away-goal points can still be awarded.
+- **FR-036**: A completed penalty-decided Knockout Stage match MUST be scoreable from trusted provider facts when the provider supplies the after-extra-time score, penalty shootout score evidence, and Advancing Team.
+- **FR-037**: The UI MUST label Knockout Stage score inputs as score after maximum 120 minutes.
+- **FR-038**: The UI MUST display penalty shootout scores as result context for completed penalty-decided Knockout Stage matches, not as prediction input fields.
+- **FR-039**: The leaderboard MUST expose total points as the sum of Match Points, Quiz Points, Scorer Points, and Leeuwtje Points.
+- **FR-040**: The leaderboard MUST remove the Predictions fraction column and MUST keep Exact and Outcome visible as statistics.
+- **FR-041**: Leaderboard numeric point/stat columns MUST be sortable while preserving the `#` column as overall rank and using overall leaderboard order as the tie-breaker.
+- **FR-042**: The leaderboard MUST show Leeuwtje Points as a point column; hovering that column MUST show the public Remaining Leeuwtje Count fraction for the active tournament stage.
+- **FR-043**: Group-position points MUST not contribute to leaderboard totals or Match Points.
 
 ### Key Entities *(include if feature involves data)*
 
@@ -150,7 +161,7 @@ As a participant, I want navigation and the existing My Predictions entry point 
 ## Assumptions
 
 - The app's existing lock-time rule of one hour before kickoff applies to Knockout Stage score predictions and quiz answers.
-- Knockout Stage score predictions keep the existing score-prediction shape until the separate draw/advancing-team decision is resolved.
+- Knockout Stage score predictions use the same point structure as existing match predictions, but the Knockout Stage Prediction Outcome is the Advancing Team.
 - The Knockout Page is participant-facing and authenticated like the existing main app surfaces.
 - Existing admin authorization rules apply to Quiz Setup and Quiz Correction.
 - Existing scoring labels and manual override concepts remain valid for knockout quiz scoring.

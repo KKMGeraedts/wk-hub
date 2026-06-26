@@ -158,6 +158,7 @@ MATCHDAY_SESSION_END_HOUR = 4
 NETHERLANDS_TEAM_ID = "ned"
 AMSTERDAM_TZ = ZoneInfo("Europe/Amsterdam")
 LEEUWTJES_LIMIT = 5
+KNOCKOUT_LEEUWTJES_LIMIT = 3
 GROUP_POSITION_POINTS = 0
 WINNER_POINTS = 60
 TOP_SCORER_POINTS = 40
@@ -1053,7 +1054,6 @@ def apply_stored_leaderboard_points(
         merged.get(key, 0)
         for key in (
             "match_score_points",
-            "group_position_points",
             "quiz_points",
             "winner_points",
             "top_scorer_points",
@@ -1072,7 +1072,6 @@ def recompute_all_computed_points(data: dict[str, Any]) -> dict[str, int]:
         user_id = int(row["user_id"])
         category_points = {
             "match_score_points": int(row.get("match_score_points") or 0),
-            "group_position_points": int(row.get("group_position_points") or 0),
             "quiz_points": int(row.get("quiz_points") or 0),
             "winner_points": int(row.get("winner_points") or 0),
             "top_scorer_points": int(row.get("top_scorer_points") or 0),
@@ -1346,6 +1345,7 @@ def init_db() -> None:
             match_id TEXT NOT NULL,
             home_score INTEGER NOT NULL,
             away_score INTEGER NOT NULL,
+            advancing_team_id TEXT,
             updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (user_id, match_id),
             FOREIGN KEY (user_id) REFERENCES users(id)
@@ -1797,6 +1797,7 @@ def init_db() -> None:
             match_id TEXT NOT NULL,
             home_score INTEGER NOT NULL,
             away_score INTEGER NOT NULL,
+            advancing_team_id TEXT,
             updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (user_id, match_id),
             FOREIGN KEY (user_id) REFERENCES users(id)
@@ -2387,6 +2388,16 @@ def init_db() -> None:
                     conn.execute(
                         f"ALTER TABLE match_results ADD COLUMN {column_name} {column_type}"
                     )
+            match_prediction_column = conn.execute(
+                """
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'match_predictions'
+                  AND column_name = 'advancing_team_id'
+                """
+            ).fetchone()
+            if match_prediction_column is None:
+                conn.execute("ALTER TABLE match_predictions ADD COLUMN advancing_team_id TEXT")
         else:
             conn.executescript(";\n".join(sqlite_schema))
             quiz_columns = conn.execute("PRAGMA table_info(quiz_predictions)").fetchall()
@@ -2467,6 +2478,10 @@ def init_db() -> None:
                     conn.execute(
                         f"ALTER TABLE match_results ADD COLUMN {column_name} {column_type}"
                     )
+            match_prediction_columns = conn.execute("PRAGMA table_info(match_predictions)").fetchall()
+            match_prediction_column_names = {row["name"] for row in match_prediction_columns}
+            if "advancing_team_id" not in match_prediction_column_names:
+                conn.execute("ALTER TABLE match_predictions ADD COLUMN advancing_team_id TEXT")
         if ADMIN_EMAILS:
             for admin_email in ADMIN_EMAILS:
                 execute(
@@ -2636,6 +2651,83 @@ def prediction_result(prediction: Any) -> int:
     return (prediction["home_score"] > prediction["away_score"]) - (
         prediction["home_score"] < prediction["away_score"]
     )
+
+
+def side_team_id_for_result(match: dict[str, Any], result: int) -> str | None:
+    if result > 0:
+        return clean_text(match.get("home_team_id")) or None
+    if result < 0:
+        return clean_text(match.get("away_team_id")) or None
+    return None
+
+
+def prediction_advancing_team_id(prediction: Any, match: dict[str, Any]) -> str | None:
+    predicted_result = prediction_result(prediction)
+    if predicted_result != 0:
+        return side_team_id_for_result(match, predicted_result)
+    return clean_text(row_value(prediction, "advancing_team_id"))
+
+
+def knockout_prediction_complete(prediction: Any, match: dict[str, Any]) -> bool:
+    if prediction is None:
+        return False
+    if not is_knockout_match(match):
+        return True
+    if prediction_result(prediction) != 0:
+        return True
+    advancing_team_id = prediction_advancing_team_id(prediction, match)
+    return advancing_team_id in {match.get("home_team_id"), match.get("away_team_id")}
+
+
+def group_stage_has_trusted_final_results(data: dict[str, Any]) -> bool:
+    group_matches = [
+        match for match in data.get("matches", []) if match.get("round") == "Group Stage"
+    ]
+    return bool(group_matches) and all(match_result(match) is not None for match in group_matches)
+
+
+def active_leeuwtje_stage(data: dict[str, Any]) -> str:
+    return "knockout" if group_stage_has_trusted_final_results(data) else "group"
+
+
+def leeuwtje_stage_total(data: dict[str, Any]) -> int:
+    return KNOCKOUT_LEEUWTJES_LIMIT if active_leeuwtje_stage(data) == "knockout" else LEEUWTJES_LIMIT
+
+
+def leeuwtje_stage_match_ids(data: dict[str, Any]) -> set[str]:
+    stage = active_leeuwtje_stage(data)
+    return {
+        match["id"]
+        for match in data.get("matches", [])
+        if (is_knockout_match(match) if stage == "knockout" else match.get("round") == "Group Stage")
+    }
+
+
+def consumed_leeuwtje_match_ids(
+    data: dict[str, Any], leeuwtje_match_ids: set[str]
+) -> set[str]:
+    matches = {match["id"]: match for match in data.get("matches", [])}
+    return {
+        match_id
+        for match_id in leeuwtje_match_ids
+        if (match := matches.get(match_id)) is not None and match_result(match) is not None
+    }
+
+
+def active_stage_leeuwtje_counts(
+    data: dict[str, Any], leeuwtje_match_ids: set[str]
+) -> dict[str, Any]:
+    stage_match_ids = leeuwtje_stage_match_ids(data)
+    active_assigned = leeuwtje_match_ids & stage_match_ids
+    active_consumed = consumed_leeuwtje_match_ids(data, active_assigned)
+    total = leeuwtje_stage_total(data)
+    return {
+        "stage": active_leeuwtje_stage(data),
+        "assigned": len(active_assigned),
+        "consumed": len(active_consumed),
+        "available": max(0, total - len(active_consumed)),
+        "total": total,
+    }
 
 
 def clean_text(value: Any) -> str:
@@ -3599,6 +3691,16 @@ def provider_team_mapping(
 def local_score_from_fixture(
     match: dict[str, Any], fixture: dict[str, Any], data: dict[str, Any]
 ) -> tuple[int | None, int | None]:
+    status_short = ((fixture.get("fixture") or {}).get("status") or {}).get("short")
+    if is_knockout_match(match) and status_short in {"AET", "PEN"}:
+        goals = fixture.get("goals") or {}
+        return local_side_score_from_api_score(
+            match,
+            fixture,
+            data,
+            int_or_none(goals.get("home")),
+            int_or_none(goals.get("away")),
+        )
     fulltime = (fixture.get("score") or {}).get("fulltime") or {}
     goals = fixture.get("goals") or {}
     api_home_score = int_or_none(fulltime.get("home"))
@@ -5142,11 +5244,24 @@ def match_prediction_breakdown(prediction: Any | None, match: dict[str, Any]) ->
     actual_away_score = int(away_score)
     predicted_home_score = prediction["home_score"]
     predicted_away_score = prediction["away_score"]
-    exact_score = (
+    score_exact = (
         predicted_home_score == actual_home_score and predicted_away_score == actual_away_score
     )
-    predicted_result = prediction_result(prediction)
-    outcome_correct = predicted_result == result
+    if is_knockout_match(match):
+        actual_advancing_team_id = clean_text(match.get("advancing_team_id")) or (
+            side_team_id_for_result(match, result) if result != 0 else None
+        )
+        predicted_advancing_team_id = prediction_advancing_team_id(prediction, match)
+        outcome_correct = bool(
+            actual_advancing_team_id
+            and predicted_advancing_team_id
+            and predicted_advancing_team_id == actual_advancing_team_id
+        )
+        exact_score = score_exact and outcome_correct
+    else:
+        predicted_result = prediction_result(prediction)
+        outcome_correct = predicted_result == result
+        exact_score = score_exact
     home_goals_correct = predicted_home_score == actual_home_score
     away_goals_correct = predicted_away_score == actual_away_score
 
@@ -5977,7 +6092,7 @@ def user_prediction_groups(
         rows = execute(
             conn,
             """
-            SELECT match_id, home_score, away_score
+            SELECT match_id, home_score, away_score, advancing_team_id
             FROM match_predictions
             WHERE user_id = ?
             """,
@@ -6046,6 +6161,7 @@ def user_prediction_groups(
                 ),
                 "home_score": prediction["home_score"],
                 "away_score": prediction["away_score"],
+                "advancing_team_id": row_value(prediction, "advancing_team_id"),
                 "actual_home_score": match.get("home_score"),
                 "actual_away_score": match.get("away_score"),
                 "completed": match_result(match) is not None,
@@ -6176,12 +6292,10 @@ def build_leaderboard(
             if result is None:
                 continue
             base_points, score_kind = match_prediction_points(prediction, match)
-            if prediction["match_id"] in user_leeuwtjes:
-                points += base_points * 2
-            else:
-                points += base_points
+            points += base_points
             match_score_points += base_points
-            if prediction_result(prediction) == result and base_points > 0:
+            breakdown = match_prediction_breakdown(prediction, match)
+            if breakdown["outcome_correct"] and base_points > 0:
                 outcomes += 1
                 scoring_games += 1
             if score_kind == "exact":
@@ -6198,10 +6312,10 @@ def build_leaderboard(
                 if prediction["home_score"] == match.get("home_score"):
                     defence += 1
 
-        group_position_points, correct_group_positions = group_position_score(
+        _group_position_points, correct_group_positions = group_position_score(
             user_predictions_by_match, data
         )
-        points += group_position_points
+        group_position_points = 0
 
         quiz_points = 0
         quiz_answer_count = 0
@@ -6218,6 +6332,7 @@ def build_leaderboard(
         winner_pick = winners.get(user["id"])
         winner_points = WINNER_POINTS if champion_id and winner_pick == champion_id else 0
         points += winner_points
+        match_points = match_score_points + winner_points
         winner_impossible = bool(
             winner_pick
             and ((champion_id and winner_pick != champion_id) or winner_pick in eliminated_teams)
@@ -6248,6 +6363,7 @@ def build_leaderboard(
                 continue
             base_points, _ = match_prediction_points(prediction, match)
             leeuwtje_points += base_points
+        points += leeuwtje_points
         stored_user_points = stored_points_by_user.get(user["id"], {})
         if stored_user_points:
             merged_points = apply_stored_leaderboard_points(
@@ -6272,6 +6388,8 @@ def build_leaderboard(
             striker_points = merged_points["striker_points"]
             scorer_points = top_scorer_points + striker_points
             leeuwtje_points = merged_points["leeuwtje_points"]
+            match_points = match_score_points + winner_points
+        active_leeuwtjes = active_stage_leeuwtje_counts(data, user_leeuwtjes)
         champ_days = champ_days_by_user[user["id"]]
         badges = badge_list(
             data,
@@ -6303,13 +6421,15 @@ def build_leaderboard(
                 "outcomes": outcomes,
                 "quiz_points": quiz_points,
                 "quiz_answers": quiz_answer_count,
+                "match_points": match_points,
                 "match_score_points": match_score_points,
                 "group_position_points": group_position_points,
                 "group_positions_correct": correct_group_positions,
-                "leeuwtjes_used": len(user_consumed_leeuwtjes),
-                "leeuwtjes_assigned": len(user_leeuwtjes),
-                "leeuwtjes_available": max(0, LEEUWTJES_LIMIT - len(user_consumed_leeuwtjes)),
-                "leeuwtjes_total": LEEUWTJES_LIMIT,
+                "leeuwtjes_used": active_leeuwtjes["consumed"],
+                "leeuwtjes_assigned": active_leeuwtjes["assigned"],
+                "leeuwtjes_available": active_leeuwtjes["available"],
+                "leeuwtjes_total": active_leeuwtjes["total"],
+                "leeuwtjes_stage": active_leeuwtjes["stage"],
                 "leeuwtje_points": leeuwtje_points,
                 "predictions_count": len(user_predictions),
                 "group_stage_predictions": group_stage_predictions,
@@ -6335,11 +6455,11 @@ def build_leaderboard(
                 "winner_points": winner_points if show_tournament_picks else 0,
                 "winner_impossible": winner_impossible if show_tournament_picks else False,
                 "top_scorer_pick": (top_scorer_pick or None) if show_tournament_picks else None,
-                "top_scorer_points": top_scorer_points if show_tournament_picks else 0,
+                "top_scorer_points": top_scorer_points,
                 "top_scorer_impossible": top_scorer_impossible if show_tournament_picks else False,
                 "striker_picks": striker_picks if show_tournament_picks else [],
-                "striker_points": striker_points if show_tournament_picks else 0,
-                "scorer_points": scorer_points if show_tournament_picks else 0,
+                "striker_points": striker_points,
+                "scorer_points": scorer_points,
                 "top_scorer_picks": striker_picks if show_tournament_picks else [],
                 "badges": badges,
                 "badge_count": len(badges),
@@ -6479,8 +6599,6 @@ def knockout_missing_action_items(
     quiz_predictions: dict[str, Any],
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    # Knockout draw and advancing-team prediction semantics are intentionally
-    # unresolved; until decided, knockout matches use the existing score shape.
     items: list[dict[str, Any]] = []
     current = now or utc_now()
     for match in sorted(
@@ -6503,13 +6621,14 @@ def knockout_missing_action_items(
             "target_view": "knockout",
             "target_match_id": match["id"],
         }
-        if match["id"] not in predictions:
+        prediction = predictions.get(match["id"])
+        if prediction is None or not knockout_prediction_complete(prediction, match):
             items.append(
                 {
                     **base_item,
                     "kind": "prediction",
                     "title": "Knockout voorspelling open",
-                    "body": f"{base_item['label']} mist nog een scorevoorspelling.",
+                    "body": f"{base_item['label']} mist nog een complete scorevoorspelling.",
                     "target_kind": "prediction",
                 }
             )
@@ -6809,7 +6928,7 @@ def build_wall_of_shame(data: dict[str, Any], now: datetime | None = None) -> li
         ).fetchall()
         prediction_rows = execute(
             conn,
-            "SELECT user_id, match_id, home_score, away_score FROM match_predictions",
+            "SELECT user_id, match_id, home_score, away_score, advancing_team_id FROM match_predictions",
         ).fetchall()
         quiz_rows = execute(
             conn,
@@ -6899,7 +7018,7 @@ def build_matchday_summary(
     with get_db() as conn:
         predictions = execute(
             conn,
-            "SELECT user_id, match_id, home_score, away_score FROM match_predictions",
+            "SELECT user_id, match_id, home_score, away_score, advancing_team_id FROM match_predictions",
         ).fetchall()
         quiz_predictions = execute(
             conn,
@@ -6913,7 +7032,7 @@ def build_matchday_summary(
         my_predictions = (
             execute(
                 conn,
-                "SELECT match_id, home_score, away_score FROM match_predictions WHERE user_id = ?",
+                "SELECT match_id, home_score, away_score, advancing_team_id FROM match_predictions WHERE user_id = ?",
                 (user_id,),
             ).fetchall()
             if user_id is not None
@@ -6969,7 +7088,11 @@ def build_matchday_summary(
         row["match_id"] for row in my_predictions if row["match_id"] in visible_match_ids
     }
     my_predictions_by_match = {
-        row["match_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
+        row["match_id"]: {
+            "home_score": row["home_score"],
+            "away_score": row["away_score"],
+            "advancing_team_id": row_value(row, "advancing_team_id"),
+        }
         for row in my_predictions
         if row["match_id"] in visible_match_ids
     }
@@ -7086,7 +7209,7 @@ def matchday_match_detail(
         predictions = execute(
             conn,
             """
-            SELECT user_id, home_score, away_score
+            SELECT user_id, home_score, away_score, advancing_team_id
             FROM match_predictions
             WHERE match_id = ?
             """,
@@ -7133,9 +7256,15 @@ def matchday_match_detail(
         for row in quiz_rows
     }
     leeuwtje_user_ids = {row["user_id"] for row in leeuwtje_rows}
-    outcomes = Counter(outcome_bucket(prediction) for prediction in predictions) if locked else Counter()
+    outcomes = (
+        Counter(outcome_bucket(prediction) for prediction in predictions) if locked else Counter()
+    )
     predictions_by_user = {
-        row["user_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
+        row["user_id"]: {
+            "home_score": row["home_score"],
+            "away_score": row["away_score"],
+            "advancing_team_id": row_value(row, "advancing_team_id"),
+        }
         for row in predictions
     }
     striker_picks_by_user = {row["user_id"]: striker_pick_names(row) for row in top_scorer_rows}
@@ -7691,7 +7820,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         with get_db() as conn:
             prediction_rows = execute(
                 conn,
-                "SELECT match_id, home_score, away_score FROM match_predictions WHERE user_id = ?",
+                "SELECT match_id, home_score, away_score, advancing_team_id FROM match_predictions WHERE user_id = ?",
                 (user["id"],),
             ).fetchall()
             winner_row = execute(
@@ -7729,7 +7858,11 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         striker_picks = striker_pick_names(top_scorer_row)
 
     predictions = {
-        row["match_id"]: {"home_score": row["home_score"], "away_score": row["away_score"]}
+        row["match_id"]: {
+            "home_score": row["home_score"],
+            "away_score": row["away_score"],
+            "advancing_team_id": row_value(row, "advancing_team_id"),
+        }
         for row in prediction_rows
     }
     quiz_predictions = {
@@ -7749,11 +7882,15 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
     )
     group_stage_ids = {match["id"] for match in data["matches"] if match["round"] == "Group Stage"}
     group_stage_predictions = sum(1 for match_id in predictions if match_id in group_stage_ids)
-    group_stage_quiz_total = sum(1 for match in data["matches"] if match.get("quiz"))
+    group_stage_quiz_total = sum(
+        1 for match in data["matches"] if match["round"] == "Group Stage" and match.get("quiz")
+    )
     group_stage_quiz_predictions = sum(
         1
         for match in data["matches"]
-        if match.get("quiz") and quiz_complete(match["quiz"], quiz_predictions.get(match["id"]))
+        if match["round"] == "Group Stage"
+        and match.get("quiz")
+        and quiz_complete(match["quiz"], quiz_predictions.get(match["id"]))
     )
     required_group_id = next(
         (group["id"] for group in data["groups"] if NETHERLANDS_TEAM_ID in group["teams"]),
@@ -7798,6 +7935,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         None,
     )
     viewer_badges = viewer_leaderboard_row.get("badges", []) if viewer_leaderboard_row else []
+    viewer_leeuwtje_counts = active_stage_leeuwtje_counts(data, set(leeuwtje_match_ids))
     if user and bool(user.get("is_admin")) and not CONFIG_ERROR:
         sync_bracket_slot_admin_notifications(data)
 
@@ -7845,8 +7983,11 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             "top_scorer_selected": bool(top_scorer_pick),
             "strikers_selected": len(striker_picks) >= STRIKER_PICK_COUNT,
             "knockout_open_count": len(knockout_open),
-            "leeuwtjes_used": len(leeuwtje_match_ids),
-            "leeuwtjes_total": LEEUWTJES_LIMIT,
+            "leeuwtjes_used": viewer_leeuwtje_counts["consumed"],
+            "leeuwtjes_assigned": viewer_leeuwtje_counts["assigned"],
+            "leeuwtjes_total": viewer_leeuwtje_counts["total"],
+            "leeuwtjes_available": viewer_leeuwtje_counts["available"],
+            "leeuwtjes_stage": viewer_leeuwtje_counts["stage"],
         },
         "locks": {
             "matches": match_locks,
@@ -7870,7 +8011,7 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
             },
             "quiz_yes_no": QUIZ_YES_NO_POINTS,
             "quiz_open": QUIZ_OPEN_POINTS,
-            "leeuwtjes_total": LEEUWTJES_LIMIT,
+            "leeuwtjes_total": viewer_leeuwtje_counts["total"],
             "note": (
                 "Predictions, quiz answers and Leeuwtjes can be adjusted until one hour "
                 "before kickoff."
@@ -9823,6 +9964,16 @@ def save_single_match_prediction(match_id: str):
         return jsonify({"error": "Scores must be whole numbers."}), 400
     if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
         return jsonify({"error": "Scores must be between 0 and 30."}), 400
+    advancing_team_id = clean_text(payload.get("advancing_team_id"))
+    if is_knockout_match(match):
+        valid_side_team_ids = {match.get("home_team_id"), match.get("away_team_id")}
+        if home_score == away_score:
+            if advancing_team_id not in valid_side_team_ids:
+                return jsonify({"error": "Choose who advances for a drawn knockout prediction."}), 400
+        else:
+            advancing_team_id = None
+    else:
+        advancing_team_id = None
 
     quiz_answer: str | None = None
     if match.get("quiz"):
@@ -9846,17 +9997,21 @@ def save_single_match_prediction(match_id: str):
         }
         next_leeuwtjes = set(existing_leeuwtjes)
         if leeuwtje_submitted:
+            active_stage_match_ids = leeuwtje_stage_match_ids(data)
             if leeuwtje_active:
                 next_leeuwtjes.add(match_id)
             else:
                 next_leeuwtjes.discard(match_id)
-            if len(next_leeuwtjes) > LEEUWTJES_LIMIT:
-                return jsonify({"error": f"You can use at most {LEEUWTJES_LIMIT} Leeuwtjes."}), 400
+            active_count = len(next_leeuwtjes & active_stage_match_ids)
+            active_total = leeuwtje_stage_total(data)
+            if active_count > active_total:
+                return jsonify({"error": f"You can use at most {active_total} Leeuwtjes."}), 400
 
         audit_payload = {
             "match_id": match_id,
             "home_score": home_score,
             "away_score": away_score,
+            "advancing_team_id": advancing_team_id,
             "quiz_answer": quiz_answer,
             "leeuwtje": leeuwtje_active if leeuwtje_submitted else None,
         }
@@ -9876,15 +10031,16 @@ def save_single_match_prediction(match_id: str):
             conn,
             """
             INSERT INTO match_predictions (
-                user_id, match_id, home_score, away_score, updated_at
+                user_id, match_id, home_score, away_score, advancing_team_id, updated_at
             )
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(user_id, match_id)
             DO UPDATE SET home_score = excluded.home_score,
                           away_score = excluded.away_score,
+                          advancing_team_id = excluded.advancing_team_id,
                           updated_at = CURRENT_TIMESTAMP
             """,
-            (user["id"], match_id, home_score, away_score),
+            (user["id"], match_id, home_score, away_score, advancing_team_id),
         )
         if match.get("quiz"):
             if quiz_answer:
@@ -9927,12 +10083,17 @@ def save_single_match_prediction(match_id: str):
                     (user["id"], match_id),
                 )
 
+    active_counts = active_stage_leeuwtje_counts(data, next_leeuwtjes)
     logger.info("Saved single match prediction %s for user %s", match_id, user["id"])
     return jsonify(
         {
             "ok": True,
             "match_id": match_id,
-            "prediction": {"home_score": home_score, "away_score": away_score},
+            "prediction": {
+                "home_score": home_score,
+                "away_score": away_score,
+                "advancing_team_id": advancing_team_id,
+            },
             "quiz_prediction": (
                 {"answer": quiz_answer or "", "viewership_prediction": None}
                 if match.get("quiz")
@@ -9940,8 +10101,11 @@ def save_single_match_prediction(match_id: str):
             ),
             "leeuwtjes_match_ids": sorted(next_leeuwtjes),
             "progress": {
-                "leeuwtjes_used": len(next_leeuwtjes),
-                "leeuwtjes_total": LEEUWTJES_LIMIT,
+                "leeuwtjes_used": active_counts["consumed"],
+                "leeuwtjes_assigned": active_counts["assigned"],
+                "leeuwtjes_total": active_counts["total"],
+                "leeuwtjes_available": active_counts["available"],
+                "leeuwtjes_stage": active_counts["stage"],
             },
         }
     )
@@ -9996,7 +10160,7 @@ def save_predictions():
             row["match_id"]: row
             for row in execute(
                 conn,
-                "SELECT match_id, home_score, away_score FROM match_predictions WHERE user_id = ?",
+                "SELECT match_id, home_score, away_score, advancing_team_id FROM match_predictions WHERE user_id = ?",
                 (user["id"],),
             ).fetchall()
         }
@@ -10042,6 +10206,7 @@ def save_predictions():
         match_id = str(item.get("match_id", ""))
         if match_id not in allowed_match_ids:
             return jsonify({"error": f"Match {match_id} is not open for predictions."}), 400
+        match = matches[match_id]
         try:
             home_score = int(item.get("home_score"))
             away_score = int(item.get("away_score"))
@@ -10049,17 +10214,30 @@ def save_predictions():
             return jsonify({"error": "Scores must be whole numbers."}), 400
         if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
             return jsonify({"error": "Scores must be between 0 and 30."}), 400
-        if is_prediction_locked(matches[match_id], now):
+        advancing_team_id = clean_text(item.get("advancing_team_id"))
+        if is_knockout_match(match):
+            valid_side_team_ids = {match.get("home_team_id"), match.get("away_team_id")}
+            if home_score == away_score:
+                if advancing_team_id not in valid_side_team_ids:
+                    return jsonify(
+                        {"error": "Choose who advances for a drawn knockout prediction."}
+                    ), 400
+            else:
+                advancing_team_id = None
+        else:
+            advancing_team_id = None
+        if is_prediction_locked(match, now):
             existing = existing_predictions.get(match_id)
             existing_matches_submission = (
                 existing
                 and existing["home_score"] == home_score
                 and existing["away_score"] == away_score
+                and row_value(existing, "advancing_team_id") == advancing_team_id
             )
             if existing_matches_submission:
                 continue
             return jsonify({"error": f"Predictions for match {match_id} are closed."}), 400
-        cleaned.append((user["id"], match_id, home_score, away_score))
+        cleaned.append((user["id"], match_id, home_score, away_score, advancing_team_id))
 
     cleaned_quizzes = []
     quiz_deletes = []
@@ -10091,11 +10269,14 @@ def save_predictions():
     submitted_leeuwtjes: set[str] | None = None
     if leeuwtje_items is not None:
         submitted_leeuwtjes = {str(match_id) for match_id in leeuwtje_items}
-        if len(submitted_leeuwtjes) > LEEUWTJES_LIMIT:
-            return jsonify({"error": f"You can use at most {LEEUWTJES_LIMIT} Leeuwtjes."}), 400
         invalid_leeuwtjes = submitted_leeuwtjes - allowed_match_ids
         if invalid_leeuwtjes:
             return jsonify({"error": "Leeuwtjes can only be used on prediction matches."}), 400
+        active_stage_match_ids = leeuwtje_stage_match_ids(data)
+        if len(submitted_leeuwtjes & active_stage_match_ids) > leeuwtje_stage_total(data):
+            return jsonify(
+                {"error": f"You can use at most {leeuwtje_stage_total(data)} Leeuwtjes."}
+            ), 400
         changed_leeuwtjes = submitted_leeuwtjes ^ existing_leeuwtjes
         locked_leeuwtjes = [
             match_id
@@ -10141,8 +10322,13 @@ def save_predictions():
 
     audit_payload = {
         "predictions": [
-            {"match_id": match_id, "home_score": home_score, "away_score": away_score}
-            for _, match_id, home_score, away_score in cleaned
+            {
+                "match_id": match_id,
+                "home_score": home_score,
+                "away_score": away_score,
+                "advancing_team_id": advancing_team_id,
+            }
+            for _, match_id, home_score, away_score, advancing_team_id in cleaned
         ],
         "quiz_predictions": [
             {
@@ -10179,12 +10365,13 @@ def save_predictions():
                 conn,
                 """
                 INSERT INTO match_predictions (
-                    user_id, match_id, home_score, away_score, updated_at
+                    user_id, match_id, home_score, away_score, advancing_team_id, updated_at
                 )
-                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id, match_id)
                 DO UPDATE SET home_score = excluded.home_score,
                               away_score = excluded.away_score,
+                              advancing_team_id = excluded.advancing_team_id,
                               updated_at = CURRENT_TIMESTAMP
                 """,
                 prediction_row,
@@ -10211,7 +10398,14 @@ def save_predictions():
                 quiz_delete,
             )
         if submitted_leeuwtjes is not None:
-            execute(conn, "DELETE FROM leeuwtje_predictions WHERE user_id = ?", (user["id"],))
+            active_stage_match_ids = leeuwtje_stage_match_ids(data)
+            for match_id in sorted(existing_leeuwtjes & active_stage_match_ids):
+                if match_id not in submitted_leeuwtjes:
+                    execute(
+                        conn,
+                        "DELETE FROM leeuwtje_predictions WHERE user_id = ? AND match_id = ?",
+                        (user["id"], match_id),
+                    )
             for match_id in sorted(submitted_leeuwtjes):
                 execute(
                     conn,

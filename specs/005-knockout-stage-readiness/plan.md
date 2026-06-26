@@ -6,7 +6,7 @@
 
 ## Summary
 
-Add a participant-facing Knockout Page that renders the Knockout Stage as an interactive bracket, exposes personal knockout Missing Actions through selectable Knockout Match Tiles, and lets admins complete Quiz Setup for knockout matches without code deployment. Reuse existing prediction, quiz, lock-time, admin label, and scoring concepts while keeping the unresolved draw/advancing-team semantics out of scope.
+Add a participant-facing Knockout Page that renders the Knockout Stage as an interactive bracket, exposes personal knockout Missing Actions through selectable Knockout Match Tiles, lets admins complete Quiz Setup for knockout matches without code deployment, and supports Knockout Stage score predictions through maximum 120 minutes with Advancing Team selection for predicted draws. Reuse existing quiz, lock-time, admin label, Leeuwtje, and scoring concepts while making leaderboard point breakdowns derivable from visible columns.
 
 ## Technical Context
 
@@ -24,7 +24,7 @@ Add a participant-facing Knockout Page that renders the Knockout Stage as an int
 
 **Performance Goals**: Load the 32-match bracket within the existing pool-state request budget; no additional provider calls from participant reads; bracket interaction must be client-local after initial data load except prediction/admin saves
 
-**Constraints**: Preserve existing group-stage prediction flow; preserve today/tomorrow urgent notification and wall-of-shame scope; do not implement advancing-team prediction semantics until product decision is resolved; avoid adding a new frontend framework or visualization dependency
+**Constraints**: Preserve existing group-stage prediction flow; preserve today/tomorrow urgent notification and wall-of-shame scope; Knockout Stage outcome scoring uses Advancing Team while penalties never add score goals; avoid adding a new frontend framework or visualization dependency
 
 **Scale/Scope**: One new participant page, admin quiz setup extension, 32 Knockout Stage matches, existing pool participant count, responsive desktop/mobile UI
 
@@ -37,13 +37,13 @@ The constitution is an unfilled template and defines no enforceable project-spec
 - Existing prediction secrecy and lock rules remain in force: PASS
 - Participant-facing reads must not call external GenAI/provider services: PASS
 - Existing urgent notification and wall-of-shame behavior remains scoped to current/next matchday: PASS
-- Unresolved knockout draw/advancing-team semantics must not be accidentally implemented: PASS
+- Knockout draw/advancing-team semantics are explicit and must be implemented consistently: PASS
 - Admin quiz setup must not mutate participant predictions except where a pre-lock Quiz Correction invalidates an answer: PASS
 - Mobile/desktop bracket must remain readable and usable: PASS
 
 Post-design re-check:
 
-- Research resolves page scope, bracket rendering, missing-action scope, Quiz Setup ownership, navigation, and open score semantics: PASS
+- Research resolves page scope, bracket rendering, missing-action scope, Quiz Setup ownership, navigation, Knockout Stage score semantics, Leeuwtje reset semantics, and leaderboard breakdown semantics: PASS
 - Data model keeps domain concepts aligned with `CONTEXT.md`: PASS
 - Contracts define backend/UI payload expectations without changing public auth behavior: PASS
 - Quickstart covers participant, admin, correction, and routing flows: PASS

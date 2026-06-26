@@ -31,4 +31,4 @@
 
 ## Notes
 
-- Knockout score semantics for drawn knockout predictions remain an explicit open product decision. The spec scopes implementation to the current score-prediction shape until that decision is resolved.
+- Knockout score semantics for drawn knockout predictions are resolved: participants predict the score after maximum 120 minutes and choose Advancing Team when the predicted score is a draw.

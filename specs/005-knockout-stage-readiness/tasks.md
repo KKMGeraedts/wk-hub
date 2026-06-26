@@ -81,6 +81,10 @@
 - [X] T043 Resolve group-position and prior-match Bracket Slots in loaded tournament data without persisting resolved teams in `backend/app.py`
 - [X] T044 Surface unresolved bracket slot blockers as admin-only Admin Sync Issues in `backend/app.py`
 - [X] T045 Add admin manual Advancing Team correction controls for Knockout Stage results in `frontend/src/main.jsx`
+- [ ] T046 [US2] Require participant Advancing Team for open Knockout Stage draw predictions in `backend/app.py` and `frontend/src/main.jsx`
+- [ ] T047 [US2] Score Knockout Stage Prediction Outcome from Advancing Team while preserving existing outcome/home-goal/away-goal/exact point structure in `backend/app.py`
+- [ ] T048 [US2] Label Knockout Stage score inputs as score after max 120 minutes and show penalty scores only as result context in `frontend/src/main.jsx`
+- [ ] T049 [US2] Treat locked Knockout Stage draw predictions without Advancing Team as eligible only for home-goal and away-goal points in `backend/app.py`
 
 **Checkpoint**: User Story 2 is independently usable for personal knockout prediction work.
 
@@ -132,8 +136,13 @@
 - [X] T038 [P] Run `npm run py:check` and fix backend formatting/lint/type issues
 - [X] T039 [P] Run `npm run py:test` and fix backend regressions
 - [X] T040 Run `npm run check` and record results in `specs/005-knockout-stage-readiness/quickstart.md`
-- [ ] T041 Validate quickstart participant, admin, correction, and navigation scenarios from `specs/005-knockout-stage-readiness/quickstart.md`
-- [ ] T042 Review the Knockout Page at mobile and desktop viewport sizes and adjust `frontend/src/styles.css` for text overlap or unusable controls
+- [ ] T050 Remove group-position points from active leaderboard total computation and stored computed point categories in `backend/app.py`
+- [ ] T051 Update leaderboard payload and UI columns to `PTS`, `Match PTS`, `Quiz PTS`, `Scorer PTS`, `Leeuwtje PTS`, `Exact`, and `Outcome` in `backend/app.py` and `frontend/src/main.jsx`
+- [ ] T052 Add sortable numeric leaderboard columns while keeping `#` as overall rank and using overall order as sort tie-breaker in `frontend/src/main.jsx`
+- [ ] T053 Add public hover on `Leeuwtje PTS` showing active-stage Remaining Leeuwtje Count fraction in `frontend/src/main.jsx`
+- [ ] T054 Add stage-aware Leeuwtje budget validation and active-stage accounting in `backend/app.py`
+- [ ] T055 Validate quickstart participant, admin, correction, and navigation scenarios from `specs/005-knockout-stage-readiness/quickstart.md`
+- [ ] T056 Review the Knockout Page at mobile and desktop viewport sizes and adjust `frontend/src/styles.css` for text overlap or unusable controls
 
 ---
 
@@ -190,5 +199,5 @@ Task: "Style mobile bracket navigation and the selected-match detail panel in fr
 
 - Do not add public group accountability or wall-of-shame content to the Knockout Page.
 - Do not broaden urgent notifications beyond current/next matchday.
-- Do not implement advancing-team prediction behavior until the open product decision is resolved.
+- Knockout Stage draw predictions require participant Advancing Team selection; non-draw predictions derive Advancing Team from score.
 - Keep score prediction available even when quiz setup is missing.

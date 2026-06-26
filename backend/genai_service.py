@@ -397,7 +397,10 @@ def quiz_genai_prompt_messages(job_input: dict[str, Any]) -> list[dict[str, str]
                 "Return JSON only with exactly these keys: choice, confidence, reason. "
                 "choice must be one of choices, or an empty string when impossible. "
                 "confidence must be a number from 0 to 1. Use confidence 0 when the "
-                "facts do not contain enough information. Do not infer missing stats as no."
+                "facts do not contain enough information. Do not infer missing stats as no. "
+                "Read the exact subject of the question: if it asks whether a named team "
+                "scored twice within a time window, do not answer yes just because any two "
+                "goals occurred within that window."
             ),
         },
         {
@@ -613,6 +616,195 @@ def quiz_genai_has_supplied_facts(job_input: dict[str, Any]) -> bool:
     )
 
 
+TEAM_QUESTION_ALIASES = {
+    "duitsland": {"duitsland", "germany", "deutschland", "ger"},
+    "japan": {"japan", "jpn"},
+    "zweden": {"zweden", "sweden", "swe"},
+    "australie": {"australie", "australia", "aus"},
+    "australië": {"australie", "australia", "aus"},
+    "nederland": {"nederland", "netherlands", "ned"},
+    "vs": {"vs", "usa", "united states", "verenigde staten"},
+}
+
+
+def quiz_text_key(value: Any) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or ""))
+    ascii_text = normalized.encode("ascii", "ignore").decode("ascii")
+    return " ".join(
+        "".join(char.casefold() if char.isalnum() else " " for char in ascii_text).split()
+    )
+
+
+def event_minute(event: dict[str, Any]) -> int | None:
+    minute = int_or_none(event.get("elapsed"))
+    if minute is None:
+        return None
+    extra = int_or_none(event.get("extra")) or 0
+    return minute + extra
+
+
+def event_ref(event: dict[str, Any]) -> dict[str, str] | None:
+    event_id = clean_text(event.get("id"))
+    if not event_id:
+        return None
+    return {"type": "match_event", "id": event_id}
+
+
+def quiz_fact_event_refs(events: list[dict[str, Any]]) -> list[dict[str, str]]:
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for event in events:
+        ref = event_ref(event)
+        if not ref:
+            continue
+        key = (ref["type"], ref["id"])
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(ref)
+    return refs
+
+
+def is_completed_result(facts: dict[str, Any]) -> bool:
+    result = facts.get("result")
+    if not isinstance(result, dict):
+        return False
+    status = clean_text(result.get("status_short")).casefold()
+    return status in {"ft", "aet", "pen"} or int_or_none(result.get("elapsed")) == 90
+
+
+def is_goal_event(event: dict[str, Any]) -> bool:
+    event_type = quiz_text_key(event.get("event_type"))
+    detail = quiz_text_key(event.get("detail"))
+    comments = quiz_text_key(event.get("comments"))
+    if "goal" not in event_type:
+        return False
+    return "own goal" not in detail and "own goal" not in comments
+
+
+def event_team_keys(event: dict[str, Any]) -> set[str]:
+    return {
+        key
+        for key in (
+            quiz_text_key(event.get("local_team_id")),
+            quiz_text_key(event.get("team_name")),
+        )
+        if key
+    }
+
+
+def question_team_keys(question: str) -> set[str]:
+    text = quiz_text_key(question)
+    keys: set[str] = set()
+    for question_name, aliases in TEAM_QUESTION_ALIASES.items():
+        if question_name in text:
+            keys.update(quiz_text_key(alias) for alias in aliases)
+    return {key for key in keys if key}
+
+
+def event_player_key(value: Any) -> str:
+    return quiz_text_key(value)
+
+
+def is_substitution_event(event: dict[str, Any]) -> bool:
+    haystack = " ".join(
+        quiz_text_key(event.get(key)) for key in ("event_type", "detail", "comments")
+    )
+    return any(token in haystack for token in ("subst", "substitution", "wissel"))
+
+
+def deterministic_quiz_fact_answer(job_input: dict[str, Any]) -> dict[str, Any] | None:
+    facts = job_input.get("match_data") or job_input.get("facts")
+    if not isinstance(facts, dict) or not is_completed_result(facts):
+        return None
+    question = clean_text(job_input.get("question"))
+    question_key = quiz_text_key(question)
+    choices = [normalize_answer(choice) for choice in job_input.get("choices") or []]
+    if set(choices) != {"ja", "nee"}:
+        return None
+    events = [event for event in facts.get("events") or [] if isinstance(event, dict)]
+
+    if "twee keer binnen 15 minuten" in question_key:
+        target_team_keys = question_team_keys(question)
+        if not target_team_keys:
+            return None
+        goal_events = [
+            event
+            for event in events
+            if is_goal_event(event) and event_team_keys(event) & target_team_keys
+        ]
+        goal_minutes = sorted(
+            minute
+            for minute in (event_minute(event) for event in goal_events)
+            if minute is not None
+        )
+        answer = any(
+            later - earlier <= 15
+            for index, earlier in enumerate(goal_minutes)
+            for later in goal_minutes[index + 1 :]
+        )
+        return {
+            "answer": "ja" if answer else "nee",
+            "evidence": quiz_fact_event_refs(goal_events),
+            "reason": "Checked goal events for the named team within a 15-minute window.",
+        }
+
+    if "twee doelpunten na elkaar binnen 10 minuten" in question_key:
+        goal_events = sorted(
+            [event for event in events if is_goal_event(event) and event_minute(event) is not None],
+            key=lambda event: event_minute(event) or 999,
+        )
+        answer = any(
+            (event_minute(later) or 999) - (event_minute(earlier) or -999) <= 10
+            for earlier, later in zip(goal_events, goal_events[1:], strict=False)
+        )
+        return {
+            "answer": "ja" if answer else "nee",
+            "evidence": quiz_fact_event_refs(goal_events),
+            "reason": "Checked consecutive goal events within a 10-minute window.",
+        }
+
+    if "invaller binnen 10 minuten na invalbeurt" in question_key:
+        substitutions = [
+            event
+            for event in events
+            if is_substitution_event(event)
+            and event_minute(event) is not None
+            and event_player_key(event.get("player_name"))
+        ]
+        goals = [
+            event
+            for event in events
+            if is_goal_event(event)
+            and event_minute(event) is not None
+            and event_player_key(event.get("player_name"))
+        ]
+        if not substitutions:
+            return None
+        answer = False
+        evidence_events = substitutions + goals
+        for substitution in substitutions:
+            player = event_player_key(substitution.get("player_name"))
+            sub_minute = event_minute(substitution)
+            if sub_minute is None:
+                continue
+            for goal in goals:
+                if event_player_key(goal.get("player_name")) != player:
+                    continue
+                goal_minute = event_minute(goal)
+                if goal_minute is not None and 0 <= goal_minute - sub_minute <= 10:
+                    answer = True
+        return {
+            "answer": "ja" if answer else "nee",
+            "evidence": quiz_fact_event_refs(evidence_events),
+            "reason": (
+                "Checked substitution and goal events for a substitute goal within 10 minutes."
+            ),
+        }
+
+    return None
+
+
 def validate_quiz_genai_output(output: Any, job_input: dict[str, Any]) -> dict[str, Any]:
     def rejected(code: str, message: str) -> dict[str, Any]:
         return {
@@ -643,14 +835,24 @@ def validate_quiz_genai_output(output: Any, job_input: dict[str, Any]) -> dict[s
         normalized_choice = normalize_answer(parsed_output.choice)
         if normalized_choice not in option_by_normalized:
             return rejected("answer_outside_options", "Quiz GenAI selected an unknown option.")
+        deterministic = deterministic_quiz_fact_answer(job_input)
+        if deterministic is not None:
+            deterministic_answer = normalize_answer(deterministic["answer"])
+            if normalized_choice != deterministic_answer:
+                return rejected(
+                    "contradicts_deterministic_facts",
+                    "Quiz GenAI answer contradicts deterministic match facts.",
+                )
         return {
             "accepted": True,
             "correct_answers": [option_by_normalized[normalized_choice]],
-            "evidence": [],
+            "evidence": deterministic["evidence"] if deterministic is not None else [],
             "failure_code": None,
             "failure_message": None,
             "confidence": parsed_output.confidence,
-            "reason": parsed_output.reason,
+            "reason": (
+                deterministic["reason"] if deterministic is not None else parsed_output.reason
+            ),
         }
 
     status = clean_text(output.get("status")).casefold()
@@ -670,6 +872,14 @@ def validate_quiz_genai_output(output: Any, job_input: dict[str, Any]) -> dict[s
         if normalized not in option_by_normalized:
             return rejected("answer_outside_options", "Quiz GenAI selected an unknown option.")
         correct_answers.append(option_by_normalized[normalized])
+    deterministic = deterministic_quiz_fact_answer(job_input)
+    if deterministic is not None:
+        expected = normalize_answer(deterministic["answer"])
+        if any(normalize_answer(answer) != expected for answer in correct_answers):
+            return rejected(
+                "contradicts_deterministic_facts",
+                "Quiz GenAI answer contradicts deterministic match facts.",
+            )
     evidence = output.get("evidence")
     if not isinstance(evidence, list) or not evidence:
         return rejected("missing_evidence", "Quiz GenAI output did not cite supplied facts.")
@@ -1022,6 +1232,7 @@ def publish_quiz_genai_label(
         "insufficient_evidence",
         "unsupported_status",
         "low_confidence",
+        "contradicts_deterministic_facts",
         "answer_outside_options",
         "missing_evidence",
         "invalid_evidence",
@@ -2103,26 +2314,36 @@ def run_quiz_genai_job_for_match(
             job_input,
         )
     else:
-        try:
-            output = run_genai_structured_completion(messages=quiz_genai_prompt_messages(job_input))
-        except GenAIProviderError as error:
-            result_id = record_genai_provider_failure(
-                conn,
-                job_type=GENAI_JOB_QUIZ_ANSWER,
-                target_type=GENAI_TARGET_MATCH_QUIZ,
-                target_id=match_id,
-                failure_code=str(error),
-                failure_message=f"Quiz GenAI provider failed: {error}",
-                input_payload=job_input,
-            )
-            return {
-                "job_type": GENAI_JOB_QUIZ_ANSWER,
-                "target_type": GENAI_TARGET_MATCH_QUIZ,
-                "target_id": match_id,
-                "accepted": False,
-                "failure_code": str(error),
-                "job_result_id": result_id,
+        deterministic = deterministic_quiz_fact_answer(job_input)
+        if deterministic is not None:
+            output = {
+                "choice": deterministic["answer"],
+                "confidence": 0.95,
+                "reason": deterministic["reason"],
             }
+        else:
+            try:
+                output = run_genai_structured_completion(
+                    messages=quiz_genai_prompt_messages(job_input)
+                )
+            except GenAIProviderError as error:
+                result_id = record_genai_provider_failure(
+                    conn,
+                    job_type=GENAI_JOB_QUIZ_ANSWER,
+                    target_type=GENAI_TARGET_MATCH_QUIZ,
+                    target_id=match_id,
+                    failure_code=str(error),
+                    failure_message=f"Quiz GenAI provider failed: {error}",
+                    input_payload=job_input,
+                )
+                return {
+                    "job_type": GENAI_JOB_QUIZ_ANSWER,
+                    "target_type": GENAI_TARGET_MATCH_QUIZ,
+                    "target_id": match_id,
+                    "accepted": False,
+                    "failure_code": str(error),
+                    "job_result_id": result_id,
+                }
         validation = publish_quiz_genai_label(conn, data, match, output, job_input)
     result = {
         "job_type": GENAI_JOB_QUIZ_ANSWER,

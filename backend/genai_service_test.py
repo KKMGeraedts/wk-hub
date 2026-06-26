@@ -167,6 +167,135 @@ class GenAIServiceModuleTest(unittest.TestCase):
         self.assertFalse(rejected["accepted"])
         self.assertEqual(rejected["failure_code"], "answer_outside_options")
 
+    def test_quiz_validation_rejects_team_goal_window_contradicted_by_facts(self) -> None:
+        job_input = {
+            "question": "Scoort Duitsland twee keer binnen 15 minuten?",
+            "choices": ["ja", "nee"],
+            "match_data": {
+                "result": {"id": "m001", "status_short": "FT", "elapsed": 90},
+                "events": [
+                    {
+                        "id": "goal-ecu-1",
+                        "elapsed": 10,
+                        "local_team_id": "ecu",
+                        "team_name": "Ecuador",
+                        "player_name": "Ecuador Scorer",
+                        "event_type": "Goal",
+                        "detail": "Normal Goal",
+                    },
+                    {
+                        "id": "goal-ger-1",
+                        "elapsed": 20,
+                        "local_team_id": "ger",
+                        "team_name": "Germany",
+                        "player_name": "Germany Scorer",
+                        "event_type": "Goal",
+                        "detail": "Normal Goal",
+                    },
+                    {
+                        "id": "goal-ger-2",
+                        "elapsed": 55,
+                        "local_team_id": "ger",
+                        "team_name": "Germany",
+                        "player_name": "Germany Scorer",
+                        "event_type": "Goal",
+                        "detail": "Normal Goal",
+                    },
+                ],
+                "clean_sheets": [],
+                "player_stats": [],
+            },
+        }
+
+        rejected = genai_service.validate_quiz_genai_output(
+            {
+                "choice": "ja",
+                "confidence": 0.95,
+                "reason": "There are two goals within 15 minutes.",
+            },
+            job_input,
+        )
+        accepted = genai_service.validate_quiz_genai_output(
+            {
+                "choice": "nee",
+                "confidence": 0.95,
+                "reason": "Germany did not score twice within 15 minutes.",
+            },
+            job_input,
+        )
+
+        self.assertFalse(rejected["accepted"])
+        self.assertEqual(rejected["failure_code"], "contradicts_deterministic_facts")
+        self.assertTrue(accepted["accepted"])
+        self.assertEqual(accepted["correct_answers"], ["nee"])
+        self.assertEqual(
+            accepted["evidence"],
+            [
+                {"type": "match_event", "id": "goal-ger-1"},
+                {"type": "match_event", "id": "goal-ger-2"},
+            ],
+        )
+
+    def test_quiz_validation_rejects_substitute_goal_window_contradicted_by_facts(self) -> None:
+        job_input = {
+            "question": "Scoort een invaller binnen 10 minuten na invalbeurt?",
+            "choices": ["ja", "nee"],
+            "match_data": {
+                "result": {"id": "m002", "status_short": "FT", "elapsed": 90},
+                "events": [
+                    {
+                        "id": "sub-1",
+                        "elapsed": 60,
+                        "local_team_id": "jpn",
+                        "team_name": "Japan",
+                        "player_name": "Japan Substitute",
+                        "event_type": "subst",
+                        "detail": "Substitution",
+                    },
+                    {
+                        "id": "goal-1",
+                        "elapsed": 74,
+                        "local_team_id": "jpn",
+                        "team_name": "Japan",
+                        "player_name": "Japan Substitute",
+                        "event_type": "Goal",
+                        "detail": "Normal Goal",
+                    },
+                ],
+                "clean_sheets": [],
+                "player_stats": [],
+            },
+        }
+
+        rejected = genai_service.validate_quiz_genai_output(
+            {
+                "choice": "ja",
+                "confidence": 0.95,
+                "reason": "A substitute scored.",
+            },
+            job_input,
+        )
+        accepted = genai_service.validate_quiz_genai_output(
+            {
+                "choice": "nee",
+                "confidence": 0.95,
+                "reason": "The substitute scored after more than 10 minutes.",
+            },
+            job_input,
+        )
+
+        self.assertFalse(rejected["accepted"])
+        self.assertEqual(rejected["failure_code"], "contradicts_deterministic_facts")
+        self.assertTrue(accepted["accepted"])
+        self.assertEqual(accepted["correct_answers"], ["nee"])
+        self.assertEqual(
+            accepted["evidence"],
+            [
+                {"type": "match_event", "id": "sub-1"},
+                {"type": "match_event", "id": "goal-1"},
+            ],
+        )
+
     def test_player_validation_constrains_matches_to_candidates(self) -> None:
         job_input = {
             "candidates": [

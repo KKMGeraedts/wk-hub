@@ -1891,6 +1891,83 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual((margin_points, margin_kind), (8, "outcome"))
         self.assertEqual((goal_only_points, goal_only_kind), (2, "partial"))
 
+    def test_knockout_quiz_seed_data_covers_all_knockout_matches(self) -> None:
+        def scenario(_conn):
+            return wk_app.load_world_cup_data()
+
+        data = self.run_with_temp_db(scenario)
+        knockout_matches = [match for match in data["matches"] if match["round"] != "Group Stage"]
+
+        self.assertEqual(len(knockout_matches), 32)
+        self.assertTrue(all(match.get("quiz") for match in knockout_matches))
+        m73 = next(match for match in knockout_matches if match["id"] == "m73")
+        self.assertEqual(
+            m73["quiz"],
+            {
+                "question": "Komt er een doelpunt in de eerste 20 minuten?",
+                "type": "yes_no",
+                "choices": ["ja", "nee"],
+                "choice_points": {"ja": 3, "nee": 2},
+            },
+        )
+        m104 = next(match for match in knockout_matches if match["id"] == "m104")
+        self.assertEqual(
+            m104["quiz"]["choices"],
+            ["0-15", "16-30", "31-45", "46-60", "61-75", "76-90", "90+", "geen doelpunt"],
+        )
+        self.assertEqual(m104["quiz"]["choice_points"]["geen doelpunt"], 8)
+
+    def test_knockout_projection_uses_mock_predictions_and_quiz_answers(self) -> None:
+        kickoff = datetime.now(UTC) + timedelta(hours=4)
+        match = {
+            **make_match("m73", kickoff),
+            "round": "Round of 32",
+            "match_number": 73,
+            "home_team_id": "ned",
+            "away_team_id": "usa",
+            "venue_id": "test",
+            "status": "scheduled",
+            "quiz": {
+                "question": "Komt er een doelpunt in de eerste 20 minuten?",
+                "type": "yes_no",
+                "choices": ["ja", "nee"],
+                "choice_points": {"ja": 3, "nee": 2},
+            },
+        }
+        data = {
+            "matches": [match],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "venues": [{"id": "test", "name": "Test Stadium", "city": "Test City"}],
+        }
+
+        empty_projection = wk_app.build_knockout_projection(
+            data,
+            predictions={},
+            quiz_predictions={},
+            leeuwtje_match_ids=[],
+            now=datetime.now(UTC),
+        )
+        complete_projection = wk_app.build_knockout_projection(
+            data,
+            predictions={"m73": {"home_score": 2, "away_score": 1}},
+            quiz_predictions={"m73": {"answer": "ja", "viewership_prediction": None}},
+            leeuwtje_match_ids=["m73"],
+            now=datetime.now(UTC),
+        )
+
+        self.assertEqual(
+            [item["kind"] for item in empty_projection["missing_actions"]],
+            ["prediction", "quiz"],
+        )
+        self.assertEqual(complete_projection["missing_actions"], [])
+        projected_match = complete_projection["rounds"][0]["matches"][0]
+        self.assertEqual(projected_match["prediction"], {"home_score": 2, "away_score": 1})
+        self.assertEqual(projected_match["quiz_prediction"]["answer"], "ja")
+        self.assertTrue(projected_match["leeuwtje"])
+
     def test_exact_score_counts_as_exact_and_outcome_on_leaderboard(self) -> None:
         data = self.scoring_data(done=True)
 
@@ -3409,6 +3486,123 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
 
         self.assertFalse(result["accepted"])
         self.assertEqual(result["failure_code"], "insufficient_evidence")
+
+    def test_quiz_genai_sets_deterministic_team_goal_window_without_provider(self) -> None:
+        data: dict[str, Any] = {
+            "matches": [
+                {
+                    **make_match("m001", datetime.now(UTC) - timedelta(hours=3)),
+                    "id": "m001",
+                    "round": "Group Stage",
+                    "quiz": {
+                        "question": "Scoort Duitsland twee keer binnen 15 minuten?",
+                        "type": "yes_no",
+                        "choices": ["ja", "nee"],
+                    },
+                }
+            ],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_results (
+                    match_id, source, status_long, status_short, elapsed, home_score, away_score
+                )
+                VALUES ('m001', 'api-football', 'Match Finished', 'FT', 90, 2, 2)
+                """,
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, elapsed, local_team_id, team_name,
+                    player_name, event_type, detail, raw_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "m001",
+                    "goal-ecu-1",
+                    10,
+                    "ecu",
+                    "Ecuador",
+                    "Ecuador Scorer",
+                    "Goal",
+                    "Normal Goal",
+                    "{}",
+                ),
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, elapsed, local_team_id, team_name,
+                    player_name, event_type, detail, raw_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "m001",
+                    "goal-ger-1",
+                    20,
+                    "ger",
+                    "Germany",
+                    "Germany Scorer",
+                    "Goal",
+                    "Normal Goal",
+                    "{}",
+                ),
+            )
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO match_events (
+                    match_id, provider_event_key, elapsed, local_team_id, team_name,
+                    player_name, event_type, detail, raw_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "m001",
+                    "goal-ger-2",
+                    55,
+                    "ger",
+                    "Germany",
+                    "Germany Scorer",
+                    "Goal",
+                    "Normal Goal",
+                    "{}",
+                ),
+            )
+            conn.commit()
+            with patch.object(
+                genai_service,
+                "run_genai_structured_completion",
+                side_effect=AssertionError("provider should not be called"),
+            ):
+                result = genai_service.run_quiz_genai_job_for_match(conn, data, data["matches"][0])
+            row = wk_app.execute(
+                conn,
+                "SELECT * FROM quiz_auto_labels WHERE match_id = 'm001'",
+            ).fetchone()
+            return result, row
+
+        result, row = self.run_with_temp_db(scenario)
+
+        self.assertTrue(result["accepted"])
+        self.assertEqual(result["correct_answers"], ["nee"])
+        self.assertIsNotNone(row)
+        self.assertEqual(json.loads(row["correct_answers_json"]), ["nee"])
+        self.assertEqual(row["confidence"], "0.95")
 
     def test_accepted_quiz_genai_label_resolves_prior_insufficient_evidence_issue(self) -> None:
         data = self.scoring_data(done=True)

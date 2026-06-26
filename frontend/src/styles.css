@@ -2041,6 +2041,62 @@ tr.highlight td {
     overflow-wrap: anywhere;
 }
 
+.leaderboard-sort-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-weight: 900;
+    text-align: right;
+    text-transform: uppercase;
+}
+
+.leaderboard-sort-button:focus-visible {
+    border-radius: 4px;
+    outline: 3px solid rgba(243, 108, 33, 0.24);
+    outline-offset: 2px;
+}
+
+.leaderboard-tooltip {
+    position: relative;
+    display: inline-flex;
+    justify-content: flex-end;
+    min-width: 36px;
+}
+
+.leaderboard-tooltip-bubble {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 7px);
+    z-index: 5;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(3px);
+    transition: opacity 120ms ease, transform 120ms ease;
+    border: 1px solid #dbe3ee;
+    border-radius: 6px;
+    background: #151a23;
+    color: #ffffff;
+    box-shadow: 0 10px 22px rgba(16, 24, 40, 0.16);
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    padding: 7px 8px;
+    white-space: nowrap;
+}
+
+.leaderboard-tooltip:hover .leaderboard-tooltip-bubble,
+.leaderboard-tooltip:focus-within .leaderboard-tooltip-bubble {
+    opacity: 1;
+    transform: translateY(0);
+}
+
 .rank-movement {
     display: inline-flex;
     align-items: center;
@@ -5359,6 +5415,32 @@ tr.highlight td {
     font-size: 16px;
     font-weight: 900;
     text-align: center;
+}
+
+.fixture-score-editor {
+    display: grid;
+    gap: 8px;
+}
+
+.fixture-advancing-select {
+    display: grid;
+    gap: 5px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 850;
+    text-transform: uppercase;
+}
+
+.fixture-advancing-select select {
+    min-height: 38px;
+    border: 1px solid #dbe3ee;
+    border-radius: 6px;
+    background: #ffffff;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    text-transform: none;
+    padding: 0 10px;
 }
 
 .fixture-team-input {

@@ -42,11 +42,17 @@
 
 **Alternatives considered**: Requiring quiz setup before score prediction would simplify tile completeness rules but would unnecessarily prevent valid score predictions.
 
-## Decision: Separate Prediction Result from Advancing Team
+## Decision: Knockout Prediction Result includes extra time but not penalties
 
-**Rationale**: Participant score predictions are always judged at the 90-minute mark, while the Knockout Stage bracket needs the team that advances after the tie is fully decided. API-Football exposes both facts separately: `score.fulltime` carries the 90-minute Prediction Result, while `teams.home.winner` / `teams.away.winner` identifies the Advancing Team after regular time, extra time, or penalties.
+**Rationale**: Knockout Stage participants predict the score after maximum 120 minutes. Penalty shootout goals never become score goals, but the participant still predicts the Advancing Team whenever their predicted score is a draw. Knockout outcome points are awarded for the correct Advancing Team, while home-goal, away-goal, and exact-score points keep the existing match-prediction structure.
 
-**Alternatives considered**: Using the provider `goals` score everywhere is simpler, but it is wrong for pool scoring after extra time or penalties because it can include non-90-minute goals. Adding participant advancing-team predictions is out of scope; the Advancing Team is a trusted tournament fact for bracket progression, not a participant prediction.
+**Alternatives considered**: Keeping score predictions at 90 minutes would preserve the earlier implementation assumption but does not match how participants reason about knockout ties. Including penalty shootout goals in the score would make football score totals misleading. Adding a separate fixed-point Advancing Team bonus was rejected because the existing point structure should remain intact.
+
+## Decision: Trust API-Football Advancing Team and penalty evidence
+
+**Rationale**: API-Football exposes penalty-decided matches with `status.short = PEN`, `goals` as the after-extra-time score, `score.penalty` as shootout evidence, and `teams.*.winner` as the Advancing Team. This is sufficient to score knockout outcome and exact predictions without admin handwork when the provider payload is complete.
+
+**Alternatives considered**: Requiring manual Advancing Team confirmation for every penalty-decided tie would be safer but unnecessarily operationally heavy when trusted provider fields are present. Inferring the Advancing Team from scores is invalid for drawn after-extra-time results.
 
 ## Decision: Resolve bracket slots in loaded tournament data
 
