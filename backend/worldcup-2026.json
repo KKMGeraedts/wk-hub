@@ -1692,7 +1692,7 @@
       "home_team_id": null,
       "away_team_id": null,
       "home_placeholder": "W73",
-      "away_placeholder": "W74",
+      "away_placeholder": "W75",
       "status": "scheduled"
     },
     {
@@ -1704,8 +1704,8 @@
       "round": "Round of 16",
       "home_team_id": null,
       "away_team_id": null,
-      "home_placeholder": "W75",
-      "away_placeholder": "W76",
+      "home_placeholder": "W74",
+      "away_placeholder": "W77",
       "status": "scheduled"
     },
     {
@@ -1717,7 +1717,7 @@
       "round": "Round of 16",
       "home_team_id": null,
       "away_team_id": null,
-      "home_placeholder": "W77",
+      "home_placeholder": "W76",
       "away_placeholder": "W78",
       "status": "scheduled"
     },
@@ -1743,8 +1743,8 @@
       "round": "Round of 16",
       "home_team_id": null,
       "away_team_id": null,
-      "home_placeholder": "W81",
-      "away_placeholder": "W82",
+      "home_placeholder": "W83",
+      "away_placeholder": "W84",
       "status": "scheduled"
     },
     {
@@ -1756,8 +1756,8 @@
       "round": "Round of 16",
       "home_team_id": null,
       "away_team_id": null,
-      "home_placeholder": "W83",
-      "away_placeholder": "W84",
+      "home_placeholder": "W81",
+      "away_placeholder": "W82",
       "status": "scheduled"
     },
     {
@@ -1769,8 +1769,8 @@
       "round": "Round of 16",
       "home_team_id": null,
       "away_team_id": null,
-      "home_placeholder": "W85",
-      "away_placeholder": "W86",
+      "home_placeholder": "W86",
+      "away_placeholder": "W88",
       "status": "scheduled"
     },
     {
@@ -1782,8 +1782,8 @@
       "round": "Round of 16",
       "home_team_id": null,
       "away_team_id": null,
-      "home_placeholder": "W87",
-      "away_placeholder": "W88",
+      "home_placeholder": "W85",
+      "away_placeholder": "W87",
       "status": "scheduled"
     },
     {
@@ -1808,8 +1808,8 @@
       "round": "Quarter-final",
       "home_team_id": null,
       "away_team_id": null,
-      "home_placeholder": "W91",
-      "away_placeholder": "W92",
+      "home_placeholder": "W93",
+      "away_placeholder": "W94",
       "status": "scheduled"
     },
     {
@@ -1821,8 +1821,8 @@
       "round": "Quarter-final",
       "home_team_id": null,
       "away_team_id": null,
-      "home_placeholder": "W93",
-      "away_placeholder": "W94",
+      "home_placeholder": "W91",
+      "away_placeholder": "W92",
       "status": "scheduled"
     },
     {

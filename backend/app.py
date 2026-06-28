@@ -2478,7 +2478,9 @@ def init_db() -> None:
                     conn.execute(
                         f"ALTER TABLE match_results ADD COLUMN {column_name} {column_type}"
                     )
-            match_prediction_columns = conn.execute("PRAGMA table_info(match_predictions)").fetchall()
+            match_prediction_columns = conn.execute(
+                "PRAGMA table_info(match_predictions)"
+            ).fetchall()
             match_prediction_column_names = {row["name"] for row in match_prediction_columns}
             if "advancing_team_id" not in match_prediction_column_names:
                 conn.execute("ALTER TABLE match_predictions ADD COLUMN advancing_team_id TEXT")
@@ -2679,6 +2681,18 @@ def knockout_prediction_complete(prediction: Any, match: dict[str, Any]) -> bool
     return advancing_team_id in {match.get("home_team_id"), match.get("away_team_id")}
 
 
+def prediction_payload(
+    home_score: Any,
+    away_score: Any,
+    advancing_team_id: Any = None,
+) -> dict[str, Any]:
+    payload = {"home_score": home_score, "away_score": away_score}
+    advancing = clean_text(advancing_team_id)
+    if advancing:
+        payload["advancing_team_id"] = advancing
+    return payload
+
+
 def group_stage_has_trusted_final_results(data: dict[str, Any]) -> bool:
     group_matches = [
         match for match in data.get("matches", []) if match.get("round") == "Group Stage"
@@ -2691,7 +2705,9 @@ def active_leeuwtje_stage(data: dict[str, Any]) -> str:
 
 
 def leeuwtje_stage_total(data: dict[str, Any]) -> int:
-    return KNOCKOUT_LEEUWTJES_LIMIT if active_leeuwtje_stage(data) == "knockout" else LEEUWTJES_LIMIT
+    return (
+        KNOCKOUT_LEEUWTJES_LIMIT if active_leeuwtje_stage(data) == "knockout" else LEEUWTJES_LIMIT
+    )
 
 
 def leeuwtje_stage_match_ids(data: dict[str, Any]) -> set[str]:
@@ -2699,13 +2715,13 @@ def leeuwtje_stage_match_ids(data: dict[str, Any]) -> set[str]:
     return {
         match["id"]
         for match in data.get("matches", [])
-        if (is_knockout_match(match) if stage == "knockout" else match.get("round") == "Group Stage")
+        if (
+            is_knockout_match(match) if stage == "knockout" else match.get("round") == "Group Stage"
+        )
     }
 
 
-def consumed_leeuwtje_match_ids(
-    data: dict[str, Any], leeuwtje_match_ids: set[str]
-) -> set[str]:
+def consumed_leeuwtje_match_ids(data: dict[str, Any], leeuwtje_match_ids: set[str]) -> set[str]:
     matches = {match["id"]: match for match in data.get("matches", [])}
     return {
         match_id
@@ -3453,6 +3469,131 @@ def apply_synced_team_profiles(data: dict[str, Any]) -> None:
 
 PRIOR_MATCH_SLOT_PATTERN = re.compile(r"^([WL])(\d+)$")
 
+THIRD_PLACE_GROUPS = "ABCDEFGHIJKL"
+THIRD_PLACE_WINNER_SLOT_ORDER = ("1A", "1B", "1D", "1E", "1G", "1I", "1K", "1L")
+THIRD_PLACE_COMPOSITE_SLOT_BY_WINNER = {
+    "1A": "3C/E/F/H/I",
+    "1B": "3E/F/G/I/J",
+    "1D": "3B/E/F/I/J",
+    "1E": "3A/B/C/D/F",
+    "1G": "3A/E/H/I/J",
+    "1I": "3C/D/F/G/H",
+    "1K": "3D/E/I/J/L",
+    "1L": "3E/H/I/J/K",
+}
+THIRD_PLACE_COMBINATION_ROWS = """
+EFGHIJKL:EJIFHGLK DFGHIJKL:HGIDJFLK DEGHIJKL:EJIDHGLK DEFHIJKL:EJIDHFLK DEFGIJKL:EGIDJFLK
+DEFGHJKL:EGJDHFLK DEFGHIKL:EGIDHFLK DEFGHIJL:EGJDHFLI DEFGHIJK:EGJDHFIK CFGHIJKL:HGICJFLK
+CEGHIJKL:EJICHGLK CEFHIJKL:EJICHFLK CEFGIJKL:EGICJFLK CEFGHJKL:EGJCHFLK CEFGHIKL:EGICHFLK
+CEFGHIJL:EGJCHFLI CEFGHIJK:EGJCHFIK CDGHIJKL:HGICJDLK CDFHIJKL:CJIDHFLK CDFGIJKL:CGIDJFLK
+CDFGHJKL:CGJDHFLK CDFGHIKL:CGIDHFLK CDFGHIJL:CGJDHFLI CDFGHIJK:CGJDHFIK CDEHIJKL:EJICHDLK
+CDEGIJKL:EGICJDLK CDEGHJKL:EGJCHDLK CDEGHIKL:EGICHDLK CDEGHIJL:EGJCHDLI CDEGHIJK:EGJCHDIK
+CDEFIJKL:CJEDIFLK CDEFHJKL:CJEDHFLK CDEFHIKL:CEIDHFLK CDEFHIJL:CJEDHFLI CDEFHIJK:CJEDHFIK
+CDEFGJKL:CGEDJFLK CDEFGIKL:CGEDIFLK CDEFGIJL:CGEDJFLI CDEFGIJK:CGEDJFIK CDEFGHKL:CGEDHFLK
+CDEFGHJL:CGJDHFLE CDEFGHJK:CGJDHFEK CDEFGHIL:CGEDHFLI CDEFGHIK:CGEDHFIK CDEFGHIJ:CGJDHFEI
+BFGHIJKL:HJBFIGLK BEGHIJKL:EJIBHGLK BEFHIJKL:EJBFIHLK BEFGIJKL:EJBFIGLK BEFGHJKL:EJBFHGLK
+BEFGHIKL:EGBFIHLK BEFGHIJL:EJBFHGLI BEFGHIJK:EJBFHGIK BDGHIJKL:HJBDIGLK BDFHIJKL:HJBDIFLK
+BDFGIJKL:IGBDJFLK BDFGHJKL:HGBDJFLK BDFGHIKL:HGBDIFLK BDFGHIJL:HGBDJFLI BDFGHIJK:HGBDJFIK
+BDEHIJKL:EJBDIHLK BDEGIJKL:EJBDIGLK BDEGHJKL:EJBDHGLK BDEGHIKL:EGBDIHLK BDEGHIJL:EJBDHGLI
+BDEGHIJK:EJBDHGIK BDEFIJKL:EJBDIFLK BDEFHJKL:EJBDHFLK BDEFHIKL:EIBDHFLK BDEFHIJL:EJBDHFLI
+BDEFHIJK:EJBDHFIK BDEFGJKL:EGBDJFLK BDEFGIKL:EGBDIFLK BDEFGIJL:EGBDJFLI BDEFGIJK:EGBDJFIK
+BDEFGHKL:EGBDHFLK BDEFGHJL:HGBDJFLE BDEFGHJK:HGBDJFEK BDEFGHIL:EGBDHFLI BDEFGHIK:EGBDHFIK
+BDEFGHIJ:HGBDJFEI BCGHIJKL:HJBCIGLK BCFHIJKL:HJBCIFLK BCFGIJKL:IGBCJFLK BCFGHJKL:HGBCJFLK
+BCFGHIKL:HGBCIFLK BCFGHIJL:HGBCJFLI BCFGHIJK:HGBCJFIK BCEHIJKL:EJBCIHLK BCEGIJKL:EJBCIGLK
+BCEGHJKL:EJBCHGLK BCEGHIKL:EGBCIHLK BCEGHIJL:EJBCHGLI BCEGHIJK:EJBCHGIK BCEFIJKL:EJBCIFLK
+BCEFHJKL:EJBCHFLK BCEFHIKL:EIBCHFLK BCEFHIJL:EJBCHFLI BCEFHIJK:EJBCHFIK BCEFGJKL:EGBCJFLK
+BCEFGIKL:EGBCIFLK BCEFGIJL:EGBCJFLI BCEFGIJK:EGBCJFIK BCEFGHKL:EGBCHFLK BCEFGHJL:HGBCJFLE
+BCEFGHJK:HGBCJFEK BCEFGHIL:EGBCHFLI BCEFGHIK:EGBCHFIK BCEFGHIJ:HGBCJFEI BCDHIJKL:HJBCIDLK
+BCDGIJKL:IGBCJDLK BCDGHJKL:HGBCJDLK BCDGHIKL:HGBCIDLK BCDGHIJL:HGBCJDLI BCDGHIJK:HGBCJDIK
+BCDFIJKL:CJBDIFLK BCDFHJKL:CJBDHFLK BCDFHIKL:CIBDHFLK BCDFHIJL:CJBDHFLI BCDFHIJK:CJBDHFIK
+BCDFGJKL:CGBDJFLK BCDFGIKL:CGBDIFLK BCDFGIJL:CGBDJFLI BCDFGIJK:CGBDJFIK BCDFGHKL:CGBDHFLK
+BCDFGHJL:CGBDHFLJ BCDFGHJK:HGBCJFDK BCDFGHIL:CGBDHFLI BCDFGHIK:CGBDHFIK BCDFGHIJ:HGBCJFDI
+BCDEIJKL:EJBCIDLK BCDEHJKL:EJBCHDLK BCDEHIKL:EIBCHDLK BCDEHIJL:EJBCHDLI BCDEHIJK:EJBCHDIK
+BCDEGJKL:EGBCJDLK BCDEGIKL:EGBCIDLK BCDEGIJL:EGBCJDLI BCDEGIJK:EGBCJDIK BCDEGHKL:EGBCHDLK
+BCDEGHJL:HGBCJDLE BCDEGHJK:HGBCJDEK BCDEGHIL:EGBCHDLI BCDEGHIK:EGBCHDIK BCDEGHIJ:HGBCJDEI
+BCDEFJKL:CJBDEFLK BCDEFIKL:CEBDIFLK BCDEFIJL:CJBDEFLI BCDEFIJK:CJBDEFIK BCDEFHKL:CEBDHFLK
+BCDEFHJL:CJBDHFLE BCDEFHJK:CJBDHFEK BCDEFHIL:CEBDHFLI BCDEFHIK:CEBDHFIK BCDEFHIJ:CJBDHFEI
+BCDEFGKL:CGBDEFLK BCDEFGJL:CGBDJFLE BCDEFGJK:CGBDJFEK BCDEFGIL:CGBDEFLI BCDEFGIK:CGBDEFIK
+BCDEFGIJ:CGBDJFEI BCDEFGHL:CGBDHFLE BCDEFGHK:CGBDHFEK BCDEFGHJ:HGBCJFDE BCDEFGHI:CGBDHFEI
+AFGHIJKL:HJIFAGLK AEGHIJKL:EJIAHGLK AEFHIJKL:EJIFAHLK AEFGIJKL:EJIFAGLK AEFGHJKL:EGJFAHLK
+AEFGHIKL:EGIFAHLK AEFGHIJL:EGJFAHLI AEFGHIJK:EGJFAHIK ADGHIJKL:HJIDAGLK ADFHIJKL:HJIDAFLK
+ADFGIJKL:IGJDAFLK ADFGHJKL:HGJDAFLK ADFGHIKL:HGIDAFLK ADFGHIJL:HGJDAFLI ADFGHIJK:HGJDAFIK
+ADEHIJKL:EJIDAHLK ADEGIJKL:EJIDAGLK ADEGHJKL:EGJDAHLK ADEGHIKL:EGIDAHLK ADEGHIJL:EGJDAHLI
+ADEGHIJK:EGJDAHIK ADEFIJKL:EJIDAFLK ADEFHJKL:HJEDAFLK ADEFHIKL:HEIDAFLK ADEFHIJL:HJEDAFLI
+ADEFHIJK:HJEDAFIK ADEFGJKL:EGJDAFLK ADEFGIKL:EGIDAFLK ADEFGIJL:EGJDAFLI ADEFGIJK:EGJDAFIK
+ADEFGHKL:HGEDAFLK ADEFGHJL:HGJDAFLE ADEFGHJK:HGJDAFEK ADEFGHIL:HGEDAFLI ADEFGHIK:HGEDAFIK
+ADEFGHIJ:HGJDAFEI ACGHIJKL:HJICAGLK ACFHIJKL:HJICAFLK ACFGIJKL:IGJCAFLK ACFGHJKL:HGJCAFLK
+ACFGHIKL:HGICAFLK ACFGHIJL:HGJCAFLI ACFGHIJK:HGJCAFIK ACEHIJKL:EJICAHLK ACEGIJKL:EJICAGLK
+ACEGHJKL:EGJCAHLK ACEGHIKL:EGICAHLK ACEGHIJL:EGJCAHLI ACEGHIJK:EGJCAHIK ACEFIJKL:EJICAFLK
+ACEFHJKL:HJECAFLK ACEFHIKL:HEICAFLK ACEFHIJL:HJECAFLI ACEFHIJK:HJECAFIK ACEFGJKL:EGJCAFLK
+ACEFGIKL:EGICAFLK ACEFGIJL:EGJCAFLI ACEFGIJK:EGJCAFIK ACEFGHKL:HGECAFLK ACEFGHJL:HGJCAFLE
+ACEFGHJK:HGJCAFEK ACEFGHIL:HGECAFLI ACEFGHIK:HGECAFIK ACEFGHIJ:HGJCAFEI ACDHIJKL:HJICADLK
+ACDGIJKL:IGJCADLK ACDGHJKL:HGJCADLK ACDGHIKL:HGICADLK ACDGHIJL:HGJCADLI ACDGHIJK:HGJCADIK
+ACDFIJKL:CJIDAFLK ACDFHJKL:HJFCADLK ACDFHIKL:HFICADLK ACDFHIJL:HJFCADLI ACDFHIJK:HJFCADIK
+ACDFGJKL:CGJDAFLK ACDFGIKL:CGIDAFLK ACDFGIJL:CGJDAFLI ACDFGIJK:CGJDAFIK ACDFGHKL:HGFCADLK
+ACDFGHJL:CGJDAFLH ACDFGHJK:HGJCAFDK ACDFGHIL:HGFCADLI ACDFGHIK:HGFCADIK ACDFGHIJ:HGJCAFDI
+ACDEIJKL:EJICADLK ACDEHJKL:HJECADLK ACDEHIKL:HEICADLK ACDEHIJL:HJECADLI ACDEHIJK:HJECADIK
+ACDEGJKL:EGJCADLK ACDEGIKL:EGICADLK ACDEGIJL:EGJCADLI ACDEGIJK:EGJCADIK ACDEGHKL:HGECADLK
+ACDEGHJL:HGJCADLE ACDEGHJK:HGJCADEK ACDEGHIL:HGECADLI ACDEGHIK:HGECADIK ACDEGHIJ:HGJCADEI
+ACDEFJKL:CJEDAFLK ACDEFIKL:CEIDAFLK ACDEFIJL:CJEDAFLI ACDEFIJK:CJEDAFIK ACDEFHKL:HEFCADLK
+ACDEFHJL:HJFCADLE ACDEFHJK:HJECAFDK ACDEFHIL:HEFCADLI ACDEFHIK:HEFCADIK ACDEFHIJ:HJECAFDI
+ACDEFGKL:CGEDAFLK ACDEFGJL:CGJDAFLE ACDEFGJK:CGJDAFEK ACDEFGIL:CGEDAFLI ACDEFGIK:CGEDAFIK
+ACDEFGIJ:CGJDAFEI ACDEFGHL:HGFCADLE ACDEFGHK:HGECAFDK ACDEFGHJ:HGJCAFDE ACDEFGHI:HGECAFDI
+ABGHIJKL:HJBAIGLK ABFHIJKL:HJBAIFLK ABFGIJKL:IJBFAGLK ABFGHJKL:HJBFAGLK ABFGHIKL:HGBAIFLK
+ABFGHIJL:HJBFAGLI ABFGHIJK:HJBFAGIK ABEHIJKL:EJBAIHLK ABEGIJKL:EJBAIGLK ABEGHJKL:EJBAHGLK
+ABEGHIKL:EGBAIHLK ABEGHIJL:EJBAHGLI ABEGHIJK:EJBAHGIK ABEFIJKL:EJBAIFLK ABEFHJKL:EJBFAHLK
+ABEFHIKL:EIBFAHLK ABEFHIJL:EJBFAHLI ABEFHIJK:EJBFAHIK ABEFGJKL:EJBFAGLK ABEFGIKL:EGBAIFLK
+ABEFGIJL:EJBFAGLI ABEFGIJK:EJBFAGIK ABEFGHKL:EGBFAHLK ABEFGHJL:HJBFAGLE ABEFGHJK:HJBFAGEK
+ABEFGHIL:EGBFAHLI ABEFGHIK:EGBFAHIK ABEFGHIJ:HJBFAGEI ABDHIJKL:IJBDAHLK ABDGIJKL:IJBDAGLK
+ABDGHJKL:HJBDAGLK ABDGHIKL:IGBDAHLK ABDGHIJL:HJBDAGLI ABDGHIJK:HJBDAGIK ABDFIJKL:IJBDAFLK
+ABDFHJKL:HJBDAFLK ABDFHIKL:HIBDAFLK ABDFHIJL:HJBDAFLI ABDFHIJK:HJBDAFIK ABDFGJKL:FJBDAGLK
+ABDFGIKL:IGBDAFLK ABDFGIJL:FJBDAGLI ABDFGIJK:FJBDAGIK ABDFGHKL:HGBDAFLK ABDFGHJL:HGBDAFLJ
+ABDFGHJK:HGBDAFJK ABDFGHIL:HGBDAFLI ABDFGHIK:HGBDAFIK ABDFGHIJ:HGBDAFIJ ABDEIJKL:EJBAIDLK
+ABDEHJKL:EJBDAHLK ABDEHIKL:EIBDAHLK ABDEHIJL:EJBDAHLI ABDEHIJK:EJBDAHIK ABDEGJKL:EJBDAGLK
+ABDEGIKL:EGBAIDLK ABDEGIJL:EJBDAGLI ABDEGIJK:EJBDAGIK ABDEGHKL:EGBDAHLK ABDEGHJL:HJBDAGLE
+ABDEGHJK:HJBDAGEK ABDEGHIL:EGBDAHLI ABDEGHIK:EGBDAHIK ABDEGHIJ:HJBDAGEI ABDEFJKL:EJBDAFLK
+ABDEFIKL:EIBDAFLK ABDEFIJL:EJBDAFLI ABDEFIJK:EJBDAFIK ABDEFHKL:HEBDAFLK ABDEFHJL:HJBDAFLE
+ABDEFHJK:HJBDAFEK ABDEFHIL:HEBDAFLI ABDEFHIK:HEBDAFIK ABDEFHIJ:HJBDAFEI ABDEFGKL:EGBDAFLK
+ABDEFGJL:EGBDAFLJ ABDEFGJK:EGBDAFJK ABDEFGIL:EGBDAFLI ABDEFGIK:EGBDAFIK ABDEFGIJ:EGBDAFIJ
+ABDEFGHL:HGBDAFLE ABDEFGHK:HGBDAFEK ABDEFGHJ:HGBDAFEJ ABDEFGHI:HGBDAFEI ABCHIJKL:IJBCAHLK
+ABCGIJKL:IJBCAGLK ABCGHJKL:HJBCAGLK ABCGHIKL:IGBCAHLK ABCGHIJL:HJBCAGLI ABCGHIJK:HJBCAGIK
+ABCFIJKL:IJBCAFLK ABCFHJKL:HJBCAFLK ABCFHIKL:HIBCAFLK ABCFHIJL:HJBCAFLI ABCFHIJK:HJBCAFIK
+ABCFGJKL:CJBFAGLK ABCFGIKL:IGBCAFLK ABCFGIJL:CJBFAGLI ABCFGIJK:CJBFAGIK ABCFGHKL:HGBCAFLK
+ABCFGHJL:HGBCAFLJ ABCFGHJK:HGBCAFJK ABCFGHIL:HGBCAFLI ABCFGHIK:HGBCAFIK ABCFGHIJ:HGBCAFIJ
+ABCEIJKL:EJBAICLK ABCEHJKL:EJBCAHLK ABCEHIKL:EIBCAHLK ABCEHIJL:EJBCAHLI ABCEHIJK:EJBCAHIK
+ABCEGJKL:EJBCAGLK ABCEGIKL:EGBAICLK ABCEGIJL:EJBCAGLI ABCEGIJK:EJBCAGIK ABCEGHKL:EGBCAHLK
+ABCEGHJL:HJBCAGLE ABCEGHJK:HJBCAGEK ABCEGHIL:EGBCAHLI ABCEGHIK:EGBCAHIK ABCEGHIJ:HJBCAGEI
+ABCEFJKL:EJBCAFLK ABCEFIKL:EIBCAFLK ABCEFIJL:EJBCAFLI ABCEFIJK:EJBCAFIK ABCEFHKL:HEBCAFLK
+ABCEFHJL:HJBCAFLE ABCEFHJK:HJBCAFEK ABCEFHIL:HEBCAFLI ABCEFHIK:HEBCAFIK ABCEFHIJ:HJBCAFEI
+ABCEFGKL:EGBCAFLK ABCEFGJL:EGBCAFLJ ABCEFGJK:EGBCAFJK ABCEFGIL:EGBCAFLI ABCEFGIK:EGBCAFIK
+ABCEFGIJ:EGBCAFIJ ABCEFGHL:HGBCAFLE ABCEFGHK:HGBCAFEK ABCEFGHJ:HGBCAFEJ ABCEFGHI:HGBCAFEI
+ABCDIJKL:IJBCADLK ABCDHJKL:HJBCADLK ABCDHIKL:HIBCADLK ABCDHIJL:HJBCADLI ABCDHIJK:HJBCADIK
+ABCDGJKL:CJBDAGLK ABCDGIKL:IGBCADLK ABCDGIJL:CJBDAGLI ABCDGIJK:CJBDAGIK ABCDGHKL:HGBCADLK
+ABCDGHJL:HGBCADLJ ABCDGHJK:HGBCADJK ABCDGHIL:HGBCADLI ABCDGHIK:HGBCADIK ABCDGHIJ:HGBCADIJ
+ABCDFJKL:CJBDAFLK ABCDFIKL:CIBDAFLK ABCDFIJL:CJBDAFLI ABCDFIJK:CJBDAFIK ABCDFHKL:HFBCADLK
+ABCDFHJL:CJBDAFLH ABCDFHJK:HJBCAFDK ABCDFHIL:HFBCADLI ABCDFHIK:HFBCADIK ABCDFHIJ:HJBCAFDI
+ABCDFGKL:CGBDAFLK ABCDFGJL:CGBDAFLJ ABCDFGJK:CGBDAFJK ABCDFGIL:CGBDAFLI ABCDFGIK:CGBDAFIK
+ABCDFGIJ:CGBDAFIJ ABCDFGHL:CGBDAFLH ABCDFGHK:HGBCAFDK ABCDFGHJ:HGBCAFDJ ABCDFGHI:HGBCAFDI
+ABCDEJKL:EJBCADLK ABCDEIKL:EIBCADLK ABCDEIJL:EJBCADLI ABCDEIJK:EJBCADIK ABCDEHKL:HEBCADLK
+ABCDEHJL:HJBCADLE ABCDEHJK:HJBCADEK ABCDEHIL:HEBCADLI ABCDEHIK:HEBCADIK ABCDEHIJ:HJBCADEI
+ABCDEGKL:EGBCADLK ABCDEGJL:EGBCADLJ ABCDEGJK:EGBCADJK ABCDEGIL:EGBCADLI ABCDEGIK:EGBCADIK
+ABCDEGIJ:EGBCADIJ ABCDEGHL:HGBCADLE ABCDEGHK:HGBCADEK ABCDEGHJ:HGBCADEJ ABCDEGHI:HGBCADEI
+ABCDEFKL:CEBDAFLK ABCDEFJL:CJBDAFLE ABCDEFJK:CJBDAFEK ABCDEFIL:CEBDAFLI ABCDEFIK:CEBDAFIK
+ABCDEFIJ:CJBDAFEI ABCDEFHL:HFBCADLE ABCDEFHK:HEBCAFDK ABCDEFHJ:HJBCAFDE ABCDEFHI:HEBCAFDI
+ABCDEFGL:CGBDAFLE ABCDEFGK:CGBDAFEK ABCDEFGJ:CGBDAFEJ ABCDEFGI:CGBDAFEI ABCDEFGH:HGBCAFDE
+"""
+
+
+def parse_third_place_combination_table() -> dict[str, tuple[str, ...]]:
+    table: dict[str, tuple[str, ...]] = {}
+    for row in THIRD_PLACE_COMBINATION_ROWS.split():
+        key, assignments = row.split(":", 1)
+        table[key] = tuple(assignments)
+    return table
+
+
+THIRD_PLACE_COMBINATION_TABLE = parse_third_place_combination_table()
+
 
 def set_match_side_team(
     match: dict[str, Any],
@@ -3551,6 +3692,116 @@ def final_group_ids(data: dict[str, Any]) -> set[str]:
     return final_groups
 
 
+def qualified_third_place_groups(
+    data: dict[str, Any],
+    issues: list[dict[str, str]],
+) -> list[str]:
+    group_matches_by_id = group_stage_matches_by_id(data)
+    third_place_rows: list[dict[str, Any]] = []
+    for group in data.get("groups", []):
+        group_id = clean_text(group.get("id"))
+        if not group_id:
+            continue
+        matches = [
+            match for match in group_matches_by_id.values() if match.get("group") == group_id
+        ]
+        if not group_matches_are_final(matches):
+            return []
+        scores = {
+            match["id"]: (int(match["home_score"]), int(match["away_score"]))
+            for match in matches
+            if match_result(match) is not None
+        }
+        rows = standings_rows_from_scores(group, matches, scores)
+        if len(rows) < 3:
+            continue
+        third_row = dict(rows[2])
+        third_row["group_id"] = group_id
+        third_place_rows.append(third_row)
+
+    if len(third_place_rows) != len(data.get("groups", [])):
+        return []
+
+    ordered = sorted(
+        third_place_rows,
+        key=lambda row: (
+            -int(row["points"]),
+            -(int(row["goals_for"]) - int(row["goals_against"])),
+            -int(row["goals_for"]),
+            clean_text(row["group_id"]),
+        ),
+    )
+    if len(ordered) < 8:
+        return []
+    if len(ordered) > 8 and standings_row_sort_key(ordered[7]) == standings_row_sort_key(
+        ordered[8]
+    ):
+        issues.append(
+            {
+                "type": "unresolved_third_place_cutoff",
+                "slot": "3rd-place-ranking",
+                "title": "Third-place ranking needs confirmation",
+                "body": (
+                    "The eighth and ninth third-place teams are tied on points, "
+                    "goal difference and goals scored. Resolve the remaining FIFA "
+                    "tiebreakers before filling the composite third-place slots."
+                ),
+            }
+        )
+        return []
+    return sorted(clean_text(row["group_id"]) for row in ordered[:8])
+
+
+def resolved_third_place_composite_slots(
+    data: dict[str, Any],
+    resolved_group_slots: dict[str, str],
+    issues: list[dict[str, str]],
+) -> dict[str, str]:
+    qualified_groups = qualified_third_place_groups(data, issues)
+    if not qualified_groups:
+        return {}
+    combination_key = "".join(qualified_groups)
+    assignments = THIRD_PLACE_COMBINATION_TABLE.get(combination_key)
+    if assignments is None:
+        issues.append(
+            {
+                "type": "missing_third_place_combination",
+                "slot": combination_key,
+                "title": "Third-place combination is not encoded",
+                "body": (
+                    f"The qualified third-place groups are {combination_key}, but the "
+                    "FIFA Annex C combination table has no matching row in the app."
+                ),
+            }
+        )
+        return {}
+
+    resolved: dict[str, str] = {}
+    for winner_slot, assigned_group in zip(
+        THIRD_PLACE_WINNER_SLOT_ORDER,
+        assignments,
+        strict=True,
+    ):
+        composite_slot = THIRD_PLACE_COMPOSITE_SLOT_BY_WINNER[winner_slot]
+        assigned_slot = f"3{assigned_group}"
+        team_id = resolved_group_slots.get(assigned_slot)
+        if not team_id:
+            issues.append(
+                {
+                    "type": "unresolved_third_place_group_slot",
+                    "slot": assigned_slot,
+                    "title": "Third-place group slot needs confirmation",
+                    "body": (
+                        f"{assigned_slot} qualifies for {winner_slot}, but the app could "
+                        "not confidently resolve that group position."
+                    ),
+                }
+            )
+            continue
+        resolved[composite_slot] = team_id
+    return resolved
+
+
 def resolved_prior_match_slots(data: dict[str, Any]) -> dict[str, str]:
     resolved: dict[str, str] = {}
     for match in data.get("matches", []):
@@ -3634,10 +3885,19 @@ def resolve_bracket_slots(data: dict[str, Any]) -> None:
         if is_knockout_match(match) and clean_text(match.get("match_number"))
     }
     group_slots = resolved_group_position_slots(data, issues)
+    third_place_composite_slots = resolved_third_place_composite_slots(
+        data,
+        group_slots,
+        issues,
+    )
     knockout_matches = [match for match in data.get("matches", []) if is_knockout_match(match)]
     for _ in range(len(knockout_matches)):
         changed = False
-        resolved_slots = {**group_slots, **resolved_prior_match_slots(data)}
+        resolved_slots = {
+            **group_slots,
+            **third_place_composite_slots,
+            **resolved_prior_match_slots(data),
+        }
         for match in knockout_matches:
             for side in ("home", "away"):
                 if clean_text(match.get(f"{side}_team_id")):
@@ -6159,9 +6419,11 @@ def user_prediction_groups(
                 "away_team_name": teams.get(match["away_team_id"], {}).get(
                     "name", match["away_team_id"]
                 ),
-                "home_score": prediction["home_score"],
-                "away_score": prediction["away_score"],
-                "advancing_team_id": row_value(prediction, "advancing_team_id"),
+                **prediction_payload(
+                    prediction["home_score"],
+                    prediction["away_score"],
+                    row_value(prediction, "advancing_team_id"),
+                ),
                 "actual_home_score": match.get("home_score"),
                 "actual_away_score": match.get("away_score"),
                 "completed": match_result(match) is not None,
@@ -6272,11 +6534,6 @@ def build_leaderboard(
         }
         user_quiz_predictions = quiz_by_user.get(user["id"], {})
         user_leeuwtjes = leeuwtjes_by_user.get(user["id"], set())
-        user_consumed_leeuwtjes = {
-            match_id
-            for match_id in user_leeuwtjes
-            if matches.get(match_id) is not None and match_kickoff(matches[match_id]) <= current
-        }
         user_prediction_ids = {prediction["match_id"] for prediction in user_predictions}
         group_stage_predictions = sum(
             1 for match_id in user_prediction_ids if match_id in group_stage_ids
@@ -6381,7 +6638,7 @@ def build_leaderboard(
             )
             points = merged_points["points"]
             match_score_points = merged_points["match_score_points"]
-            group_position_points = merged_points["group_position_points"]
+            group_position_points = 0
             quiz_points = merged_points["quiz_points"]
             winner_points = merged_points["winner_points"]
             top_scorer_points = merged_points["top_scorer_points"]
@@ -6550,9 +6807,29 @@ KNOCKOUT_ROUNDS = (
     "Final",
 )
 
+KNOCKOUT_BRACKET_ORDER_BY_ROUND = {
+    "Round of 32": (73, 75, 74, 77, 83, 84, 81, 82, 76, 78, 79, 80, 86, 88, 85, 87),
+    "Round of 16": (89, 90, 93, 94, 91, 92, 95, 96),
+    "Quarter-final": (97, 98, 99, 100),
+}
+KNOCKOUT_BRACKET_ORDER_INDEX = {
+    round_name: {match_number: index for index, match_number in enumerate(match_numbers)}
+    for round_name, match_numbers in KNOCKOUT_BRACKET_ORDER_BY_ROUND.items()
+}
+
 
 def is_knockout_match(match: dict[str, Any]) -> bool:
     return match.get("round") != "Group Stage"
+
+
+def knockout_bracket_sort_key(match: dict[str, Any]) -> tuple[int, int]:
+    try:
+        match_number = int(match.get("match_number") or 0)
+    except (TypeError, ValueError):
+        match_number = 0
+    round_name = clean_text(match.get("round"))
+    round_order = KNOCKOUT_BRACKET_ORDER_INDEX.get(round_name, {})
+    return (round_order.get(match_number, 10_000), match_number)
 
 
 def bracket_slot_payload(label: Any) -> dict[str, str] | None:
@@ -6675,7 +6952,7 @@ def build_knockout_projection(
         round_matches = []
         for match in sorted(
             (candidate for candidate in knockout_matches if candidate.get("round") == round_name),
-            key=lambda candidate: int(candidate.get("match_number") or 0),
+            key=knockout_bracket_sort_key,
         ):
             venue = venues.get(match.get("venue_id"), {})
             status = knockout_match_status(match, current)
@@ -6928,7 +7205,10 @@ def build_wall_of_shame(data: dict[str, Any], now: datetime | None = None) -> li
         ).fetchall()
         prediction_rows = execute(
             conn,
-            "SELECT user_id, match_id, home_score, away_score, advancing_team_id FROM match_predictions",
+            """
+            SELECT user_id, match_id, home_score, away_score, advancing_team_id
+            FROM match_predictions
+            """,
         ).fetchall()
         quiz_rows = execute(
             conn,
@@ -7018,7 +7298,10 @@ def build_matchday_summary(
     with get_db() as conn:
         predictions = execute(
             conn,
-            "SELECT user_id, match_id, home_score, away_score, advancing_team_id FROM match_predictions",
+            """
+            SELECT user_id, match_id, home_score, away_score, advancing_team_id
+            FROM match_predictions
+            """,
         ).fetchall()
         quiz_predictions = execute(
             conn,
@@ -7032,7 +7315,11 @@ def build_matchday_summary(
         my_predictions = (
             execute(
                 conn,
-                "SELECT match_id, home_score, away_score, advancing_team_id FROM match_predictions WHERE user_id = ?",
+                """
+                SELECT match_id, home_score, away_score, advancing_team_id
+                FROM match_predictions
+                WHERE user_id = ?
+                """,
                 (user_id,),
             ).fetchall()
             if user_id is not None
@@ -7088,11 +7375,11 @@ def build_matchday_summary(
         row["match_id"] for row in my_predictions if row["match_id"] in visible_match_ids
     }
     my_predictions_by_match = {
-        row["match_id"]: {
-            "home_score": row["home_score"],
-            "away_score": row["away_score"],
-            "advancing_team_id": row_value(row, "advancing_team_id"),
-        }
+        row["match_id"]: prediction_payload(
+            row["home_score"],
+            row["away_score"],
+            row_value(row, "advancing_team_id"),
+        )
         for row in my_predictions
         if row["match_id"] in visible_match_ids
     }
@@ -7260,11 +7547,11 @@ def matchday_match_detail(
         Counter(outcome_bucket(prediction) for prediction in predictions) if locked else Counter()
     )
     predictions_by_user = {
-        row["user_id"]: {
-            "home_score": row["home_score"],
-            "away_score": row["away_score"],
-            "advancing_team_id": row_value(row, "advancing_team_id"),
-        }
+        row["user_id"]: prediction_payload(
+            row["home_score"],
+            row["away_score"],
+            row_value(row, "advancing_team_id"),
+        )
         for row in predictions
     }
     striker_picks_by_user = {row["user_id"]: striker_pick_names(row) for row in top_scorer_rows}
@@ -7820,7 +8107,11 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         with get_db() as conn:
             prediction_rows = execute(
                 conn,
-                "SELECT match_id, home_score, away_score, advancing_team_id FROM match_predictions WHERE user_id = ?",
+                """
+                SELECT match_id, home_score, away_score, advancing_team_id
+                FROM match_predictions
+                WHERE user_id = ?
+                """,
                 (user["id"],),
             ).fetchall()
             winner_row = execute(
@@ -7858,11 +8149,11 @@ def user_pool_state(user: dict[str, Any] | None, data: dict[str, Any]) -> dict[s
         striker_picks = striker_pick_names(top_scorer_row)
 
     predictions = {
-        row["match_id"]: {
-            "home_score": row["home_score"],
-            "away_score": row["away_score"],
-            "advancing_team_id": row_value(row, "advancing_team_id"),
-        }
+        row["match_id"]: prediction_payload(
+            row["home_score"],
+            row["away_score"],
+            row_value(row, "advancing_team_id"),
+        )
         for row in prediction_rows
     }
     quiz_predictions = {
@@ -9964,12 +10255,15 @@ def save_single_match_prediction(match_id: str):
         return jsonify({"error": "Scores must be whole numbers."}), 400
     if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
         return jsonify({"error": "Scores must be between 0 and 30."}), 400
-    advancing_team_id = clean_text(payload.get("advancing_team_id"))
+    advancing_team_id: str | None = clean_text(payload.get("advancing_team_id"))
     if is_knockout_match(match):
         valid_side_team_ids = {match.get("home_team_id"), match.get("away_team_id")}
         if home_score == away_score:
             if advancing_team_id not in valid_side_team_ids:
-                return jsonify({"error": "Choose who advances for a drawn knockout prediction."}), 400
+                return (
+                    jsonify({"error": "Choose who advances for a drawn knockout prediction."}),
+                    400,
+                )
         else:
             advancing_team_id = None
     else:
@@ -10089,11 +10383,7 @@ def save_single_match_prediction(match_id: str):
         {
             "ok": True,
             "match_id": match_id,
-            "prediction": {
-                "home_score": home_score,
-                "away_score": away_score,
-                "advancing_team_id": advancing_team_id,
-            },
+            "prediction": prediction_payload(home_score, away_score, advancing_team_id),
             "quiz_prediction": (
                 {"answer": quiz_answer or "", "viewership_prediction": None}
                 if match.get("quiz")
@@ -10160,7 +10450,11 @@ def save_predictions():
             row["match_id"]: row
             for row in execute(
                 conn,
-                "SELECT match_id, home_score, away_score, advancing_team_id FROM match_predictions WHERE user_id = ?",
+                """
+                SELECT match_id, home_score, away_score, advancing_team_id
+                FROM match_predictions
+                WHERE user_id = ?
+                """,
                 (user["id"],),
             ).fetchall()
         }
@@ -10201,7 +10495,7 @@ def save_predictions():
             ).fetchall()
         }
 
-    cleaned = []
+    cleaned: list[tuple[Any, str, int, int, str | None]] = []
     for item in prediction_items:
         match_id = str(item.get("match_id", ""))
         if match_id not in allowed_match_ids:
@@ -10214,14 +10508,15 @@ def save_predictions():
             return jsonify({"error": "Scores must be whole numbers."}), 400
         if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
             return jsonify({"error": "Scores must be between 0 and 30."}), 400
-        advancing_team_id = clean_text(item.get("advancing_team_id"))
+        advancing_team_id: str | None = clean_text(item.get("advancing_team_id"))
         if is_knockout_match(match):
             valid_side_team_ids = {match.get("home_team_id"), match.get("away_team_id")}
             if home_score == away_score:
                 if advancing_team_id not in valid_side_team_ids:
-                    return jsonify(
-                        {"error": "Choose who advances for a drawn knockout prediction."}
-                    ), 400
+                    return (
+                        jsonify({"error": "Choose who advances for a drawn knockout prediction."}),
+                        400,
+                    )
             else:
                 advancing_team_id = None
         else:
@@ -10274,9 +10569,10 @@ def save_predictions():
             return jsonify({"error": "Leeuwtjes can only be used on prediction matches."}), 400
         active_stage_match_ids = leeuwtje_stage_match_ids(data)
         if len(submitted_leeuwtjes & active_stage_match_ids) > leeuwtje_stage_total(data):
-            return jsonify(
-                {"error": f"You can use at most {leeuwtje_stage_total(data)} Leeuwtjes."}
-            ), 400
+            return (
+                jsonify({"error": f"You can use at most {leeuwtje_stage_total(data)} Leeuwtjes."}),
+                400,
+            )
         changed_leeuwtjes = submitted_leeuwtjes ^ existing_leeuwtjes
         locked_leeuwtjes = [
             match_id
@@ -10412,6 +10708,8 @@ def save_predictions():
                     """
                     INSERT INTO leeuwtje_predictions (user_id, match_id, updated_at)
                     VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id, match_id)
+                    DO UPDATE SET updated_at = CURRENT_TIMESTAMP
                     """,
                     (user["id"], match_id),
                 )

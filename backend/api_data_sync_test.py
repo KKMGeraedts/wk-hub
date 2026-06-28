@@ -359,6 +359,94 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(rows["quiz"]["answer"], "ja")
         self.assertEqual(rows["leeuwtje"]["match_id"], "m001")
 
+    def test_bulk_prediction_save_keeps_existing_leeuwtje_idempotent(self) -> None:
+        kickoff = datetime(2026, 6, 28, 18, 0, tzinfo=UTC)
+        data = {
+            "matches": [
+                {
+                    **make_match("m001", datetime(2026, 6, 11, 18, 0, tzinfo=UTC)),
+                    "status": "scheduled",
+                },
+                {
+                    **make_match("m073", kickoff),
+                    "round": "Round of 32",
+                    "group": None,
+                    "match_number": 73,
+                    "status": "scheduled",
+                },
+            ],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash)
+                VALUES (1, 'Player', 'player.user@talpastudios.com', 'x')
+                """,
+            )
+            wk_app.execute(
+                conn,
+                "INSERT INTO leeuwtje_predictions (user_id, match_id) VALUES (1, 'm073')",
+            )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(
+                    wk_app,
+                    "utc_now",
+                    return_value=datetime(2026, 6, 27, 12, 0, tzinfo=UTC),
+                ),
+            ):
+                response = client.post(
+                    "/api/predictions",
+                    json={
+                        "predictions": [
+                            {
+                                "match_id": "m073",
+                                "home_score": 2,
+                                "away_score": 1,
+                            }
+                        ],
+                        "leeuwtjes_match_ids": ["m073"],
+                    },
+                )
+            prediction = wk_app.execute(
+                conn,
+                """
+                SELECT home_score, away_score
+                FROM match_predictions
+                WHERE user_id = 1 AND match_id = 'm073'
+                """,
+            ).fetchone()
+            leeuwtje_count = wk_app.execute(
+                conn,
+                """
+                SELECT COUNT(*) AS count
+                FROM leeuwtje_predictions
+                WHERE user_id = 1 AND match_id = 'm073'
+                """,
+            ).fetchone()["count"]
+            return response, prediction, leeuwtje_count
+
+        response, prediction, leeuwtje_count = self.run_with_temp_db(scenario)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(payload["predictions"]["m073"], {"home_score": 2, "away_score": 1})
+        self.assertEqual(prediction["home_score"], 2)
+        self.assertEqual(leeuwtje_count, 1)
+
     def test_early_post_match_attempt_is_due_after_five_minutes(self) -> None:
         kickoff = datetime(2026, 6, 11, 18, 0, tzinfo=UTC)
         match = make_match("m001", kickoff)
@@ -1917,6 +2005,45 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         )
         self.assertEqual(m104["quiz"]["choice_points"]["geen doelpunt"], 8)
 
+    def test_round_of_32_third_place_slots_use_fifa_combination_table(self) -> None:
+        resolved_group_slots = {
+            "3B": "bih",
+            "3D": "par",
+            "3E": "ecu",
+            "3F": "swe",
+            "3I": "sen",
+            "3J": "alg",
+            "3K": "cod",
+            "3L": "gha",
+        }
+        issues: list[dict[str, str]] = []
+
+        with patch.object(
+            wk_app,
+            "qualified_third_place_groups",
+            return_value=list("BDEFIJKL"),
+        ):
+            resolved = wk_app.resolved_third_place_composite_slots(
+                {},
+                resolved_group_slots,
+                issues,
+            )
+
+        self.assertEqual(
+            resolved,
+            {
+                "3C/E/F/H/I": "ecu",
+                "3E/F/G/I/J": "alg",
+                "3B/E/F/I/J": "bih",
+                "3A/B/C/D/F": "par",
+                "3A/E/H/I/J": "sen",
+                "3C/D/F/G/H": "swe",
+                "3D/E/I/J/L": "gha",
+                "3E/H/I/J/K": "cod",
+            },
+        )
+        self.assertEqual(issues, [])
+
     def test_knockout_projection_uses_mock_predictions_and_quiz_answers(self) -> None:
         kickoff = datetime.now(UTC) + timedelta(hours=4)
         match = {
@@ -1967,6 +2094,51 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(projected_match["prediction"], {"home_score": 2, "away_score": 1})
         self.assertEqual(projected_match["quiz_prediction"]["answer"], "ja")
         self.assertTrue(projected_match["leeuwtje"])
+
+    def test_knockout_projection_uses_official_bracket_path_order(self) -> None:
+        def scenario(_conn):
+            data = wk_app.load_world_cup_data()
+            projection = wk_app.build_knockout_projection(
+                data,
+                predictions={},
+                quiz_predictions={},
+                leeuwtje_match_ids=[],
+                now=datetime(2026, 6, 20, tzinfo=UTC),
+            )
+            return {
+                round_payload["round"]: [
+                    (
+                        match["match_number"],
+                        match["home"]["label"],
+                        match["away"]["label"],
+                    )
+                    for match in round_payload["matches"]
+                ]
+                for round_payload in projection["rounds"]
+            }
+
+        rounds = self.run_with_temp_db(scenario)
+
+        self.assertEqual(
+            [match_number for match_number, _home, _away in rounds["Round of 32"][:8]],
+            [73, 75, 74, 77, 83, 84, 81, 82],
+        )
+        self.assertEqual(
+            rounds["Round of 16"][:4],
+            [
+                (89, "W73", "W75"),
+                (90, "W74", "W77"),
+                (93, "W83", "W84"),
+                (94, "W81", "W82"),
+            ],
+        )
+        self.assertEqual(
+            rounds["Quarter-final"][:2],
+            [
+                (97, "W89", "W90"),
+                (98, "W93", "W94"),
+            ],
+        )
 
     def test_exact_score_counts_as_exact_and_outcome_on_leaderboard(self) -> None:
         data = self.scoring_data(done=True)
