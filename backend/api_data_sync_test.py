@@ -2005,6 +2005,24 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         )
         self.assertEqual(m104["quiz"]["choice_points"]["geen doelpunt"], 8)
 
+    def test_knockout_seed_schedule_uses_current_utc_kickoffs(self) -> None:
+        def scenario(_conn):
+            data = wk_app.load_world_cup_data()
+            return {
+                int(match["match_number"]): (match["date"], match["time_utc"])
+                for match in data["matches"]
+                if match["round"] != "Group Stage"
+            }
+
+        kickoffs = self.run_with_temp_db(scenario)
+
+        self.assertEqual(kickoffs[73], ("2026-06-28", "19:00"))
+        self.assertEqual(kickoffs[74], ("2026-06-29", "20:30"))
+        self.assertEqual(kickoffs[75], ("2026-06-30", "01:00"))
+        self.assertEqual(kickoffs[86], ("2026-07-04", "01:30"))
+        self.assertEqual(kickoffs[100], ("2026-07-12", "01:00"))
+        self.assertEqual(kickoffs[104], ("2026-07-19", "19:00"))
+
     def test_round_of_32_third_place_slots_use_fifa_combination_table(self) -> None:
         resolved_group_slots = {
             "3B": "bih",
