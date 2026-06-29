@@ -10028,6 +10028,109 @@ def database_admin_backup():
     return response
 
 
+@app.post("/api/admin/database/void-match-predictions")
+def database_admin_void_match_predictions():
+    token_error = require_sync_token()
+    if token_error:
+        return token_error
+    payload = request.get_json(silent=True) or {}
+    match_id = clean_text(payload.get("match_id"))
+    expected_match_number = payload.get("expected_match_number")
+    reason = clean_text(payload.get("reason")) or "Manual match prediction void"
+    dry_run = bool(payload.get("dry_run", False))
+    data = load_world_cup_data()
+    match = match_by_id(data, match_id) if match_id else None
+    if match is None:
+        return jsonify({"ok": False, "error": "Choose a valid match_id."}), 400
+    if expected_match_number is not None:
+        try:
+            expected_number = int(expected_match_number)
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "expected_match_number must be a number."}), 400
+        if int(match.get("match_number") or 0) != expected_number:
+            return (
+                jsonify(
+                    {
+                        "ok": False,
+                        "error": "Match number confirmation did not match the target match.",
+                    }
+                ),
+                400,
+            )
+
+    with get_db() as conn:
+        before_counts = {
+            "match_predictions": int(
+                execute(
+                    conn,
+                    "SELECT COUNT(*) AS count FROM match_predictions WHERE match_id = ?",
+                    (match_id,),
+                ).fetchone()["count"]
+            ),
+            "quiz_predictions": int(
+                execute(
+                    conn,
+                    "SELECT COUNT(*) AS count FROM quiz_predictions WHERE match_id = ?",
+                    (match_id,),
+                ).fetchone()["count"]
+            ),
+            "leeuwtje_predictions": int(
+                execute(
+                    conn,
+                    "SELECT COUNT(*) AS count FROM leeuwtje_predictions WHERE match_id = ?",
+                    (match_id,),
+                ).fetchone()["count"]
+            ),
+        }
+        if dry_run:
+            return jsonify(
+                {
+                    "ok": True,
+                    "dry_run": True,
+                    "match_id": match_id,
+                    "match_number": match.get("match_number"),
+                    "would_delete": before_counts,
+                    "computed_points_updated": False,
+                }
+            )
+
+        deleted_counts = {}
+        for table_name in ("match_predictions", "quiz_predictions", "leeuwtje_predictions"):
+            cursor = execute(conn, f"DELETE FROM {table_name} WHERE match_id = ?", (match_id,))
+            deleted_counts[table_name] = int(cursor.rowcount or 0)
+        audit_payload = {
+            "match_id": match_id,
+            "match_number": match.get("match_number"),
+            "reason": reason,
+            "before_counts": before_counts,
+            "deleted_counts": deleted_counts,
+        }
+        execute(
+            conn,
+            """
+            INSERT INTO prediction_audit_log (user_id, action, payload_json, created_at)
+            VALUES (NULL, ?, ?, CURRENT_TIMESTAMP)
+            """,
+            (
+                "void_match_predictions",
+                json.dumps(audit_payload, ensure_ascii=False, sort_keys=True),
+            ),
+        )
+
+    player_verification = recompute_all_computed_points(load_world_cup_data())
+    return jsonify(
+        {
+            "ok": True,
+            "dry_run": False,
+            "match_id": match_id,
+            "match_number": match.get("match_number"),
+            "deleted": deleted_counts,
+            "computed_points_updated": True,
+            "player_database_verification": player_verification,
+        }
+    )
+
+
 @app.post("/api/admin/database/recompute-points")
 def database_admin_recompute_points():
     token_error = require_sync_token()

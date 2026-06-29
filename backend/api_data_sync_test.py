@@ -1133,6 +1133,155 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         load_data.assert_called_once()
         recompute.assert_called_once_with({"matches": [], "teams": [], "groups": [], "venues": []})
 
+    def test_database_void_match_predictions_endpoint_deletes_target_only(self) -> None:
+        previous_token = wk_app.API_FOOTBALL_SYNC_TOKEN
+        wk_app.API_FOOTBALL_SYNC_TOKEN = "test-token"
+        data = {
+            "matches": [
+                {
+                    **make_match("m73", datetime(2026, 6, 28, 19, 0, tzinfo=UTC)),
+                    "round": "Round of 32",
+                    "match_number": 73,
+                    "status": "completed",
+                },
+                {
+                    **make_match("m74", datetime(2026, 6, 29, 20, 30, tzinfo=UTC)),
+                    "round": "Round of 32",
+                    "match_number": 74,
+                    "status": "scheduled",
+                },
+            ],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash)
+                VALUES (1, 'Player', 'player.user@talpanetwork.com', 'x')
+                """,
+            )
+            for match_id in ("m73", "m74"):
+                wk_app.execute(
+                    conn,
+                    """
+                    INSERT INTO match_predictions (user_id, match_id, home_score, away_score)
+                    VALUES (1, ?, 2, 1)
+                    """,
+                    (match_id,),
+                )
+                wk_app.execute(
+                    conn,
+                    "INSERT INTO quiz_predictions (user_id, match_id, answer) VALUES (1, ?, 'ja')",
+                    (match_id,),
+                )
+                wk_app.execute(
+                    conn,
+                    "INSERT INTO leeuwtje_predictions (user_id, match_id) VALUES (1, ?)",
+                    (match_id,),
+                )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(
+                    wk_app,
+                    "recompute_all_computed_points",
+                    return_value={"invalid_goal_scorers": 0},
+                ) as recompute,
+            ):
+                dry_run = client.post(
+                    "/api/admin/database/void-match-predictions",
+                    headers={"Authorization": "Bearer test-token"},
+                    json={
+                        "match_id": "m73",
+                        "expected_match_number": 73,
+                        "reason": "Fixture input incident",
+                        "dry_run": True,
+                    },
+                )
+                after_dry_run = {
+                    table_name: wk_app.execute(
+                        conn,
+                        f"SELECT COUNT(*) AS count FROM {table_name} WHERE match_id = 'm73'",
+                    ).fetchone()["count"]
+                    for table_name in (
+                        "match_predictions",
+                        "quiz_predictions",
+                        "leeuwtje_predictions",
+                    )
+                }
+                response = client.post(
+                    "/api/admin/database/void-match-predictions",
+                    headers={"Authorization": "Bearer test-token"},
+                    json={
+                        "match_id": "m73",
+                        "expected_match_number": 73,
+                        "reason": "Fixture input incident",
+                    },
+                )
+            remaining = {
+                table_name: {
+                    row["match_id"]: row["count"]
+                    for row in wk_app.execute(
+                        conn,
+                        f"""
+                        SELECT match_id, COUNT(*) AS count
+                        FROM {table_name}
+                        GROUP BY match_id
+                        ORDER BY match_id
+                        """,
+                    ).fetchall()
+                }
+                for table_name in ("match_predictions", "quiz_predictions", "leeuwtje_predictions")
+            }
+            audit = wk_app.execute(
+                conn,
+                """
+                SELECT action, payload_json
+                FROM prediction_audit_log
+                WHERE action = 'void_match_predictions'
+                """,
+            ).fetchone()
+            return dry_run, after_dry_run, response, remaining, audit, recompute
+
+        try:
+            dry_run, after_dry_run, response, remaining, audit, recompute = (
+                self.run_with_temp_db(scenario)
+            )
+        finally:
+            wk_app.API_FOOTBALL_SYNC_TOKEN = previous_token
+
+        self.assertEqual(dry_run.status_code, 200)
+        self.assertEqual(dry_run.get_json()["would_delete"]["match_predictions"], 1)
+        self.assertEqual(after_dry_run["match_predictions"], 1)
+        self.assertEqual(after_dry_run["quiz_predictions"], 1)
+        self.assertEqual(after_dry_run["leeuwtje_predictions"], 1)
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertTrue(payload["computed_points_updated"])
+        self.assertEqual(
+            payload["deleted"],
+            {
+                "match_predictions": 1,
+                "quiz_predictions": 1,
+                "leeuwtje_predictions": 1,
+            },
+        )
+        self.assertEqual(remaining["match_predictions"], {"m74": 1})
+        self.assertEqual(remaining["quiz_predictions"], {"m74": 1})
+        self.assertEqual(remaining["leeuwtje_predictions"], {"m74": 1})
+        self.assertEqual(audit["action"], "void_match_predictions")
+        self.assertEqual(json.loads(audit["payload_json"])["match_id"], "m73")
+        recompute.assert_called_once_with(data)
+
     def test_players_only_squad_sync_populates_all_due_player_rows(self) -> None:
         data = {
             "teams": [
