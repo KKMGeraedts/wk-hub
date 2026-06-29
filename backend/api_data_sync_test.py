@@ -359,6 +359,74 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(rows["quiz"]["answer"], "ja")
         self.assertEqual(rows["leeuwtje"]["match_id"], "m001")
 
+    def test_single_match_prediction_endpoint_accepts_quiz_only_patch(self) -> None:
+        kickoff = datetime(2026, 6, 20, 18, 0, tzinfo=UTC)
+        data = {
+            "matches": [
+                {
+                    **make_match("m001", kickoff),
+                    "status": "scheduled",
+                    "quiz": {
+                        "question": "Blijft het 0-0 in de eerste helft?",
+                        "choices": ["ja", "nee"],
+                    },
+                }
+            ],
+            "teams": [
+                {"id": "ned", "name": "Netherlands", "code": "NED"},
+                {"id": "usa", "name": "United States", "code": "USA"},
+            ],
+            "groups": [{"id": "A", "teams": ["ned", "usa"]}],
+            "venues": [],
+            "meta": {},
+        }
+
+        def scenario(conn):
+            wk_app.execute(
+                conn,
+                """
+                INSERT INTO users (id, name, email, password_hash)
+                VALUES (1, 'Player', 'player.user@talpastudios.com', 'x')
+                """,
+            )
+            conn.commit()
+            client = wk_app.app.test_client()
+            with client.session_transaction() as session:
+                session["user_id"] = 1
+            with (
+                patch.object(wk_app, "load_world_cup_data", return_value=data),
+                patch.object(
+                    wk_app,
+                    "utc_now",
+                    return_value=datetime(2026, 6, 20, 12, 0, tzinfo=UTC),
+                ),
+            ):
+                response = client.post(
+                    "/api/predictions/m001",
+                    json={"quiz_answer": "nee"},
+                )
+            rows = {
+                "prediction": wk_app.execute(
+                    conn,
+                    "SELECT home_score, away_score FROM match_predictions WHERE user_id = 1",
+                ).fetchone(),
+                "quiz": wk_app.execute(
+                    conn,
+                    "SELECT answer FROM quiz_predictions WHERE user_id = 1",
+                ).fetchone(),
+            }
+            return response, rows
+
+        response, rows = self.run_with_temp_db(scenario)
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertIsNone(payload["prediction"])
+        self.assertEqual(payload["quiz_prediction"]["answer"], "nee")
+        self.assertNotIn("leaderboard", payload)
+        self.assertIsNone(rows["prediction"])
+        self.assertEqual(rows["quiz"]["answer"], "nee")
+
     def test_bulk_prediction_save_keeps_existing_leeuwtje_idempotent(self) -> None:
         kickoff = datetime(2026, 6, 28, 18, 0, tzinfo=UTC)
         data = {

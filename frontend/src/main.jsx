@@ -1987,31 +1987,23 @@ function KnockoutPage({
       nextLeeuwtjes.delete(selectedMatch.id);
     }
     try {
-      const updated = await apiJson("/api/predictions", {
+      const quizAnswer = String(quizDraft.answer ?? "").trim();
+      const body = {
+        leeuwtje: leeuwtjeActive,
+      };
+      if (scorePredictionComplete(detailMatch, scores)) {
+        body.home_score = Number(scores.home_score);
+        body.away_score = Number(scores.away_score);
+        body.advancing_team_id = scoreIsDraw(scores) ? scores.advancing_team_id : "";
+      }
+      if (selectedMatch.quiz) {
+        body.quiz_answer = quizAnswer;
+      }
+      const result = await apiJson(`/api/predictions/${selectedMatch.id}`, {
         method: "POST",
-        body: JSON.stringify({
-          predictions: scorePredictionComplete(detailMatch, scores)
-            ? [
-              {
-                match_id: selectedMatch.id,
-                home_score: Number(scores.home_score),
-                away_score: Number(scores.away_score),
-                advancing_team_id: scoreIsDraw(scores) ? scores.advancing_team_id : "",
-              },
-            ]
-            : [],
-          quiz_predictions: selectedMatch.quiz
-            ? [
-              {
-                match_id: selectedMatch.id,
-                answer: String(quizDraft.answer ?? "").trim(),
-              },
-            ]
-            : [],
-          leeuwtjes_match_ids: [...nextLeeuwtjes],
-        }),
+        body: JSON.stringify(body),
       });
-      onPoolUpdate(updated);
+      onPoolUpdate(patchPoolAfterMatchPrediction(pool, selectedMatch.id, result));
       setSavedMatchId(selectedMatch.id);
       setEditingMatchId("");
     } catch (err) {
@@ -2578,6 +2570,24 @@ function Schedule({ matches, teams, venues, pool, onPoolUpdate, onMatch }) {
 }
 
 function patchPoolAfterMatchPrediction(pool, matchId, result) {
+  const savedQuizAnswer = String(result.quiz_prediction?.answer ?? "").trim();
+  const removePredictionMissing = Boolean(result.prediction);
+  const removeQuizMissing = Boolean(savedQuizAnswer);
+  const nextLeeuwtjes = result.leeuwtjes_match_ids ?? pool.leeuwtjes_match_ids;
+  const keepPendingItem = (item) =>
+    item.match_id !== matchId ||
+    (item.kind === "quiz" && !removeQuizMissing) ||
+    (item.kind === "prediction" && !removePredictionMissing);
+  const patchKnockoutMatch = (match) =>
+    match.id === matchId
+      ? {
+          ...match,
+          prediction: result.prediction ?? match.prediction,
+          quiz_prediction: result.quiz_prediction ?? match.quiz_prediction,
+          leeuwtje: (nextLeeuwtjes ?? []).includes(matchId),
+          missing_actions: (match.missing_actions ?? []).filter(keepPendingItem),
+        }
+      : match;
   const patchMatchdayMatch = (match) =>
     (match.id ?? match.match_id) === matchId
       ? {
@@ -2595,7 +2605,7 @@ function patchPoolAfterMatchPrediction(pool, matchId, result) {
   const nextNotifications = (pool.notifications ?? [])
     .map((notification) => {
       if (!notification.items?.length) return notification;
-      const items = notification.items.filter((item) => item.match_id !== matchId);
+      const items = notification.items.filter(keepPendingItem);
       return {
         ...notification,
         items,
@@ -2616,7 +2626,7 @@ function patchPoolAfterMatchPrediction(pool, matchId, result) {
         [matchId]: result.quiz_prediction,
       }
       : pool.quiz_predictions,
-    leeuwtjes_match_ids: result.leeuwtjes_match_ids ?? pool.leeuwtjes_match_ids,
+    leeuwtjes_match_ids: nextLeeuwtjes,
     notifications: nextNotifications,
     progress: {
       ...(pool.progress ?? {}),
@@ -2632,6 +2642,16 @@ function patchPoolAfterMatchPrediction(pool, matchId, result) {
           })),
         }
       : pool.matchday,
+    knockout: pool.knockout
+      ? {
+          ...pool.knockout,
+          missing_actions: (pool.knockout.missing_actions ?? []).filter(keepPendingItem),
+          rounds: (pool.knockout.rounds ?? []).map((round) => ({
+            ...round,
+            matches: (round.matches ?? []).map(patchKnockoutMatch),
+          })),
+        }
+      : pool.knockout,
   };
 }
 

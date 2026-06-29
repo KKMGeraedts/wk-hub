@@ -10244,30 +10244,35 @@ def save_single_match_prediction(match_id: str):
         return jsonify({"error": f"Predictions for match {match_id} are closed."}), 400
 
     payload = request.get_json(silent=True) or {}
-    try:
-        raw_home_score = payload["home_score"]
-        raw_away_score = payload["away_score"]
-        home_score = int(raw_home_score)
-        away_score = int(raw_away_score)
-    except (TypeError, ValueError):
-        return jsonify({"error": "Scores must be whole numbers."}), 400
-    except KeyError:
-        return jsonify({"error": "Scores must be whole numbers."}), 400
-    if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
-        return jsonify({"error": "Scores must be between 0 and 30."}), 400
-    advancing_team_id: str | None = clean_text(payload.get("advancing_team_id"))
-    if is_knockout_match(match):
-        valid_side_team_ids = {match.get("home_team_id"), match.get("away_team_id")}
-        if home_score == away_score:
-            if advancing_team_id not in valid_side_team_ids:
-                return (
-                    jsonify({"error": "Choose who advances for a drawn knockout prediction."}),
-                    400,
-                )
+    score_submitted = "home_score" in payload or "away_score" in payload
+    home_score: int | None = None
+    away_score: int | None = None
+    advancing_team_id: str | None = None
+    if score_submitted:
+        try:
+            raw_home_score = payload["home_score"]
+            raw_away_score = payload["away_score"]
+            home_score = int(raw_home_score)
+            away_score = int(raw_away_score)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Scores must be whole numbers."}), 400
+        except KeyError:
+            return jsonify({"error": "Scores must be whole numbers."}), 400
+        if home_score < 0 or away_score < 0 or home_score > 30 or away_score > 30:
+            return jsonify({"error": "Scores must be between 0 and 30."}), 400
+        advancing_team_id = clean_text(payload.get("advancing_team_id"))
+        if is_knockout_match(match):
+            valid_side_team_ids = {match.get("home_team_id"), match.get("away_team_id")}
+            if home_score == away_score:
+                if advancing_team_id not in valid_side_team_ids:
+                    return (
+                        jsonify({"error": "Choose who advances for a drawn knockout prediction."}),
+                        400,
+                    )
+            else:
+                advancing_team_id = None
         else:
             advancing_team_id = None
-    else:
-        advancing_team_id = None
 
     quiz_answer: str | None = None
     if match.get("quiz"):
@@ -10321,21 +10326,22 @@ def save_single_match_prediction(match_id: str):
                 json.dumps(audit_payload, ensure_ascii=False, sort_keys=True),
             ),
         )
-        execute(
-            conn,
-            """
-            INSERT INTO match_predictions (
-                user_id, match_id, home_score, away_score, advancing_team_id, updated_at
+        if score_submitted:
+            execute(
+                conn,
+                """
+                INSERT INTO match_predictions (
+                    user_id, match_id, home_score, away_score, advancing_team_id, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id, match_id)
+                DO UPDATE SET home_score = excluded.home_score,
+                              away_score = excluded.away_score,
+                              advancing_team_id = excluded.advancing_team_id,
+                              updated_at = CURRENT_TIMESTAMP
+                """,
+                (user["id"], match_id, home_score, away_score, advancing_team_id),
             )
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(user_id, match_id)
-            DO UPDATE SET home_score = excluded.home_score,
-                          away_score = excluded.away_score,
-                          advancing_team_id = excluded.advancing_team_id,
-                          updated_at = CURRENT_TIMESTAMP
-            """,
-            (user["id"], match_id, home_score, away_score, advancing_team_id),
-        )
         if match.get("quiz"):
             if quiz_answer:
                 execute(
@@ -10378,12 +10384,31 @@ def save_single_match_prediction(match_id: str):
                 )
 
     active_counts = active_stage_leeuwtje_counts(data, next_leeuwtjes)
+    with get_db() as conn:
+        stored_prediction = execute(
+            conn,
+            """
+            SELECT home_score, away_score, advancing_team_id
+            FROM match_predictions
+            WHERE user_id = ? AND match_id = ?
+            """,
+            (user["id"], match_id),
+        ).fetchone()
+
     logger.info("Saved single match prediction %s for user %s", match_id, user["id"])
     return jsonify(
         {
             "ok": True,
             "match_id": match_id,
-            "prediction": prediction_payload(home_score, away_score, advancing_team_id),
+            "prediction": (
+                prediction_payload(
+                    int(stored_prediction["home_score"]),
+                    int(stored_prediction["away_score"]),
+                    row_value(stored_prediction, "advancing_team_id"),
+                )
+                if stored_prediction
+                else None
+            ),
             "quiz_prediction": (
                 {"answer": quiz_answer or "", "viewership_prediction": None}
                 if match.get("quiz")
