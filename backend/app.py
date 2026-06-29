@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import copy
 import hashlib
 import html
 import itertools
@@ -142,6 +143,9 @@ CONFIG_ERROR = (
 )
 DB_INIT_DONE = False
 DB_INIT_ERROR: str | None = None
+WORLD_CUP_DATA_CACHE: dict[str, Any] | None = None
+WORLD_CUP_DATA_CACHE_EXPIRES_AT = 0.0
+WORLD_CUP_DATA_CACHE_TTL_SECONDS = int(os.environ.get("WK_HUB_DATA_CACHE_TTL_SECONDS", "30"))
 LOG_LEVEL_NAME = os.environ.get("WK_HUB_LOG_LEVEL", "INFO").upper()
 LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
 if not isinstance(LOG_LEVEL, int):
@@ -320,7 +324,7 @@ def static_data_manifest() -> dict[str, Any]:
     }
 
 
-def load_world_cup_data() -> dict[str, Any]:
+def load_world_cup_data_uncached() -> dict[str, Any]:
     with DATA_PATH.open(encoding="utf-8") as data_file:
         data = json.load(data_file)
 
@@ -343,6 +347,21 @@ def load_world_cup_data() -> dict[str, Any]:
         resolve_bracket_slots(data)
 
     return data
+
+
+def invalidate_world_cup_data_cache() -> None:
+    global WORLD_CUP_DATA_CACHE, WORLD_CUP_DATA_CACHE_EXPIRES_AT
+    WORLD_CUP_DATA_CACHE = None
+    WORLD_CUP_DATA_CACHE_EXPIRES_AT = 0.0
+
+
+def load_world_cup_data(*, force_refresh: bool = False) -> dict[str, Any]:
+    global WORLD_CUP_DATA_CACHE, WORLD_CUP_DATA_CACHE_EXPIRES_AT
+    now = time.monotonic()
+    if force_refresh or WORLD_CUP_DATA_CACHE is None or now >= WORLD_CUP_DATA_CACHE_EXPIRES_AT:
+        WORLD_CUP_DATA_CACHE = load_world_cup_data_uncached()
+        WORLD_CUP_DATA_CACHE_EXPIRES_AT = now + max(0, WORLD_CUP_DATA_CACHE_TTL_SECONDS)
+    return copy.deepcopy(WORLD_CUP_DATA_CACHE)
 
 
 def parse_correct_answers_json(value: Any) -> list[str]:
@@ -8715,7 +8734,11 @@ def health():
 
 @app.get("/api/world-cup")
 def world_cup():
-    return jsonify(load_world_cup_data())
+    response = jsonify(load_world_cup_data())
+    response.headers["Cache-Control"] = (
+        "public, max-age=60, s-maxage=300, stale-while-revalidate=300"
+    )
+    return response
 
 
 @app.get("/api/me")
@@ -8981,8 +9004,11 @@ def logout():
 
 @app.get("/api/pool")
 def pool():
+    user = current_user()
+    if not user:
+        return jsonify({"me": None})
     data = load_world_cup_data()
-    return jsonify(user_pool_state(current_user(), data))
+    return jsonify(user_pool_state(user, data))
 
 
 @app.get("/api/matchday/matches/<match_id>")
@@ -9205,7 +9231,7 @@ def admin_update_result_label(match_id: str):
                 source="reverted",
                 reason=reason,
             )
-        updated_data = load_world_cup_data()
+        updated_data = load_world_cup_data(force_refresh=True)
         recompute_all_computed_points(updated_data)
         return jsonify(
             {
@@ -9284,7 +9310,7 @@ def admin_update_result_label(match_id: str):
             (match_id,),
         ).fetchone()
         label_audit(conn, admin["id"], "result", match_id, before, after, reason=reason)
-    updated_data = load_world_cup_data()
+    updated_data = load_world_cup_data(force_refresh=True)
     recompute_all_computed_points(updated_data)
     return jsonify(admin_labels_payload(updated_data))
 
@@ -9407,7 +9433,7 @@ def admin_update_quiz_label(match_id: str):
             source=audit_source,
             reason=reason,
         )
-    updated_data = load_world_cup_data()
+    updated_data = load_world_cup_data(force_refresh=True)
     recompute_all_computed_points(updated_data)
     return jsonify(admin_labels_payload(updated_data))
 
@@ -9432,7 +9458,7 @@ def admin_review_genai_quiz_answer(job_result_id: int):
             )
     except genai_service.QuizReviewError as error:
         return jsonify({"error": str(error)}), error.status_code
-    recompute_all_computed_points(load_world_cup_data())
+    recompute_all_computed_points(load_world_cup_data(force_refresh=True))
     return jsonify({"ok": True, "review": review})
 
 
@@ -9472,7 +9498,7 @@ def admin_update_event_labels(match_id: str):
                 source="reverted",
                 reason=reason,
             )
-        updated_data = load_world_cup_data()
+        updated_data = load_world_cup_data(force_refresh=True)
         recompute_all_computed_points(updated_data)
         return jsonify(
             {
@@ -9550,7 +9576,7 @@ def admin_update_event_labels(match_id: str):
             (match_id,),
         ).fetchall()
         label_audit(conn, admin["id"], "events", match_id, before, after, reason=reason)
-    updated_data = load_world_cup_data()
+    updated_data = load_world_cup_data(force_refresh=True)
     recompute_all_computed_points(updated_data)
     return jsonify(admin_labels_payload(updated_data))
 
@@ -9591,7 +9617,7 @@ def admin_update_player_stat_labels(match_id: str):
                 source="reverted",
                 reason=reason,
             )
-        updated_data = load_world_cup_data()
+        updated_data = load_world_cup_data(force_refresh=True)
         recompute_all_computed_points(updated_data)
         return jsonify(
             {
@@ -9672,7 +9698,7 @@ def admin_update_player_stat_labels(match_id: str):
             (match_id,),
         ).fetchall()
         label_audit(conn, admin["id"], "player_stats", match_id, before, after, reason=reason)
-    updated_data = load_world_cup_data()
+    updated_data = load_world_cup_data(force_refresh=True)
     recompute_all_computed_points(updated_data)
     return jsonify(admin_labels_payload(updated_data))
 
@@ -9859,11 +9885,11 @@ def api_football_admin_sync():
             )
         if not bool(payload.get("dry_run", False)):
             result["genai_jobs"] = genai_service.run_genai_jobs_after_data_sync(
-                load_world_cup_data(),
+                load_world_cup_data(force_refresh=True),
                 result_sync=result,
             )
         if bool(payload.get("recompute_points", False)) and not bool(payload.get("dry_run", False)):
-            recompute_all_computed_points(load_world_cup_data())
+            recompute_all_computed_points(load_world_cup_data(force_refresh=True))
             result["computed_points_updated"] = True
     except Exception as error:
         logger.exception("API-Football manual sync failed")
@@ -9915,11 +9941,11 @@ def api_football_admin_missing_results_sync():
         match_ids = result["match_ids"]
         genai_jobs = None
         if not dry_run:
-            updated_data = load_world_cup_data()
+            updated_data = load_world_cup_data(force_refresh=True)
             genai_jobs = genai_service.run_genai_jobs_after_data_sync(
                 updated_data, result_sync=result
             )
-            recompute_all_computed_points(load_world_cup_data())
+            recompute_all_computed_points(updated_data)
         result["computed_points_updated"] = not dry_run
         result["genai_jobs"] = genai_jobs
         result["requests_today"] = api_football_request_count_today()
@@ -9949,11 +9975,11 @@ def api_football_admin_data_sync():
         result_sync = run_missing_result_sync_batch(data, dry_run=dry_run)
         genai_jobs = None
         if not dry_run:
-            updated_data = load_world_cup_data()
+            updated_data = load_world_cup_data(force_refresh=True)
             genai_jobs = genai_service.run_genai_jobs_after_data_sync(
                 updated_data, result_sync=result_sync
             )
-            recompute_all_computed_points(load_world_cup_data())
+            recompute_all_computed_points(updated_data)
         result = {
             "ok": bool(result_sync.get("ok")),
             "dry_run": dry_run,

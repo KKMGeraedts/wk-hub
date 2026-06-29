@@ -8763,19 +8763,19 @@ function App() {
 
     async function loadInitialState() {
       try {
-        const meState = await apiJson("/api/me");
-        if (cancelled) return;
-
-        if (!meState.user) {
-          setPool({ me: null });
-          replacePath("/login");
-          return;
-        }
-
         const [poolState, worldCup] = await Promise.all([
           apiJson("/api/pool"),
           apiJson("/api/world-cup"),
         ]);
+        if (cancelled) return;
+
+        if (!poolState.me) {
+          setPool({ me: null });
+          setData(worldCup);
+          replacePath("/login");
+          return;
+        }
+
         if (!cancelled) {
           setPool(poolState);
           setData(worldCup);
