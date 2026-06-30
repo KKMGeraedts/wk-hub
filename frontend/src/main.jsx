@@ -1760,6 +1760,7 @@ function KnockoutMatchModal({
   selectedMatch,
   detailMatch,
   teams,
+  points,
   scores,
   quizDraft,
   leeuwtjeActive,
@@ -1855,6 +1856,11 @@ function KnockoutMatchModal({
                   onToggle={onToggleLeeuwtje}
                 />
               </div>
+              {selectedMatch.status === "completed" && points && (
+                <div className="knockout-point-breakdown">
+                  <MatchPointBreakdown points={points} />
+                </div>
+              )}
               {!showSavedSummary && (
                 <div className="knockout-inline-editors">
                   <MatchPredictionEditor
@@ -2027,6 +2033,9 @@ function KnockoutPage({
   }
 
   const detailMatch = selectedMatch ? knockoutDetailMatch(selectedMatch) : null;
+  const selectedMatchPoints = selectedMatch
+    ? poolMatchPoints(pool)[selectedMatch.id]
+    : null;
   const openForPredictions = selectedMatch?.status === "open";
   const locked = !openForPredictions;
   const canToggleLeeuwtje =
@@ -2196,6 +2205,7 @@ function KnockoutPage({
           selectedMatch={selectedMatch}
           detailMatch={detailMatch}
           teams={teams}
+          points={selectedMatchPoints}
           scores={scores}
           quizDraft={quizDraft}
           leeuwtjeActive={leeuwtjeActive}

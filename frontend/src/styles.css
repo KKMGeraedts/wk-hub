@@ -5917,6 +5917,12 @@ tr.highlight td {
     align-items: center;
 }
 
+.knockout-point-breakdown .point-breakdown {
+    max-width: none;
+    margin-top: 0;
+    box-shadow: none;
+}
+
 .knockout-saved-summary {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, auto) auto;
