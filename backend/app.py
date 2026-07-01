@@ -6984,6 +6984,8 @@ def build_knockout_projection(
                     "date": match.get("date"),
                     "kickoff_at": iso_utc(match_kickoff(match)),
                     "lock_at": iso_utc(lock_at),
+                    "home_score": match.get("home_score"),
+                    "away_score": match.get("away_score"),
                     "venue": (
                         {
                             "id": match.get("venue_id"),

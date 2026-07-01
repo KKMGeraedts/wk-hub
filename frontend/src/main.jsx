@@ -463,6 +463,26 @@ function knockoutTileStatusLabel(status, missingCount) {
   return "";
 }
 
+function knockoutClientStatus(match, now = new Date()) {
+  if (!match || match.status !== "open" || !match.lock_at) {
+    return match?.status;
+  }
+  const lockAt = new Date(match.lock_at);
+  if (Number.isNaN(lockAt.getTime())) return match.status;
+  return now >= lockAt ? "locked" : match.status;
+}
+
+function effectiveKnockoutMatch(match, now) {
+  const status = knockoutClientStatus(match, now);
+  if (status === match.status) return match;
+  return {
+    ...match,
+    status,
+    locked: status === "locked" || status === "completed",
+    missing_actions: status === "open" ? match.missing_actions : [],
+  };
+}
+
 function formatKnockoutKickoff(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -1790,10 +1810,18 @@ function KnockoutMatchModal({
       ),
     )
     : "";
-  const savedChipLabel = saveConfirmed ? "Saved" : "Locked in";
+  const savedChipLabel = locked ? "Locked" : saveConfirmed ? "Saved" : "Locked in";
   const scoreLabel = scoreComplete(scores)
     ? `${scores.home_score} - ${scores.away_score}`
     : "vs";
+  const showLockedNotice = locked && !showSavedSummary;
+  const actualScore =
+    selectedMatch.home_score != null && selectedMatch.away_score != null
+      ? {
+          home: selectedMatch.home_score,
+          away: selectedMatch.away_score,
+        }
+      : null;
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
@@ -1845,6 +1873,9 @@ function KnockoutMatchModal({
                       <span className="knockout-saved-chip">{savedChipLabel}</span>
                     </>
                   )}
+                  {showLockedNotice && (
+                    <span className="knockout-saved-chip">Locked</span>
+                  )}
                 </button>
                 <LeeuwtjeButton
                   active={leeuwtjeActive}
@@ -1858,10 +1889,18 @@ function KnockoutMatchModal({
               </div>
               {selectedMatch.status === "completed" && points && (
                 <div className="knockout-point-breakdown">
-                  <MatchPointBreakdown points={points} />
+                  <MatchPointBreakdown
+                    points={points}
+                    actualScore={actualScore}
+                  />
                 </div>
               )}
-              {!showSavedSummary && (
+              {showLockedNotice && (
+                <div className="knockout-locked-note">
+                  Predictions are closed for this match.
+                </div>
+              )}
+              {!locked && !showSavedSummary && (
                 <div className="knockout-inline-editors">
                   <MatchPredictionEditor
                     match={detailMatch}
@@ -1893,7 +1932,7 @@ function KnockoutMatchModal({
                   )}
                 </div>
               )}
-              {!showSavedSummary && (
+              {!locked && !showSavedSummary && (
                 <div className="knockout-detail-actions">
                   <button
                     className="primary-button"
@@ -1922,13 +1961,28 @@ function KnockoutPage({
   focusMatchId = "",
 }) {
   const knockout = poolKnockout(pool);
-  const allMatches = knockoutMatches(knockout);
-  const firstMissingMatchId = knockout.missing_actions?.[0]?.match_id ?? "";
+  const [now, setNow] = useState(() => new Date());
+  const rawMatches = useMemo(() => knockoutMatches(knockout), [knockout]);
+  const allMatches = useMemo(
+    () => rawMatches.map((match) => effectiveKnockoutMatch(match, now)),
+    [rawMatches, now],
+  );
+  const matchesById = useMemo(
+    () => new Map(allMatches.map((match) => [match.id, match])),
+    [allMatches],
+  );
+  const focusMatchExists = useMemo(
+    () => Boolean(focusMatchId && rawMatches.some((match) => match.id === focusMatchId)),
+    [focusMatchId, rawMatches],
+  );
+  const missingActions = (knockout.missing_actions ?? []).filter(
+    (item) => matchesById.get(item.match_id)?.status === "open",
+  );
+  const firstMissingMatchId = missingActions[0]?.match_id ?? "";
   const [selectedMatchId, setSelectedMatchId] = useState(
     () => focusMatchId || firstMissingMatchId || allMatches[0]?.id || "",
   );
-  const selectedMatch =
-    knockoutMatchById(knockout, selectedMatchId) ?? allMatches[0] ?? null;
+  const selectedMatch = matchesById.get(selectedMatchId) ?? allMatches[0] ?? null;
   const [scores, setScores] = useState({ home_score: "", away_score: "" });
   const [quizDraft, setQuizDraft] = useState({ answer: "" });
   const [leeuwtjeActive, setLeeuwtjeActive] = useState(false);
@@ -1941,12 +1995,16 @@ function KnockoutPage({
   const tileRefs = useRef(new Map());
 
   useEffect(() => {
-    if (!focusMatchId) return;
-    if (knockoutMatchById(knockout, focusMatchId)) {
+    const timer = window.setInterval(() => setNow(new Date()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (focusMatchExists) {
       setSelectedMatchId(focusMatchId);
       setModalOpen(true);
     }
-  }, [focusMatchId, knockout]);
+  }, [focusMatchExists, focusMatchId]);
 
   useEffect(() => {
     if (!selectedMatch) return;
@@ -1984,6 +2042,7 @@ function KnockoutPage({
 
   async function saveSelected() {
     if (!selectedMatch) return;
+    if (selectedMatch.status !== "open") return;
     setSaving(true);
     setError("");
     const nextLeeuwtjes = new Set(poolLeeuwtjeMatchIds(pool));
@@ -2075,7 +2134,8 @@ function KnockoutPage({
   const roundMatches = new Map(
     KNOCKOUT_ROUND_ORDER.map((roundName) => [
       roundName,
-      knockout.rounds?.find((item) => item.round === roundName)?.matches ?? [],
+      (knockout.rounds?.find((item) => item.round === roundName)?.matches ?? [])
+        .map((match) => matchesById.get(match.id) ?? match),
     ]),
   );
   const splitBracketColumns = [
@@ -2146,7 +2206,7 @@ function KnockoutPage({
             <h3>Speelschema knockouts</h3>
           </div>
           <span className="pill orange">
-            {knockout.missing_actions?.length ?? 0} open
+            {missingActions.length} open
           </span>
         </div>
         <div className="panel-body">
@@ -2296,13 +2356,20 @@ function pointRows(points) {
   return rows;
 }
 
-function MatchPointBreakdown({ points, compact = false }) {
+function MatchPointBreakdown({ points, compact = false, actualScore = null }) {
   if (!points) return null;
   const rows = pointRows(points);
   return (
     <div className={compact ? "point-breakdown is-popover" : "point-breakdown"}>
       <div className="point-breakdown-total">
-        <strong>Total</strong>
+        <strong>
+          Total
+          {actualScore && (
+            <span className="point-breakdown-final-score">
+              (Final score: {actualScore.home} - {actualScore.away})
+            </span>
+          )}
+        </strong>
         <b>{points.total_points ?? 0} pts</b>
       </div>
       {rows.length ? (

@@ -1253,8 +1253,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
             return dry_run, after_dry_run, response, remaining, audit, recompute
 
         try:
-            dry_run, after_dry_run, response, remaining, audit, recompute = (
-                self.run_with_temp_db(scenario)
+            dry_run, after_dry_run, response, remaining, audit, recompute = self.run_with_temp_db(
+                scenario
             )
         finally:
             wk_app.API_FOOTBALL_SYNC_TOKEN = previous_token
@@ -2327,6 +2327,8 @@ class ApiDataSyncSchedulingTest(unittest.TestCase):
         self.assertEqual(complete_projection["missing_actions"], [])
         projected_match = complete_projection["rounds"][0]["matches"][0]
         self.assertEqual(projected_match["prediction"], {"home_score": 2, "away_score": 1})
+        self.assertIsNone(projected_match["home_score"])
+        self.assertIsNone(projected_match["away_score"])
         self.assertEqual(projected_match["quiz_prediction"]["answer"], "ja")
         self.assertTrue(projected_match["leeuwtje"])
 

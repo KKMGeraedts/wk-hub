@@ -3879,6 +3879,12 @@ tr.highlight td {
     font-size: 13px;
 }
 
+.point-breakdown-final-score {
+    margin-left: 6px;
+    color: var(--muted);
+    font-weight: 850;
+}
+
 .point-breakdown.is-popover .point-breakdown-total {
     padding-bottom: 5px;
     border-bottom: 1px solid var(--line);
@@ -5997,6 +6003,16 @@ tr.highlight td {
     padding: 0 8px;
     background: #dcf5f6;
     color: var(--green);
+}
+
+.knockout-locked-note {
+    padding: 9px 10px;
+    border: 1px solid #dfe4eb;
+    border-radius: 8px;
+    background: #f7f8fa;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 850;
 }
 
 .knockout-inline-editors {
